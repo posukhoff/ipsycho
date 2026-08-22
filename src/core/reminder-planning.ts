@@ -111,6 +111,12 @@ function eventBoundary(task: TaskDefinition, occurrence: OccurrenceProjection | 
   return occurrence?.plannedEndAt ?? occurrence?.plannedStartAt ?? task.plannedEndAt ?? task.plannedStartAt;
 }
 
+function isAtEventStart(task: TaskDefinition, occurrence: OccurrenceProjection | null, rule: ReminderRuleSpec, intendedFor: Date): boolean {
+  if (task.kind !== "event" || rule.purpose !== "user_reminder") return false;
+  const start = occurrence?.plannedStartAt ?? task.plannedStartAt;
+  return Boolean(start && intendedFor.getTime() === start.getTime());
+}
+
 function staleForEvent(task: TaskDefinition, occurrence: OccurrenceProjection | null, at: Date): boolean {
   const boundary = eventBoundary(task, occurrence);
   return Boolean(boundary && at.getTime() > boundary.getTime());
@@ -164,9 +170,11 @@ export function planReminders(input: {
 }): PlannedReminder[] {
   const candidates = input.rules.map((rule, ruleIndex) => {
     const intendedFor = resolveReminderIntent(rule, input.task, input.occurrence, input.occurrence?.timezone ?? input.task.timezone);
+    if (isAtEventStart(input.task, input.occurrence, rule, intendedFor)) return null;
     const policy = applyNotificationPolicy({ intendedFor, now: input.now, task: input.task, occurrence: input.occurrence, rule, settings: input.settings });
     return { ruleIndex, intendedFor, ...policy };
-  }).sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime());
+  }).filter((candidate): candidate is PlannedReminder => candidate !== null)
+    .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime());
 
   const minimumMs = (input.minimumMinutes ?? 15) * 60_000;
   const merged: PlannedReminder[] = [];

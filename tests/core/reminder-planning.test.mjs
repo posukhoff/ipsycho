@@ -26,8 +26,24 @@ test("event default reminders resolve against planned start", () => {
   assert.deepEqual(plans.map((x) => x.intendedFor.toISOString()), [
     "2026-08-10T11:00:00.000Z",
     "2026-08-10T11:45:00.000Z",
-    "2026-08-10T12:00:00.000Z",
   ]);
+});
+
+test("event reminders at the event start are not scheduled", () => {
+  const task = {
+    kind: "event",
+    importance: "normal",
+    timeMode: "point",
+    timezone: "Europe/Kyiv",
+    plannedStartAt: new Date("2026-08-10T12:00:00Z"),
+  };
+  const occurrence = buildOneTimeOccurrence(task, new Date("2026-08-09T10:00:00Z"));
+  const rules = [
+    { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -15 * 60, purpose: "user_reminder", quietPolicy: "respect" },
+    { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: 0, purpose: "user_reminder", quietPolicy: "respect" },
+  ];
+  const plans = planReminders({ task, occurrence, rules, settings, now: new Date("2026-08-09T10:00:00Z") });
+  assert.deepEqual(plans.map((x) => x.intendedFor.toISOString()), ["2026-08-10T11:45:00.000Z"]);
 });
 
 test("date-only required deadline uses evening/morning reference times", () => {
@@ -72,7 +88,7 @@ test("event reminder deferred beyond event becomes quiet_stale", () => {
     plannedStartAt: new Date("2026-08-10T20:30:00Z"),
   };
   const occurrence = buildOneTimeOccurrence(task, new Date("2026-08-09T10:00:00Z"));
-  const rules = [{ triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: 0, purpose: "user_reminder", quietPolicy: "respect" }];
+  const rules = [{ triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -15 * 60, purpose: "user_reminder", quietPolicy: "respect" }];
   const [plan] = planReminders({ task, occurrence, rules, settings, now: new Date("2026-08-09T10:00:00Z") });
   assert.equal(plan.suppressedReason, "quiet_stale");
 });

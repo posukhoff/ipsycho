@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultReminderTemplates, seenFollowUpMinutes, shouldMergeReminderContacts } from "../../.core-dist/reminder-defaults.js";
 
-test("event gets 1h, 15m and start reminders", () => {
-  assert.deepEqual(defaultReminderTemplates({ kind: "event", timeMode: "point", importance: "normal", hasPlannedStart: true }).map(x => x.offsetMinutes), [-60,-15,0]);
+test("event gets 1h and 15m reminders", () => {
+  assert.deepEqual(defaultReminderTemplates({ kind: "event", timeMode: "point", importance: "normal", hasPlannedStart: true }).map(x => x.offsetMinutes), [-60,-15]);
 });
 test("ordinary exact task gets exact start reminder", () => {
   assert.deepEqual(defaultReminderTemplates({ kind: "task", timeMode: "point", importance: "normal", hasPlannedStart: true }), [{ kind: "relative", anchor: "planned_start", offsetMinutes: 0 }]);

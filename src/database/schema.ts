@@ -62,7 +62,7 @@ export const userSettings = pgTable("user_settings", {
   profileInvitedAt: timestamp("profile_invited_at", { withTimezone: true }),
   aiMonthlyWarningUsd: numeric("ai_monthly_warning_usd", { precision: 10, scale: 2 }).notNull().default("5.00"),
   lastAiSpendWarningMonth: varchar("last_ai_spend_warning_month", { length: 7 }),
-  eventReminderOffsetsMinutes: jsonb("event_reminder_offsets_minutes").notNull().default([-60, -15, 0]),
+  eventReminderOffsetsMinutes: jsonb("event_reminder_offsets_minutes").notNull().default([-60, -15]),
   plannedTaskReminderOffsetMinutes: integer("planned_task_reminder_offset_minutes").notNull().default(0),
   criticalPostDueMinutes: integer("critical_post_due_minutes").notNull().default(60),
   seenNormalMinutes: integer("seen_normal_minutes").notNull().default(60),

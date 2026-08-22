@@ -18,7 +18,7 @@ export function defaultReminderTemplates(input: {
   const result: ReminderTemplate[] = [];
 
   if (input.kind === "event") {
-    result.push(...(preferences.eventOffsetsMinutes ?? [-60, -15, 0]).map((offsetMinutes) => ({ kind: "relative" as const, anchor: "planned_start" as const, offsetMinutes })));
+    result.push(...(preferences.eventOffsetsMinutes ?? [-60, -15]).map((offsetMinutes) => ({ kind: "relative" as const, anchor: "planned_start" as const, offsetMinutes })));
     return result;
   }
 
