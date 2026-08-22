@@ -67,11 +67,39 @@ silently advance to a later, unverified commit. Keep server-specific changes in
 
 ## Backups and operations
 
-Before treating the bot as production-ready, configure the existing encrypted
-backup script with an S3-compatible bucket and a separate backup key file.
-Schedule it daily, test a restore into a disposable database, and alert on a
-failed backup or a non-healthy Docker container. Keep the backup encryption key
-outside the VPS backup bucket.
+Before treating the bot as production-ready, configure encrypted Compose
+backups with an S3-compatible bucket and a separate backup key file. Keep that
+key outside both the repository and the backup bucket.
+
+```sh
+sudo install -d -m 700 -o deploy -g deploy /opt/ipsycho-secrets /opt/ipsycho/backups
+sudo -u deploy sh -c 'umask 077; openssl rand -base64 48 > /opt/ipsycho-secrets/backup.key'
+
+cd /opt/ipsycho
+BACKUP_KEY_FILE=/opt/ipsycho-secrets/backup.key \
+S3_BACKUP_URI=s3://your-private-bucket/ipsycho \
+./scripts/backup-compose.sh
+```
+
+For a non-AWS S3-compatible service, also set `S3_ENDPOINT_URL`. The runner
+creates the encrypted file atomically, validates that it can be decrypted and
+parsed, retains 7 daily and 4 weekly copies locally and remotely, and fails if
+the Compose PostgreSQL service is unavailable.
+
+Schedule `backup-compose.sh` daily as the `deploy` user and alert on any non-zero
+exit. At least monthly, verify a selected encrypted backup without touching the
+production database:
+
+```sh
+BACKUP_KEY_FILE=/opt/ipsycho-secrets/backup.key \
+./scripts/restore-compose.sh backups/daily/ipsycho-YYYY-MM-DDTHHMMSSZ.dump.enc
+```
+
+`restore-compose.sh` starts a disposable PostgreSQL container, restores the
+dump, verifies that public tables exist, and removes the container. It never
+connects to the production Compose database. A real disaster recovery into the
+primary database remains an explicit operator procedure and must only be done
+after stopping the app and preserving the current volume.
 
 Run the real Telegram/AI checks listed in `MANUAL_ACTIONS.md` before granting
 regular users access.

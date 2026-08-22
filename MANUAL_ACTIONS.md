@@ -35,7 +35,7 @@ Only checks/actions that cannot be completed in the current generation environme
 - [ ] Deploy on the chosen EU VPS/host; verify firewall rules keep PostgreSQL and `/health` non-public and confirm the app container runs as a non-root user.
 - [ ] Store Telegram/AI/S3 credentials outside source control and keep `BACKUP_KEY_FILE` separate from backup storage.
 - [ ] Configure external S3-compatible backups and verify retention is 7 daily + 4 weekly encrypted dumps.
-- [ ] Restore one backup into a clean disposable PostgreSQL database and repeat the restore drill at least monthly.
+- [ ] Run `scripts/restore-compose.sh` against one encrypted backup and repeat the disposable restore drill at least monthly.
 - [ ] Configure alerts for container/process health, disk, PostgreSQL, Telegram/provider errors, stuck jobs and backup freshness.
 
 ## Environment limitation recorded during rc.4 UX audit
