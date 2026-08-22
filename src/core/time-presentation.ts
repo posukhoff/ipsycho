@@ -14,8 +14,8 @@ export function formatOccurrenceSchedule(schedule: OccurrenceScheduleView, local
     const time = new Intl.DateTimeFormat(locale, {
       timeZone: schedule.timezone, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
     }).format(exact);
-    return `📅 Событие: ${time} (${schedule.timezone})`;
+    return `📅 Запланировано: ${time} (${schedule.timezone})`;
   }
   const date = schedule.plannedLocalDate ?? schedule.dueLocalDate;
-  return date ? `📅 Событие: ${date} (${schedule.timezone})` : null;
+  return date ? `📅 Запланировано: ${date} (${schedule.timezone})` : null;
 }
