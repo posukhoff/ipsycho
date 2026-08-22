@@ -1,43 +1,29 @@
-# MANUAL_ACTIONS
+# Manual release checks
 
-Only checks/actions that cannot be completed in the current generation environment belong here. Product backlog does not.
+This file contains only checks that cannot be proven by the local automated suite. Run `npm run check` and `npm run test:e2e` before starting this checklist.
 
-## Before the first real run
+## Credentials and access
 
-- [ ] The incoming working archive contained a `.env` with credential-like values. If any of those values were real, rotate the PostgreSQL password, Telegram bot token and AI keys before using rc.4; the cleaned rc.4 archive contains no `.env`.
-- [ ] Use Node.js 24+ with normal public npm access. Run `npm install`, commit the generated `package-lock.json`, then run `npm ci`, `npm run check` and `npm run build` from a clean checkout.
-- [ ] Run `npm audit` and `npm audit --omit=dev`; review any runtime advisory before promoting the RC.
-- [ ] Start a clean PostgreSQL instance and apply migrations `0001` through `0013`; restart the migration command and verify nothing is reapplied. Confirm DB CHECK/FK/unique constraints and the memory FTS GIN index exist.
-- [ ] While the app is running, verify a second app instance is refused by the advisory lock and `npm run migrate` refuses to proceed. After stopping the app, verify migrations can run normally.
-- [ ] Use a long random **URL-safe** `POSTGRES_PASSWORD`; never keep `.env` in source control.
+- [ ] Rotate any PostgreSQL, Telegram or AI credential that may previously have been stored outside the current `.env.example`; never commit `.env`.
+- [ ] Use a long random URL-safe `POSTGRES_PASSWORD` and keep provider, Telegram, S3 and backup-key secrets outside source control.
+- [ ] Verify the Telegram allowlist, private-chat rejection and operator access on the production configuration.
 
-## Real Telegram / AI verification
+## Real Telegram and provider smoke test
 
-- [ ] With a real bot token, smoke-test private-chat rejection, onboarding, all task buttons, confirmation/Undo, quiet hours/snooze, digests, disable/restore and delete/restore.
-- [ ] Exercise the rc.4 Telegram UX on a phone: navigate Today → Tasks → task detail → back without extra chat spam; verify Start/Done/Later/More, `••• → Проверить`, reminder cancellation, settings toggles and edit-in-place fallbacks.
-- [ ] Test quick reschedule for point/window/deadline tasks, including date-only schedules, a critical/required task that requires a reason, a repeated normal reschedule, custom reason input, and Undo from the same updated task card.
-- [ ] Verify all inline callback payloads remain within Telegram's 64-byte limit with real UUIDs and that stale buttons fail with a short callback toast rather than a new error message.
-- [ ] With the chosen provider/model, run structured-action cases for task create/update/complete/reschedule, reminder/series changes, goals, memory, topics, clarification and an intentionally invalid structured-output/domain-action repair case. Confirm no partial action is committed.
-- [ ] Verify transport failures result in at most three high-level AI attempts and do not multiply through SDK retries. Confirm retry state survives restart without duplicate durable actions.
-- [ ] Revoke provider consent while a message is waiting/retrying and confirm the next provider call is blocked and the message moves to `blocked_consent`.
-- [ ] Test at least one alternate provider and verify a provider switch requires fresh provider-specific consent; confirm the inactive provider receives no calls.
-- [ ] Restart during pending/processing reminders, briefings, AI retry and applying/undoing actions; verify durable state is reconciled and document the expected external-send duplicate window.
-- [ ] Force Telegram reply failure immediately after a successful AI action. Verify the committed action remains consistent, then decide whether the documented missing-acknowledgement risk is acceptable for `1.0.0` or warrants a durable outbound response outbox.
-- [ ] Force a fatal long-polling failure and verify the process exits non-zero and the deployment supervisor restarts it.
-- [ ] Test one real DST boundary in the configured IANA timezone and confirm reminder/digest delivery times.
-- [ ] Smoke-test voice with valid, oversize and over-duration recordings; revoke OpenAI consent during file download and confirm transcription is blocked before provider upload.
-- [ ] Run evening review through three clarification questions and answer the third; confirm the next turn concludes and the topic resolves only after that answer.
-- [ ] Run weekly review with a different `digestTimezone` from the main timezone and confirm the AI advice uses the same deterministic weekly snapshot/date as the delivered briefing.
-- [ ] Verify empty morning/evening/weekly briefings are persisted as suppressed with `suppressed_reason=empty` and are not sent to Telegram.
+- [ ] With the selected real provider/model, test RU, UK and EN requests for task creation/edit/completion/reschedule, occurrence start/skip/cancel/blocker, reminders, recurring series, goals, memory and chat-accessible settings.
+- [ ] Confirm explicit safe changes apply once, ambiguous changes ask one useful question, risky or inferred changes require confirmation, and Undo restores only genuinely reversible state.
+- [ ] Confirm the agent does not claim success for unsupported operator/account actions and cannot access another user's data.
+- [ ] On a phone, exercise Today, Tasks, task details, Reminders and Settings; verify callbacks edit the current card when possible, stale buttons fail briefly, and payloads remain within Telegram's 64-byte limit.
+- [ ] Verify a scheduled item does not print a separate reminder line when the reminder time is identical to the scheduled time.
+- [ ] Test quiet hours, snooze, morning/evening digests, weekly review, notification defaults and one real IANA timezone DST boundary.
+- [ ] Test voice with valid, oversized and over-duration recordings; revoke OpenAI consent during download and confirm upload to the provider is blocked.
+- [ ] Exercise transport errors and process restarts during AI retry, reminder processing and action acknowledgement; record whether the known external duplicate/missing-acknowledgement window is acceptable for release.
+- [ ] Force a fatal Telegram polling failure and verify the process exits non-zero and the deployment supervisor restarts it.
 
-## VPS / backups / monitoring
+## Production operations
 
-- [ ] Deploy on the chosen EU VPS/host; verify firewall rules keep PostgreSQL and `/health` non-public and confirm the app container runs as a non-root user.
-- [ ] Store Telegram/AI/S3 credentials outside source control and keep `BACKUP_KEY_FILE` separate from backup storage.
-- [ ] Configure external S3-compatible backups and verify retention is 7 daily + 4 weekly encrypted dumps.
-- [ ] Run `scripts/restore-compose.sh` against one encrypted backup and repeat the disposable restore drill at least monthly.
-- [ ] Configure alerts for container/process health, disk, PostgreSQL, Telegram/provider errors, stuck jobs and backup freshness.
-
-## Environment limitation recorded during rc.4 UX audit
-
-The audit environment could not complete a public npm dependency install, so dependency-aware semantic typecheck/build and dependency vulnerability audit were not provable here. Docker/PostgreSQL and real Telegram/AI credentials were also unavailable. Deterministic core tests and dependency-independent static checks are recorded in `README.md` and `AUDIT_1.0.0-rc.4.md`.
+- [ ] Protect `main`, require CI and deploy only the verified commit described in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- [ ] Confirm PostgreSQL and `/health` are not public and the app container runs as a non-root user.
+- [ ] Configure daily encrypted S3-compatible backups with 7 daily and 4 weekly copies; keep `BACKUP_KEY_FILE` separate from the repository and bucket.
+- [ ] Run `scripts/restore-compose.sh` against a selected encrypted backup before launch and at least monthly thereafter.
+- [ ] Alert on process/container health, disk usage, PostgreSQL, Telegram/provider errors, stuck jobs and backup freshness.
