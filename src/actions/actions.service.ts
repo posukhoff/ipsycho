@@ -263,6 +263,12 @@ export class ActionsService implements OnApplicationBootstrap {
           ...(linkedGoalTitles.length ? { linkedGoalTitles } : {}),
         };
       }
+      if (actions.every((action) => action.type === "save_memory")) {
+        return this.applySaveMemories(actions as Array<Extract<ProposedActionDraft, { type: "save_memory" }>>, {
+          workspaceId, actorUserId, recipientUserId, now,
+          ...(claimed.group.sourceMessageId ? { sourceMessageId: claimed.group.sourceMessageId } : {}),
+        }, groupId);
+      }
       const action = actions[0];
       if (!action) throw new Error("empty action group");
       if (action.type === "create_goal_plan") return this.applyGoalPlan(action, { workspaceId, actorUserId, recipientUserId, now, ...(claimed.group.sourceMessageId ? { sourceMessageId: claimed.group.sourceMessageId } : {}) }, groupId);
@@ -452,6 +458,10 @@ export class ActionsService implements OnApplicationBootstrap {
       };
     }
 
+    if (actions.every((action) => action.type === "save_memory")) {
+      return this.applySaveMemories(actions as Array<Extract<ProposedActionDraft, { type: "save_memory" }>>, { ...scope, now }, groupId);
+    }
+
     if (actions.length === 1 && actions[0]?.type === "create_goal_plan") {
       return this.applyGoalPlan(actions[0], { ...scope, now }, groupId);
     }
@@ -466,6 +476,26 @@ export class ActionsService implements OnApplicationBootstrap {
       await this.repository.markFailed(scope.workspaceId, groupId).catch(() => undefined);
       throw error;
     }
+  }
+
+  private async applySaveMemories(
+    actions: Array<Extract<ProposedActionDraft, { type: "save_memory" }>>,
+    scope: ActionScope & { now: Date },
+    groupId: string,
+  ) {
+    return this.contextActions.applySaveMemories({
+      workspaceId: scope.workspaceId,
+      groupId,
+      actorUserId: scope.actorUserId,
+      memories: actions.map((action) => ({
+        memoryType: action.memoryType,
+        content: action.content.trim(),
+        sensitive: action.sensitive,
+        source: action.source,
+      })),
+      ...(scope.sourceMessageId ? { sourceMessageId: scope.sourceMessageId } : {}),
+      undoExpiresAt: actionExpiry(scope.now, ACTION_UNDO_TTL_MS),
+    });
   }
 
   private async applyClaimedMutation(

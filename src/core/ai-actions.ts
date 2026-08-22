@@ -122,9 +122,9 @@ export function actionDisposition(action: ProposedActionDraft): ActionDispositio
 }
 
 export function splitActionsByDisposition(actions: readonly ProposedActionDraft[]): { immediate: ProposedActionDraft[]; pending: ProposedActionDraft[] } {
-  // Multi-task extraction is one atomic user operation. Never create a safe subset while
-  // waiting for confirmation on another item from the same message.
-  if (actions.length > 1 && actions.every((action) => action.type === "create_task")) {
+  // Multi-item task and memory extraction is one atomic user operation. Never create a
+  // safe subset while waiting for confirmation on another item from the same message.
+  if (actions.length > 1 && (actions.every((action) => action.type === "create_task") || actions.every((action) => action.type === "save_memory"))) {
     return actions.some((action) => actionDisposition(action) === "confirm")
       ? { immediate: [], pending: [...actions] }
       : { immediate: [...actions], pending: [] };
@@ -137,5 +137,6 @@ export function splitActionsByDisposition(actions: readonly ProposedActionDraft[
 export function validateActionBatchShape(actions: readonly ProposedActionDraft[]): string | null {
   if (actions.length <= 1) return null;
   if (actions.every((action) => action.type === "create_task")) return null;
-  return "one message may create multiple tasks, but all other actions must be handled one at a time";
+  if (actions.every((action) => action.type === "save_memory")) return null;
+  return "one message may create multiple tasks or memory items, but all other actions must be handled one at a time";
 }

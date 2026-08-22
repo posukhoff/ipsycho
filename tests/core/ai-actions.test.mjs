@@ -117,7 +117,7 @@ test("a goal plan is one confirmable operation, never a mixed mutation batch", (
     tasks: [{ ...base, title: "Миноксидил", source: "user_explicit", goalLink: null }],
   };
   assert.equal(actionDisposition(plan), "apply");
-  assert.equal(validateActionBatchShape([plan, { ...base, source: "user_explicit" }]), "one message may create multiple tasks, but all other actions must be handled one at a time");
+  assert.equal(validateActionBatchShape([plan, { ...base, source: "user_explicit" }]), "one message may create multiple tasks or memory items, but all other actions must be handled one at a time");
   assert.equal(actionDisposition({ ...plan, source: "ai_inferred" }), "confirm");
 });
 
@@ -172,6 +172,21 @@ test("memory and goal policies preserve confirmation boundaries", () => {
     type: "create_goal", source: "ai_inferred", confidence: 0.95,
     title: "Научиться готовить", why: null, targetLocalDate: null,
   }), "confirm");
+});
+
+test("multiple memory items are accepted and confirmed as one batch when needed", () => {
+  const publicMemory = {
+    type: "save_memory", source: "user_explicit", confidence: 1,
+    memoryType: "preference", content: "Люблю короткие ответы", sensitive: false,
+  };
+  const sensitiveMemory = {
+    type: "save_memory", source: "user_explicit", confidence: 1,
+    memoryType: "context", content: "Чувствительный факт", sensitive: true,
+  };
+  assert.equal(validateActionBatchShape([publicMemory, sensitiveMemory]), null);
+  const result = splitActionsByDisposition([publicMemory, sensitiveMemory]);
+  assert.deepEqual(result.immediate, []);
+  assert.deepEqual(result.pending, [publicMemory, sensitiveMemory]);
 });
 
 test("high confidence inferred task-goal link applies, medium confidence confirms", () => {

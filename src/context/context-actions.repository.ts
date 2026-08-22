@@ -111,28 +111,46 @@ export class ContextActionsRepository {
     sourceMessageId?: string;
     undoExpiresAt: Date;
   }) {
+    return this.applySaveMemories({ ...input, memories: [{
+      memoryType: input.memoryType, content: input.content, sensitive: input.sensitive, source: input.source,
+    }] });
+  }
+
+  async applySaveMemories(input: {
+    workspaceId: string;
+    groupId: string;
+    actorUserId: string;
+    memories: Array<{
+      memoryType: "note" | "decision" | "preference" | "context";
+      content: string;
+      sensitive: boolean;
+      source: "user_explicit" | "ai_inferred";
+    }>;
+    sourceMessageId?: string;
+    undoExpiresAt: Date;
+  }) {
     return this.database.db.transaction(async (tx) => {
-      const [memory] = await tx.insert(memoryItems).values({
+      const memories = await tx.insert(memoryItems).values(input.memories.map((memory) => ({
         workspaceId: input.workspaceId,
         userId: input.actorUserId,
-        type: input.memoryType,
-        content: input.content,
-        sensitive: input.sensitive,
-        source: input.source,
+        type: memory.memoryType,
+        content: memory.content,
+        sensitive: memory.sensitive,
+        source: memory.source,
         ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
-      }).returning();
-      if (!memory) throw new Error("failed to save memory");
-      await tx.insert(actionEvents).values({
+      }))).returning();
+      if (memories.length !== input.memories.length) throw new Error("failed to save memories");
+      await tx.insert(actionEvents).values(memories.map((memory) => ({
         workspaceId: input.workspaceId,
         groupId: input.groupId,
-        actionType: "save_memory",
-        entityType: "memory",
+        actionType: "save_memory" as const,
+        entityType: "memory" as const,
         entityId: memory.id,
         postVersion: memory.version,
         afterState: memoryState(memory),
-      });
+      })));
       await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: ["Сохранить в память"] };
+      return { groupId: input.groupId, count: memories.length, titles: memories.map(() => "Сохранить в память") };
     });
   }
 
