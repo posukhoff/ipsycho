@@ -36,7 +36,7 @@
 - [x] 5.1 Build deterministic goal candidates from exact owned-title matches, active persisted goals, and recent conversational goals, including an explicit ambiguity state; verify unit tests cover one match, multiple plausible goals, and cross-workspace rejection.
 - [x] 5.2 Extend the AI response contract with a validated goal-analysis focus containing owned goal ID and expected version; verify structured repair rejects advice that claims to analyze a persisted goal without a valid focus.
 - [x] 5.3 Update goal-analysis and prioritization prompts to name persisted tasks and distinguish facts, assumptions, and proposals; verify application tests reproduce the “wrong goal” QA case and require a focused clarification.
-- [ ] 5.4 Add advice-quality fixtures for maximum-three priorities, explicit deferrals, missing success criteria, capacity limits, and calibrated causal hypotheses; verify no immediate or pending action is created for advice-only requests.
+- [x] 5.4 Add advice-quality fixtures for maximum-three priorities, explicit deferrals, missing success criteria, capacity limits, and calibrated causal hypotheses; verify no immediate or pending action is created for advice-only requests.
 
 ## 6. Weekly planning lifecycle
 
@@ -44,7 +44,7 @@
 - [x] 6.2 Extend structured AI turns with review-progress evidence and merge it deterministically into review state; verify lifecycle unit tests no longer use question presence alone to decide completion.
 - [x] 6.3 Implement completion rules for all required dimensions, explicit early conclusion, and clarification-limit best effort; verify the first outcome-only answer remains active and a forced conclusion labels assumptions.
 - [x] 6.4 Repair or replace prose-only continuation questions before lifecycle evaluation and remove dangling optional questions from final responses; verify regression tests for hidden “если хочешь” questions and premature completion.
-- [ ] 6.5 Ground the final weekly plan in current tasks and occurrences, capacity, conflicts, minimum success, and existing scheduling; verify application fixtures reconcile the existing Monday outreach task and evening interview conflict.
+- [x] 6.5 Ground the final weekly plan in current tasks and occurrences, capacity, conflicts, minimum success, and existing scheduling; verify application fixtures reconcile the existing Monday outreach task and evening interview conflict.
 - [x] 6.6 Add a deterministic weekly-review memory guard requiring explicit memory-specific intent and route explicitly accepted schedule changes through `task_batch`; verify transient weekly outcomes create no memory/action groups while explicit remember and accepted task changes follow normal safety rules.
 
 ## 7. Telegram presentation, documentation, and rollout controls
@@ -56,8 +56,8 @@
 
 ## 8. Integrated verification and release gate
 
-- [ ] 8.1 Add the production QA prompts as deterministic fixtures where possible and as an isolated provider-backed script for semantic cases; verify coverage includes complex goal plan, four-task package, fuzzy time, every-second Monday, excluded first occurrence, two reschedules, wrong-goal ambiguity, and weekly planning.
+- [x] 8.1 Add the production QA prompts as deterministic fixtures where possible and as an isolated provider-backed script for semantic cases; verify coverage includes complex goal plan, four-task package, fuzzy time, every-second Monday, excluded first occurrence, two reschedules, wrong-goal ambiguity, and weekly planning.
 - [x] 8.2 Run `npm run check` and resolve every typecheck, build, core-test, and app-contract failure; record final test counts in the change notes.
 - [x] 8.3 Run `npm run test:e2e` with migration, atomicity, workspace isolation, optimistic conflict, journaling, Undo, recurrence, and reminder assertions passing; record any environment limitation explicitly.
-- [ ] 8.4 Rehearse migration and rollback sequencing on a production-like database with task batches disabled, then enable recurrence, weekly lifecycle, and task batches in stages; verify existing tasks remain schedulable and new bounded series stop correctly.
+- [x] 8.4 Rehearse migration and rollback sequencing on a production-like database with task batches disabled, then enable recurrence, weekly lifecycle, and task batches in stages; verify existing tasks remain schedulable and new bounded series stop correctly.
 - [ ] 8.5 Execute manual Telegram/provider QA on synthetic users, inspect sanitized production-like logs, Undo all mutations, and verify zero active test tasks/goals/reminders before release approval.
