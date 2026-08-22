@@ -43,6 +43,14 @@ test("structured and legacy timing cannot conflict", () => {
   }), scope), InvalidAiActionError);
 });
 
+test("equivalent structured and legacy timing is canonicalized once", () => {
+  const result = createTaskInputFromAction(action({
+    plannedStartAt: "2026-08-25T06:30:00Z",
+    localSchedule: { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-25", startTime: "09:30" },
+  }), scope);
+  assert.equal(result.definition.plannedStartAt.toISOString(), "2026-08-25T06:30:00.000Z");
+});
+
 test("structured contract rejects unsupported recurrence approximation fields", () => {
   const turn = { reply: "ok", question: null, topic: { mode: "none", topicId: null, title: null, summary: null }, topicModeSuggestion: null, actions: [action({
     localSchedule: { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-25", startTime: "09:30", endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null },

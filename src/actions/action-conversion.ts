@@ -57,7 +57,7 @@ export function createTaskInputFromAction(action: Extract<ProposedActionDraft, {
 
   const legacyTiming = legacyScheduleFields(action.definition, action.definition.timezone, "");
   const structuredTiming = action.definition.localSchedule ? compileStructuredLocalSchedule(action.definition.localSchedule) : undefined;
-  if (structuredTiming && hasLegacySchedule(action.definition)) throw new InvalidAiActionError("localSchedule cannot be combined with legacy timestamp fields");
+  if (structuredTiming) assertLegacyScheduleCompatible(action.definition, legacyTiming, structuredTiming, "localSchedule conflicts with legacy timestamp fields");
   if (structuredTiming && (structuredTiming.timezone !== action.definition.timezone || structuredTiming.timeMode !== action.definition.timeMode)) {
     throw new InvalidAiActionError("localSchedule mode and timezone must match the task definition");
   }
@@ -137,8 +137,9 @@ export function rescheduleFieldsFromAction(action: RescheduleOccurrenceDraft): R
   const timezone = action.schedule.timezone;
   assertTimezone(timezone);
   if (action.schedule.localSchedule) {
-    if (hasLegacySchedule(action.schedule)) throw new InvalidAiActionError("localSchedule cannot be combined with legacy timestamp fields");
     const compiled = compileStructuredLocalSchedule(action.schedule.localSchedule);
+    const legacy = legacyScheduleFields(action.schedule, timezone, "");
+    assertLegacyScheduleCompatible(action.schedule, legacy, compiled, "localSchedule conflicts with legacy timestamp fields");
     if (compiled.timezone !== timezone) throw new InvalidAiActionError("localSchedule timezone must match the target occurrence timezone");
     const { timeMode: _mode, timezone: _timezone, ...fields } = compiled;
     return fields;
@@ -178,16 +179,17 @@ export function seriesDefinitionFromAction(
   assertTimezone(edit.recurrenceTimezone);
   if (edit.timezone !== edit.recurrenceTimezone) throw new InvalidAiActionError("series timezone and recurrenceTimezone must match");
 
-  if (edit.localSchedule && hasLegacySchedule(edit)) throw new InvalidAiActionError("series localSchedule cannot be combined with legacy timestamp fields");
+  const legacyTiming = legacyScheduleFields(edit, edit.timezone, "series.");
   const compiledSchedule = edit.localSchedule ? compileStructuredLocalSchedule(edit.localSchedule) : undefined;
+  if (compiledSchedule) assertLegacyScheduleCompatible(edit, legacyTiming, compiledSchedule, "series localSchedule conflicts with legacy timestamp fields");
   if (compiledSchedule && (compiledSchedule.timezone !== edit.timezone || compiledSchedule.timeMode !== current.timeMode)) {
     throw new InvalidAiActionError("series localSchedule mode and timezone must match the existing task");
   }
-  const plannedStartAt = compiledSchedule?.plannedStartAt ?? parseInstant(edit.plannedStartAt, "series.plannedStartAt");
-  const plannedEndAt = parseInstant(edit.plannedEndAt, "series.plannedEndAt");
-  const plannedLocalDate = parseDateOnly(edit.plannedLocalDate, "series.plannedLocalDate");
-  const dueAt = parseInstant(edit.dueAt, "series.dueAt");
-  const dueLocalDate = parseDateOnly(edit.dueLocalDate, "series.dueLocalDate");
+  const plannedStartAt = compiledSchedule?.plannedStartAt ?? legacyTiming.plannedStartAt;
+  const plannedEndAt = legacyTiming.plannedEndAt;
+  const plannedLocalDate = legacyTiming.plannedLocalDate;
+  const dueAt = legacyTiming.dueAt;
+  const dueLocalDate = legacyTiming.dueLocalDate;
   assertTimestampTimezone(edit.plannedStartAt, plannedStartAt, edit.timezone, "series.plannedStartAt");
   assertTimestampTimezone(edit.plannedEndAt, plannedEndAt, edit.timezone, "series.plannedEndAt");
   assertTimestampTimezone(edit.dueAt, dueAt, edit.timezone, "series.dueAt");
@@ -248,6 +250,26 @@ function legacyScheduleFields(value: LegacyScheduleShape, timezone: string, pref
     ...(plannedLocalDate ? { plannedLocalDate } : {}), ...(dueAt ? { dueAt } : {}),
     ...(dueLocalDate ? { dueLocalDate } : {}), ...(reviewAt ? { reviewAt } : {}),
   };
+}
+
+function assertLegacyScheduleCompatible(
+  value: LegacyScheduleShape,
+  legacy: Omit<ReturnType<typeof compileStructuredLocalSchedule>, "timeMode" | "timezone">,
+  structured: ReturnType<typeof compileStructuredLocalSchedule>,
+  errorMessage: string,
+): void {
+  if (!hasLegacySchedule(value)) return;
+  const structuredFields = omitCompiledMode(structured);
+  const legacyFields = {
+    ...legacy,
+    ...(value.fuzzyHorizonText?.trim() ? { fuzzyHorizonText: value.fuzzyHorizonText.trim() } : {}),
+  };
+  const compatible = Object.entries(legacyFields).every(([key, legacyValue]) => {
+    const structuredValue = structuredFields[key as keyof typeof structuredFields];
+    if (legacyValue instanceof Date && structuredValue instanceof Date) return legacyValue.getTime() === structuredValue.getTime();
+    return legacyValue === structuredValue;
+  });
+  if (!compatible) throw new InvalidAiActionError(errorMessage);
 }
 
 function omitCompiledMode(value: ReturnType<typeof compileStructuredLocalSchedule>): Omit<ReturnType<typeof compileStructuredLocalSchedule>, "timeMode" | "timezone"> {
