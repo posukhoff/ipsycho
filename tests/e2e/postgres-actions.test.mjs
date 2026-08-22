@@ -9,7 +9,7 @@ import { ContextService } from "../../dist/context/context.service.js";
 import { ActionMutationsRepository } from "../../dist/actions/action-mutations.repository.js";
 import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
-import { actionEvents, actionGroups, memoryItems, messages, taskEvents, taskOccurrences, userSettings } from "../../dist/database/schema.js";
+import { actionEvents, actionGroups, conversationTopics, memoryItems, messages, taskEvents, taskOccurrences, userSettings } from "../../dist/database/schema.js";
 import { and, eq } from "drizzle-orm";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -136,6 +136,14 @@ test("stale chat settings cannot overwrite a newer settings version", async () =
   const results = await Promise.allSettled([attempt("08:00"), attempt("08:30")]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+});
+
+test("weekly review topics satisfy the production database constraint", async () => {
+  const { workspaceId, userId } = await fixture();
+  const topic = await context.beginWeeklyReview({ workspaceId, userId });
+  const [stored] = await database.db.select().from(conversationTopics).where(eq(conversationTopics.id, topic.id));
+  assert.equal(stored?.reviewKind, "weekly");
+  assert.equal(stored?.status, "active");
 });
 
 test("one Telegram message can seed at most one active action group", async () => {
