@@ -13,6 +13,10 @@ test("persisted goal advice requires the exact owned focus and version", () => {
   assert.equal(validateGoalFocusTurn({ goalAnalysisFocus: { goalId, expectedVersion: 3 }, question: null, actions: [] }, selected), null);
 });
 
+test("an explicit goal mutation does not require advice-only focus metadata", () => {
+  assert.equal(validateGoalFocusTurn({ goalAnalysisFocus: null, question: null, actions: [{}] }, selected), null);
+});
+
 test("ambiguous goal advice asks one question and performs no mutation", () => {
   const ambiguous = { goals: [{ goalId, goalVersion: 3 }, { goalId: otherId, goalVersion: 1 }], goalResolution: { requested: true, state: "ambiguous", candidates: [{ goalId }, { goalId: otherId }] } };
   assert.equal(validateGoalFocusTurn({ goalAnalysisFocus: null, question: "Какую из двух целей ты имеешь в виду?", actions: [] }, ambiguous), null);

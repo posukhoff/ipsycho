@@ -15,7 +15,7 @@ import { MessagesRepository } from "../messages/messages.repository.js";
 import { TasksService } from "../tasks/tasks.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
 import { validateMutationIntent, type ProposedActionDraft, type TaskBatchStepDraft } from "../core/ai-actions.js";
-import { emptyWeeklyReviewState, questionForMissingWeeklyDimension, weeklyReviewLifecycle, type WeeklyReviewState } from "../core/weekly-review-state.js";
+import { emptyWeeklyReviewState, groundWeeklyReviewProgress, questionForMissingWeeklyDimension, weeklyReviewLifecycle, type WeeklyReviewState } from "../core/weekly-review-state.js";
 
 export type ChatProcessResult =
   | { kind: "consent_required"; provider: string; consentVersion: string }
@@ -459,7 +459,7 @@ export class ChatService {
         ...(review ? { correction: reviewCorrection(review, forceReviewConclusion) } : control === "no_persist" ? { correction: "The user explicitly said not to save anything from this turn. Return actions=[]; ordinary conversational reply is allowed." } : {}),
         now: scope.now,
       });
-      turn = canonicalizeTurnTopic(normalizeReviewTurn(turn, review, forceReviewConclusion));
+      turn = canonicalizeTurnTopic(normalizeReviewTurn(turn, review, forceReviewConclusion), currentTopicId);
       if (control === "no_persist") turn = { ...turn, actions: [] };
       if (review && currentTopicId) {
         turn = { ...turn, topic: pinReviewTopic(turn.topic, currentTopicId, input.inbound.content, review) };
@@ -481,7 +481,7 @@ export class ChatService {
           correction: `${review ? `${reviewCorrection(review, forceReviewConclusion)} ` : ""}The previous action draft violated domain rules: ${validationErrors.join(" | ")}. Re-derive it from the user's message and CURRENT_CONTEXT. If the missing information cannot be known safely, ask one clarification question and return no action.`,
           now: scope.now,
         });
-        turn = canonicalizeTurnTopic(normalizeReviewTurn(turn, review, forceReviewConclusion));
+        turn = canonicalizeTurnTopic(normalizeReviewTurn(turn, review, forceReviewConclusion), currentTopicId);
         if (control === "no_persist") turn = { ...turn, actions: [] };
         if (review && currentTopicId) {
           turn = { ...turn, topic: pinReviewTopic(turn.topic, currentTopicId, input.inbound.content, review) };
@@ -511,7 +511,8 @@ export class ChatService {
       let weeklyState: WeeklyReviewState | null = null;
       if (review === "weekly" && currentTopicId) {
         weeklyState = await this.context.mergeWeeklyReviewProgress({
-          workspaceId: input.workspaceId, userId: input.userId, topicId: currentTopicId, progress: turn.reviewProgress, now: scope.now,
+          workspaceId: input.workspaceId, userId: input.userId, topicId: currentTopicId,
+          progress: groundWeeklyReviewProgress(turn.reviewProgress, input.inbound.content), now: scope.now,
         }).catch(() => conversationContext.topics.find((item) => item.topicId === currentTopicId)?.reviewState ?? emptyWeeklyReviewState());
         console.info("weekly review progress", {
           topicId: currentTopicId,
@@ -663,6 +664,9 @@ function rejectedActionReply(errors: readonly string[]): string {
 
 function sanitizedValidationReason(error: string): string {
   if (/task_batch rollout is disabled/i.test(error)) return "task_batch_disabled";
+  if (/^topic:/i.test(error)) return "invalid_topic_directive";
+  if (/goalAnalysisFocus|goal analysis/i.test(error)) return "invalid_goal_focus";
+  if (/informational question|mutation request/i.test(error)) return "mutation_intent_mismatch";
   if (/missing or stale|version|stale/i.test(error)) return "stale_reference";
   if (/duplicate|already linked|unique/i.test(error)) return "duplicate_reference";
   if (/past|before today|future/i.test(error)) return "invalid_time";
@@ -762,8 +766,14 @@ export function removeDanglingContinuation(reply: string): string {
   return reply.replace(/(?:\s|\n)*(?:если хочешь|if you want|якщо хочеш)[^.!?]*(?:[.!?]|$)\s*$/iu, "").trim();
 }
 
-function canonicalizeTurnTopic<T extends { topic: import("../core/context-policy.js").TopicDirective }>(turn: T): T {
-  return { ...turn, topic: canonicalizeTopicDirective(turn.topic) };
+function canonicalizeTurnTopic<T extends { topic: import("../core/context-policy.js").TopicDirective }>(turn: T, currentTopicId?: string): T {
+  let topic = canonicalizeTopicDirective(turn.topic);
+  if (["continue", "resolve"].includes(topic.mode) && !topic.topicId) {
+    topic = currentTopicId
+      ? { ...topic, topicId: currentTopicId }
+      : { ...topic, mode: "none", topicId: null, title: null, summary: null };
+  }
+  return { ...turn, topic };
 }
 
 function pinReviewTopic<T extends { mode: string; topicId: string | null; title: string | null; summary: string | null }>(directive: T, topicId: string, content: string, kind: ReviewKind): T {
@@ -794,7 +804,7 @@ export function validateGoalFocusTurn(
     if (!turn.question?.trim()) return "ambiguous goal analysis requires one focused clarification question";
     return null;
   }
-  if (context.goalResolution.state === "selected" && !focus) return "selected persisted goal analysis requires goalAnalysisFocus";
+  if (context.goalResolution.state === "selected" && !focus && turn.actions.length === 0) return "selected persisted goal analysis requires goalAnalysisFocus";
   return null;
 }
 

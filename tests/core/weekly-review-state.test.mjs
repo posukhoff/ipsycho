@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyWeeklyReviewState, mergeWeeklyReviewProgress, parseWeeklyReviewState, questionForMissingWeeklyDimension, weeklyReviewLifecycle } from "../../.core-dist/weekly-review-state.js";
+import { emptyWeeklyReviewState, groundWeeklyReviewProgress, mergeWeeklyReviewProgress, parseWeeklyReviewState, questionForMissingWeeklyDimension, weeklyReviewLifecycle } from "../../.core-dist/weekly-review-state.js";
 
 const dimension = (summary) => ({ status: "provided", summary });
 
@@ -16,4 +16,23 @@ test("explicit or limit-forced conclusion labels missing assumptions", () => {
   const state = { ...emptyWeeklyReviewState(), conclusionRequested: true };
   assert.deepEqual(weeklyReviewLifecycle(state, 1), { complete: true, forced: true, assumptionsRequired: true });
   assert.deepEqual(weeklyReviewLifecycle(emptyWeeklyReviewState(), 3), { complete: true, forced: true, assumptionsRequired: true });
+});
+
+test("provider cannot claim unsupported weekly dimensions from an outcome-only answer", () => {
+  const all = {
+    outcome: dimension("two sessions"), capacityEnergy: dimension("six hours"), risks: dimension("polishing"),
+    minimumSuccess: dimension("one session"), commitments: dimension("interview"), conclusionRequested: true,
+  };
+  assert.deepEqual(groundWeeklyReviewProgress(all, "На следующей неделе хочу получить две оплаченные сессии."), {
+    outcome: all.outcome, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false,
+  });
+});
+
+test("weekly evidence grounding recognizes remaining dimensions and final request", () => {
+  const all = {
+    outcome: null, capacityEnergy: dimension("six hours"), risks: dimension("polishing"),
+    minimumSuccess: dimension("one session"), commitments: dimension("interview"), conclusionRequested: true,
+  };
+  const grounded = groundWeeklyReviewProgress(all, "Есть 6 часов, риск — полировка вместо разговоров. Минимум — одна сессия, интервью в среду. Дай финальный план.");
+  assert.ok(grounded?.capacityEnergy && grounded.risks && grounded.minimumSuccess && grounded.commitments && grounded.conclusionRequested);
 });

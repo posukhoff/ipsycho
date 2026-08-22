@@ -42,6 +42,23 @@ export function mergeWeeklyReviewProgress(current: unknown, progress: WeeklyRevi
   };
 }
 
+/** Provider progress is evidence metadata, not authority. */
+export function groundWeeklyReviewProgress(progress: WeeklyReviewProgress | null | undefined, userText: string): WeeklyReviewProgress | null {
+  if (!progress) return null;
+  const text = userText.toLocaleLowerCase();
+  const supported = (pattern: RegExp, value: WeeklyReviewState[WeeklyReviewDimension]) => pattern.test(text)
+    ? value ?? { status: "provided" as const, summary: userText.trim().slice(0, 1000) }
+    : null;
+  return {
+    outcome: supported(/(?:хочу|ціль|цель|результат\w*\s+недел|отримат|получить|добить|achiev|outcome|goal|want)/u, progress.outcome),
+    capacityEnergy: supported(/(?:\b\d+(?:[.,]\d+)?\s*(?:час|годин)|врем|часу|энерг|енерг|утр|ранок|вечер|після\s+\d|после\s+\d|capacity|available|energy)/u, progress.capacityEnergy),
+    risks: supported(/(?:риск|ризик|меша|завад|сорв|зірв|блок|вместо|замість|risk|blocker|instead)/u, progress.risks),
+    minimumSuccess: supported(/(?:миним|мінім|достаточ|достатн|хотя\s+бы|хоча\s+б|minimum|at\s+least)/u, progress.minimumSuccess),
+    commitments: supported(/(?:обязат|зобов|назначен|зустріч|встреч|интервью|співбесід|семейн|родин|commitment|meeting|interview|calendar)/u, progress.commitments),
+    conclusionRequested: progress.conclusionRequested && /(?:финальн|фінальн|итог|підсум|законч|заверш|дай\s+.*план|conclude|final\s+plan|finish)/u.test(text),
+  };
+}
+
 export function missingWeeklyReviewDimensions(state: WeeklyReviewState): WeeklyReviewDimension[] {
   return (["outcome", "capacityEnergy", "risks", "minimumSuccess", "commitments"] as const).filter((key) => state[key] === null);
 }
