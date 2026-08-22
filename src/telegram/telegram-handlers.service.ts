@@ -686,13 +686,6 @@ export class TelegramHandlersService implements OnModuleInit {
         return;
       }
 
-      const weeklyReview = parseWeeklyReviewSchedule(ctx.message.text);
-      if (weeklyReview) {
-        await this.settings.setWeekly({ userId: access.user.id, enabled: true, weekday: weeklyReview.weekday, time: weeklyReview.time });
-        await ctx.reply(`Еженедельный обзор включён: ${weekdayName(weeklyReview.weekday)} в ${weeklyReview.time}.`);
-        return;
-      }
-
       const pending = await this.settings.consumePendingInput(access.user.id);
       if (pending) {
         await this.handlePendingInput(ctx, access, settings.timezone, pending);
@@ -1296,18 +1289,6 @@ function aiHistoryClearedNotice(locale: TelegramLocale, count: number): string {
   return `AI-история очищена (${count})`;
 }
 function isUntilMorningPhrase(text: string): boolean { return /(?:замолчи|мовчи|не пиши(?: мне)?)\s+до\s+(?:утра|ранку)|до\s+(?:утра|ранку).*(?:замолчи|мовчи|не пиши)/iu.test(text.trim()); }
-function parseWeeklyReviewSchedule(text: string): { weekday: number; time: string } | null {
-  if (!/еженедельн\w*\s+(?:отч[её]т|обзор)|(?:отч[её]т|обзор)\s+еженедельн\w*/iu.test(text)) return null;
-  const weekdays: Record<string, number> = { понедельник: 1, вторник: 2, среду: 3, среда: 3, четверг: 4, пятницу: 5, пятница: 5, субботу: 6, суббота: 6, воскресенье: 7, воскресеньe: 7 };
-  const weekday = Object.entries(weekdays).find(([name]) => new RegExp(`\\b${name}\\b`, "iu").test(text))?.[1];
-  const match = /(?:в|на)\s*(\d{1,2})(?::(\d{2}))?\s*(?:час(?:а|ов?)?)?\s*(утра|вечера)?/iu.exec(text);
-  if (!weekday || !match) return null;
-  let hour = Number(match[1]); const minute = Number(match[2] ?? 0);
-  if (match[3]?.toLowerCase() === "вечера" && hour < 12) hour += 12;
-  if (hour > 23 || minute > 59) return null;
-  return { weekday, time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}` };
-}
-function weekdayName(weekday: number): string { return ["", "понедельник", "вторник", "среду", "четверг", "пятницу", "субботу", "воскресенье"][weekday] ?? "указанный день"; }
 function formatLocal(at: Date, timezone: string): string { return new Intl.DateTimeFormat("ru-RU", { timeZone: timezone, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(at); }
 function reschedulePrompt(mode: string): string {
   if (mode === "window") return "Новое окно: YYYY-MM-DD HH:MM-HH:MM. Причину можно добавить после |";
