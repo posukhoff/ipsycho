@@ -29,4 +29,5 @@ test("goal-advice prompt distinguishes evidence, proposals, capacity and causal 
   assert.match(prompt, /persisted facts, assumptions, and proposals/);
   assert.match(prompt, /at most three priorities/);
   assert.match(prompt, /hypotheses with a bounded test/);
+  assert.match(prompt, /Never expose internal state labels/);
 });

@@ -708,14 +708,20 @@ function appendAppliedTiming(
 
 
 export function normalizeReviewTurn<T extends { actions: readonly import("../core/ai-actions.js").ProposedActionDraft[]; question: string | null }>(turn: T, review?: ReviewKind, forceConclusion = false): T {
-  if (review === "weekly" && forceConclusion) return { ...turn, actions: [], question: null };
-  if (review === "weekly" && !turn.question) {
-    const reply = (turn as T & { reply?: string }).reply;
-    const match = reply?.match(/(?:^|\n)([^\n?]{3,}\?)\s*$/u);
-    if (match?.[1]) return { ...turn, ...(reply ? { reply: reply.slice(0, match.index).trim() } : {}), question: match[1].trim() };
+  let normalized = turn;
+  const initialReply = (turn as T & { reply?: string }).reply;
+  const question = turn.question?.trim();
+  if (initialReply && question && initialReply.trimEnd().endsWith(question)) {
+    normalized = { ...turn, reply: initialReply.trimEnd().slice(0, -question.length).trimEnd() } as T;
   }
-  if (review === "evening") return { ...turn, actions: turn.actions.map((action) => ({ ...action, source: "ai_inferred" as const })), ...(forceConclusion ? { question: null } : {}) };
-  return turn;
+  if (review === "weekly" && forceConclusion) return { ...normalized, actions: [], question: null };
+  if (review === "weekly" && !normalized.question) {
+    const reply = (normalized as T & { reply?: string }).reply;
+    const match = reply?.match(/(?:^|\n)([^\n?]{3,}\?)\s*$/u);
+    if (match?.[1]) return { ...normalized, ...(reply ? { reply: reply.slice(0, match.index).trim() } : {}), question: match[1].trim() };
+  }
+  if (review === "evening") return { ...normalized, actions: normalized.actions.map((action) => ({ ...action, source: "ai_inferred" as const })), ...(forceConclusion ? { question: null } : {}) };
+  return normalized;
 }
 
 export function normalizeWeeklyReviewActions(actions: readonly ProposedActionDraft[], userText: string, taskBatchEnabled = true): ProposedActionDraft[] {

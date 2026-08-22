@@ -8,6 +8,13 @@ test("weekly prose-only continuation question is promoted to the structured fiel
   assert.equal(turn.question, "Сколько времени реально есть на неделе?");
 });
 
+test("a structured question is not repeated when the provider also ends reply with it", () => {
+  const question = "Какую цель разбираем?";
+  const turn = normalizeReviewTurn({ reply: `Вижу две активные цели.\n\n${question}`, question, actions: [] });
+  assert.equal(turn.reply, "Вижу две активные цели.");
+  assert.equal(turn.question, question);
+});
+
 test("final weekly copy drops dangling optional continuation", () => {
   assert.equal(removeDanglingContinuation("План готов. Если хочешь, могу потом расписать подробнее."), "План готов.");
   assert.equal(removeDanglingContinuation("План готов.\n\nЕсли хочешь, могу расписать подробнее. С чего начнём?"), "План готов.");
