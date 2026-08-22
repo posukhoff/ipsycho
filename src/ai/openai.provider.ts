@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
+import { ZodError } from "zod";
 import type { AppConfig } from "../config.js";
 import { AiTurnSchema } from "./ai-contracts.js";
 import type { AiProvider, AiProviderResult, AiRequest } from "./ai-provider.js";
@@ -23,14 +24,20 @@ export class OpenAiProvider implements AiProvider {
     let inputTokens = 0;
     let outputTokens = 0;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const response = await this.client.responses.parse({
-        model: request.model,
-        input: [
-          { role: "system", content: attempt ? `${request.systemPrompt}\n\n${STRUCTURED_REPAIR}` : request.systemPrompt },
-          ...request.messages.map((message) => ({ role: message.role, content: message.content })),
-        ],
-        text: { format: zodTextFormat(AiTurnSchema, "ipsycho_turn") },
-      });
+      let response;
+      try {
+        response = await this.client.responses.parse({
+          model: request.model,
+          input: [
+            { role: "system", content: attempt ? `${request.systemPrompt}\n\n${STRUCTURED_REPAIR}` : request.systemPrompt },
+            ...request.messages.map((message) => ({ role: message.role, content: message.content })),
+          ],
+          text: { format: zodTextFormat(AiTurnSchema, "ipsycho_turn") },
+        });
+      } catch (error) {
+        if (isStructuredOutputValidationError(error)) continue;
+        throw error;
+      }
       const usage = response.usage as { input_tokens?: number; output_tokens?: number } | undefined;
       inputTokens += usage?.input_tokens ?? 0;
       outputTokens += usage?.output_tokens ?? 0;
@@ -45,4 +52,8 @@ export class OpenAiProvider implements AiProvider {
     }
     throw new Error("OpenAI returned no valid structured output after one repair attempt");
   }
+}
+
+export function isStructuredOutputValidationError(error: unknown): boolean {
+  return error instanceof ZodError;
 }
