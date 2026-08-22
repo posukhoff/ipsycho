@@ -14,8 +14,9 @@ FROM reminder_rules AS rule
 JOIN tasks AS task
   ON task.workspace_id = rule.workspace_id AND task.id = rule.task_id
 JOIN task_occurrences AS occurrence
-  ON occurrence.workspace_id = delivery.workspace_id AND occurrence.id = delivery.occurrence_id
+  ON occurrence.workspace_id = task.workspace_id AND occurrence.task_id = task.id
 WHERE delivery.reminder_rule_id = rule.id
+  AND occurrence.id = delivery.occurrence_id
   AND delivery.status = 'pending'
   AND task.kind = 'event'
   AND rule.purpose = 'user_reminder'
