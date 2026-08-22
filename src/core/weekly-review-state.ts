@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reviewQuestionLimit } from "./review-policy.js";
 
 export const WeeklyReviewDimensionSchema = z.object({
   status: z.enum(["provided", "skipped"]),
@@ -65,7 +66,7 @@ export function missingWeeklyReviewDimensions(state: WeeklyReviewState): WeeklyR
 
 export function weeklyReviewLifecycle(state: WeeklyReviewState, clarificationCountBeforeTurn: number): { complete: boolean; forced: boolean; assumptionsRequired: boolean } {
   const missing = missingWeeklyReviewDimensions(state);
-  const forced = state.conclusionRequested || clarificationCountBeforeTurn >= 3;
+  const forced = state.conclusionRequested || clarificationCountBeforeTurn >= reviewQuestionLimit("weekly");
   return { complete: missing.length === 0 || forced, forced, assumptionsRequired: forced && missing.length > 0 };
 }
 

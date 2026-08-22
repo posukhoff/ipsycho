@@ -10,6 +10,7 @@ test("weekly prose-only continuation question is promoted to the structured fiel
 
 test("final weekly copy drops dangling optional continuation", () => {
   assert.equal(removeDanglingContinuation("План готов. Если хочешь, могу потом расписать подробнее."), "План готов.");
+  assert.equal(removeDanglingContinuation("План готов.\n\nЕсли хочешь, могу расписать подробнее. С чего начнём?"), "План готов.");
 });
 
 test("weekly advice cannot create pending work, while explicit task changes become task_batch", () => {

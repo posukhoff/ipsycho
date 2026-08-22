@@ -6,17 +6,22 @@ export interface ReviewClarificationDecision {
   resolveAfterTurn: boolean;
 }
 
+export function reviewQuestionLimit(kind: ReviewKind): number {
+  return kind === "weekly" ? 5 : 3;
+}
+
 export function reviewClarificationDecision(input: {
   kind: ReviewKind;
   clarificationCountBeforeTurn: number;
   askedQuestion: boolean;
 }): ReviewClarificationDecision {
-  const forceConclusion = input.clarificationCountBeforeTurn >= 3;
+  const questionLimit = reviewQuestionLimit(input.kind);
+  const forceConclusion = input.clarificationCountBeforeTurn >= questionLimit;
   if (forceConclusion) return { checkpoint: false, forceConclusion: true, resolveAfterTurn: true };
 
   const countAfterTurn = input.clarificationCountBeforeTurn + (input.askedQuestion ? 1 : 0);
   return {
-    checkpoint: input.askedQuestion && countAfterTurn >= 3,
+    checkpoint: input.askedQuestion && countAfterTurn >= questionLimit,
     forceConclusion: false,
     resolveAfterTurn: !input.askedQuestion,
   };
@@ -48,9 +53,10 @@ export function reviewPresentation(input: {
   askedQuestion: boolean;
 }): ReviewPresentation {
   const decision = reviewClarificationDecision(input);
+  const totalSteps = reviewQuestionLimit(input.kind);
   return {
     kind: input.kind,
-    ...(input.askedQuestion ? { step: Math.min(3, input.clarificationCountBeforeTurn + 1), totalSteps: 3 } : {}),
+    ...(input.askedQuestion ? { step: Math.min(totalSteps, input.clarificationCountBeforeTurn + 1), totalSteps } : {}),
     completed: decision.resolveAfterTurn,
   };
 }

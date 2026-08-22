@@ -50,6 +50,12 @@ const actions = new ActionsService(
   taskBatches,
   config,
 );
+const validateActions = actions.validate.bind(actions);
+actions.validate = async (...args) => {
+  const errors = await validateActions(...args);
+  if (errors.length) process.stderr.write(`QA_VALIDATION ${JSON.stringify(errors)}\n`);
+  return errors;
+};
 const chat = new ChatService(ai, actions, messages, tasks, context, new BriefingContentService(database));
 
 const userId = randomUUID();

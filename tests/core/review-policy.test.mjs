@@ -31,14 +31,18 @@ test("weekly review stays open for collaborative planning instead of making auto
   assert.match(reviewCorrection("weekly"), /do not hide it in reply/);
 });
 
-test("weekly planning concludes after three focused questions", () => {
+test("weekly planning allows one focused question for each of five required dimensions", () => {
   assert.deepEqual(
-    reviewClarificationDecision({ kind: "weekly", clarificationCountBeforeTurn: 3, askedQuestion: true }),
+    reviewClarificationDecision({ kind: "weekly", clarificationCountBeforeTurn: 4, askedQuestion: true }),
+    { checkpoint: true, forceConclusion: false, resolveAfterTurn: false },
+  );
+  assert.deepEqual(
+    reviewClarificationDecision({ kind: "weekly", clarificationCountBeforeTurn: 5, askedQuestion: true }),
     { checkpoint: false, forceConclusion: true, resolveAfterTurn: true },
   );
   assert.deepEqual(
     reviewPresentation({ kind: "weekly", clarificationCountBeforeTurn: 1, askedQuestion: true }),
-    { kind: "weekly", step: 2, totalSteps: 3, completed: false },
+    { kind: "weekly", step: 2, totalSteps: 5, completed: false },
   );
 });
 

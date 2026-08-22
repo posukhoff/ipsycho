@@ -4,7 +4,7 @@ import { ActionStateUncertainError, ActionsService } from "../actions/actions.se
 import { AiService } from "../ai/ai.service.js";
 import type { AiMessage } from "../ai/ai-provider.js";
 import { aiBurstAllowed } from "../core/ai-usage-policy.js";
-import { reviewClarificationDecision, reviewCorrection, reviewPresentation, type ReviewKind } from "../core/review-policy.js";
+import { reviewClarificationDecision, reviewCorrection, reviewPresentation, reviewQuestionLimit, type ReviewKind } from "../core/review-policy.js";
 import { localDateAt } from "../core/timezone.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
 import { formatOccurrenceSchedule, reminderAddsTimingInformation } from "../core/time-presentation.js";
@@ -557,8 +557,9 @@ export class ChatService {
         if (review) {
           if (review === "weekly" && weeklyState) {
             const lifecycle = weeklyReviewLifecycle(weeklyState, clarificationCountBeforeTurn);
-            checkpoint = !lifecycle.complete && askedQuestion && clarificationCountBeforeTurn + 1 >= 3;
-            reviewUi = { kind: "weekly", ...(askedQuestion ? { step: Math.min(3, clarificationCountBeforeTurn + 1), totalSteps: 3 } : {}), completed: lifecycle.complete };
+            const totalSteps = reviewQuestionLimit("weekly");
+            checkpoint = !lifecycle.complete && askedQuestion && clarificationCountBeforeTurn + 1 >= totalSteps;
+            reviewUi = { kind: "weekly", ...(askedQuestion ? { step: Math.min(totalSteps, clarificationCountBeforeTurn + 1), totalSteps } : {}), completed: lifecycle.complete };
             if (lifecycle.complete) await this.context.resolveTopic(input.workspaceId, input.userId, topicId, scope.now).catch(() => undefined);
           } else {
             const decision = reviewClarificationDecision({ kind: review, clarificationCountBeforeTurn, askedQuestion });
@@ -763,7 +764,7 @@ function ensureAssumptionsLabel(reply: string): string {
 }
 
 export function removeDanglingContinuation(reply: string): string {
-  return reply.replace(/(?:\s|\n)*(?:если хочешь|if you want|якщо хочеш)[^.!?]*(?:[.!?]|$)\s*$/iu, "").trim();
+  return reply.replace(/(?:\s|\n)*(?:если хочешь|if you want|якщо хочеш)[\s\S]*$/iu, "").trim();
 }
 
 function canonicalizeTurnTopic<T extends { topic: import("../core/context-policy.js").TopicDirective }>(turn: T, currentTopicId?: string): T {

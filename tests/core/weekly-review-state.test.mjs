@@ -15,7 +15,8 @@ test("invalid or old weekly state degrades to recoverable missing coverage", () 
 test("explicit or limit-forced conclusion labels missing assumptions", () => {
   const state = { ...emptyWeeklyReviewState(), conclusionRequested: true };
   assert.deepEqual(weeklyReviewLifecycle(state, 1), { complete: true, forced: true, assumptionsRequired: true });
-  assert.deepEqual(weeklyReviewLifecycle(emptyWeeklyReviewState(), 3), { complete: true, forced: true, assumptionsRequired: true });
+  assert.deepEqual(weeklyReviewLifecycle(emptyWeeklyReviewState(), 4), { complete: false, forced: false, assumptionsRequired: false });
+  assert.deepEqual(weeklyReviewLifecycle(emptyWeeklyReviewState(), 5), { complete: true, forced: true, assumptionsRequired: true });
 });
 
 test("provider cannot claim unsupported weekly dimensions from an outcome-only answer", () => {
