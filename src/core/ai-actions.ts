@@ -225,7 +225,7 @@ const EXPLICIT_MUTATION_WORDS = new Set([
   "start", "skip", "cancel", "delete", "save", "link",
 ]);
 
-function containsExplicitMutationRequest(text: string): boolean {
+export function containsExplicitMutationRequest(text: string): boolean {
   const words = text.match(/\p{L}+(?:['’]\p{L}+)?/gu) ?? [];
   return words.some((word) => EXPLICIT_MUTATION_WORDS.has(word)) || /(?:^|\s)turn\s+(?:on|off)(?=$|\s|[.,;:!?])/u.test(text);
 }

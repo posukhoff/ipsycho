@@ -14,7 +14,7 @@ import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
 import { TasksService } from "../tasks/tasks.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
-import { validateMutationIntent, type ProposedActionDraft, type TaskBatchStepDraft } from "../core/ai-actions.js";
+import { containsExplicitMutationRequest, validateMutationIntent, type ProposedActionDraft, type TaskBatchStepDraft } from "../core/ai-actions.js";
 import { emptyWeeklyReviewState, groundWeeklyReviewProgress, questionForMissingWeeklyDimension, weeklyReviewLifecycle, type WeeklyReviewState } from "../core/weekly-review-state.js";
 
 export type ChatProcessResult =
@@ -472,13 +472,18 @@ export class ChatService {
       if (mutationIntentError) validationErrors.push(mutationIntentError);
       const topicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
       if (topicError) validationErrors.push(`topic: ${topicError}`);
-      if (validationErrors.length) {
-        const firstAttempt = describeRejectedTurn(turn, validationErrors.map(sanitizedValidationReason));
+      const retryActionlessBatch = shouldRetryActionlessTaskBatch(turn.actions, input.inbound.content, this.actions.isTaskBatchEnabled());
+      if (validationErrors.length || retryActionlessBatch) {
+        const repairErrors = [
+          ...validationErrors,
+          ...(retryActionlessBatch ? ["an explicit grouped task request returned no action; use the unique listed targets and already supplied times without asking for confirmation again"] : []),
+        ];
+        const firstAttempt = describeRejectedTurn(turn, repairErrors.map(sanitizedValidationReason));
         const repairGate = await this.currentAiGate(input.workspaceId, input.userId, input.inbound.id);
         if (repairGate) return repairGate;
         turn = await this.ai.respond({
           workspaceId: input.workspaceId, userId: input.userId, timezone: input.timezone, ...(input.language !== undefined ? { language: input.language } : {}), messages: history, domainContext, modelMode,
-          correction: `${review ? `${reviewCorrection(review, forceReviewConclusion)} ` : ""}The previous action draft violated domain rules: ${validationErrors.join(" | ")}. Re-derive it from the user's message and CURRENT_CONTEXT. If the missing information cannot be known safely, ask one clarification question and return no action.`,
+          correction: `${review ? `${reviewCorrection(review, forceReviewConclusion)} ` : ""}The previous action draft violated domain rules: ${repairErrors.join(" | ")}. Re-derive it from the user's message and CURRENT_CONTEXT. Do not ask the user to reconfirm a target, scope, timezone, or time already uniquely supplied in the message and CURRENT_CONTEXT. If material information is genuinely missing, ask one clarification question and return no action.`,
           now: scope.now,
         });
         turn = canonicalizeTurnTopic(normalizeReviewTurn(turn, review, forceReviewConclusion), currentTopicId);
@@ -711,8 +716,10 @@ export function normalizeReviewTurn<T extends { actions: readonly import("../cor
   let normalized = turn;
   const initialReply = (turn as T & { reply?: string }).reply;
   const question = turn.question?.trim();
-  if (initialReply && question && initialReply.trimEnd().endsWith(question)) {
-    normalized = { ...turn, reply: initialReply.trimEnd().slice(0, -question.length).trimEnd() } as T;
+  if (initialReply && question) {
+    const escapedQuestion = question.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const duplicate = new RegExp(`(?:\\*\\*|__)?${escapedQuestion}(?:\\*\\*|__)?\\s*$`, "u");
+    if (duplicate.test(initialReply)) normalized = { ...turn, reply: initialReply.replace(duplicate, "").trimEnd() } as T;
   }
   if (review === "weekly" && forceConclusion) return { ...normalized, actions: [], question: null };
   if (review === "weekly" && !normalized.question) {
@@ -771,6 +778,13 @@ function ensureAssumptionsLabel(reply: string): string {
 
 export function removeDanglingContinuation(reply: string): string {
   return reply.replace(/(?:\s|\n)*(?:если хочешь|if you want|якщо хочеш)[\s\S]*$/iu, "").trim();
+}
+
+export function shouldRetryActionlessTaskBatch(actions: readonly ProposedActionDraft[], latestUserText: string, taskBatchEnabled: boolean): boolean {
+  if (!taskBatchEnabled || actions.length > 0) return false;
+  const text = latestUserText.trim().toLocaleLowerCase();
+  const grouped = /(?:пакет|разом|одним\s+(?:пакетом|набором)|in\s+one\s+batch|together\s+as\s+one)/u.test(text);
+  return grouped && containsExplicitMutationRequest(text);
 }
 
 function canonicalizeTurnTopic<T extends { topic: import("../core/context-policy.js").TopicDirective }>(turn: T, currentTopicId?: string): T {

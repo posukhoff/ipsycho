@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation } from "../../dist/chat/chat.service.js";
+import { normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation, shouldRetryActionlessTaskBatch } from "../../dist/chat/chat.service.js";
 
 test("weekly prose-only continuation question is promoted to the structured field", () => {
   const turn = normalizeReviewTurn({ reply: "Цель понятна.\nСколько времени реально есть на неделе?", question: null, actions: [] }, "weekly", false);
@@ -13,6 +13,14 @@ test("a structured question is not repeated when the provider also ends reply wi
   const turn = normalizeReviewTurn({ reply: `Вижу две активные цели.\n\n${question}`, question, actions: [] });
   assert.equal(turn.reply, "Вижу две активные цели.");
   assert.equal(turn.question, question);
+  const bold = normalizeReviewTurn({ reply: `Уточню одно: **${question}**`, question, actions: [] });
+  assert.equal(bold.reply, "Уточню одно:");
+});
+
+test("an actionless explicit grouped task request gets one structured repair", () => {
+  assert.equal(shouldRetryActionlessTaskBatch([], "Сделай одним пакетом: создай задачу и перенеси встречу", true), true);
+  assert.equal(shouldRetryActionlessTaskBatch([], "Как лучше объединить эти задачи?", true), false);
+  assert.equal(shouldRetryActionlessTaskBatch([], "Сделай одним пакетом: создай задачу", false), false);
 });
 
 test("final weekly copy drops dangling optional continuation", () => {
