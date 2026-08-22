@@ -500,6 +500,13 @@ export class ChatService {
         const repairedTopicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
         if (repairedTopicError) validationErrors.push(`topic: ${repairedTopicError}`);
         if (validationErrors.length) {
+          const goalClarification = validationErrors.some((error) => /goalAnalysisFocus|goal analysis/i.test(error))
+            ? deterministicGoalClarification(conversationContext, input.language)
+            : null;
+          if (goalClarification) {
+            await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed");
+            return { kind: "ok", text: goalClarification, appliedCount: 0, pendingCount: 0, warnings: [] };
+          }
           console.warn("AI action rejected after structured repair\n" + JSON.stringify({
             conversation: history.map((message) => ({ role: message.role, ...safeMessageMetadata(message.content) })),
             currentContext: safeContextMetadata(domainContext),
@@ -785,6 +792,24 @@ export function shouldRetryActionlessTaskBatch(actions: readonly ProposedActionD
   const text = latestUserText.trim().toLocaleLowerCase();
   const grouped = /(?:пакет|разом|одним\s+(?:пакетом|набором)|in\s+one\s+batch|together\s+as\s+one)/u.test(text);
   return grouped && containsExplicitMutationRequest(text);
+}
+
+export function deterministicGoalClarification(context: unknown, language?: string | null): string | null {
+  if (!context || typeof context !== "object") return null;
+  const resolution = (context as { goalResolution?: unknown }).goalResolution;
+  if (!resolution || typeof resolution !== "object") return null;
+  const value = resolution as { state?: unknown; candidates?: unknown };
+  if (value.state !== "ambiguous" || !Array.isArray(value.candidates)) return null;
+  const titles = value.candidates
+    .map((candidate) => candidate && typeof candidate === "object" ? (candidate as { title?: unknown }).title : null)
+    .filter((title): title is string => typeof title === "string" && title.trim().length > 0)
+    .map((title) => `«${title.trim().replace(/[«»]/g, "")}»`)
+    .slice(0, 5);
+  if (titles.length < 2) return null;
+  const locale = language?.toLocaleLowerCase() ?? "";
+  if (locale.startsWith("uk")) return `Бачу кілька відповідних цілей: ${titles.join(", ")}. Яку одну ціль розбираємо?`;
+  if (locale.startsWith("en")) return `I see several possible goals: ${titles.join(", ")}. Which one should we analyze?`;
+  return `Вижу несколько подходящих целей: ${titles.join(", ")}. Какую одну цель разбираем?`;
 }
 
 function canonicalizeTurnTopic<T extends { topic: import("../core/context-policy.js").TopicDirective }>(turn: T, currentTopicId?: string): T {

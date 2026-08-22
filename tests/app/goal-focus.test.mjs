@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateGoalFocusTurn } from "../../dist/chat/chat.service.js";
+import { deterministicGoalClarification, validateGoalFocusTurn } from "../../dist/chat/chat.service.js";
 import { buildSystemPrompt } from "../../dist/ai/ai.service.js";
 
 const goalId = "00000000-0000-4000-8000-000000000001";
@@ -21,6 +21,14 @@ test("ambiguous goal advice asks one question and performs no mutation", () => {
   const ambiguous = { goals: [{ goalId, goalVersion: 3 }, { goalId: otherId, goalVersion: 1 }], goalResolution: { requested: true, state: "ambiguous", candidates: [{ goalId }, { goalId: otherId }] } };
   assert.equal(validateGoalFocusTurn({ goalAnalysisFocus: null, question: "Какую из двух целей ты имеешь в виду?", actions: [] }, ambiguous), null);
   assert.match(validateGoalFocusTurn({ goalAnalysisFocus: null, question: null, actions: [{}] }, ambiguous), /perform no action/);
+});
+
+test("ambiguous goal advice has a deterministic localized fallback", () => {
+  const context = { goalResolution: { state: "ambiguous", candidates: [{ title: "Запуск практики" }, { title: "Новая работа" }] } };
+  assert.equal(deterministicGoalClarification(context, "ru"), "Вижу несколько подходящих целей: «Запуск практики», «Новая работа». Какую одну цель разбираем?");
+  assert.match(deterministicGoalClarification(context, "uk"), /Яку одну ціль/);
+  assert.match(deterministicGoalClarification(context, "en"), /Which one/);
+  assert.equal(deterministicGoalClarification({ goalResolution: { state: "selected", candidates: [] } }, "ru"), null);
 });
 
 test("goal-advice prompt distinguishes evidence, proposals, capacity and causal hypotheses", () => {
