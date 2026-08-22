@@ -12,6 +12,7 @@ export class TelegramChatReplyService {
   constructor(@Inject(ChatService) private readonly chat: ChatService) {}
 
   async reply(ctx: any, access: ActiveAccess, result: ChatProcessResult): Promise<void> {
+    if (result.kind === "duplicate") return;
     if (result.kind === "nothing_to_retry") return void await ctx.reply("Нет сохранённых сообщений, которые ждут AI-обработки.");
     if (result.kind === "ai_suspended") return void await ctx.reply("AI-обработка для аккаунта приостановлена. Напоминания и кнопки продолжают работать.");
     if (result.kind === "ai_unavailable") return void await ctx.reply("AI сейчас не настроен или временно недоступен. Попробуй позже.");

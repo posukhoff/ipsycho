@@ -1,5 +1,5 @@
 import { deriveInitialOccurrenceStatus } from "./occurrence.js";
-import type { MissPolicy, OccurrenceStatus, TaskDefinition, TimeMode } from "./types.js";
+import type { MissPolicy, OccurrenceStatus, TaskDefinition } from "./types.js";
 import {
   compareLocalDates,
   daysBetweenLocalDates,
@@ -294,9 +294,4 @@ export function buildRecurringOccurrences(task: TaskDefinition, now: Date, horiz
   // while later materialized recurrences stay scheduled until their recurrence date.
   if (task.timeMode === "deadline" && !task.plannedStartAt && !task.plannedLocalDate && result[0]) result[0].status = "open";
   return result;
-}
-
-export function projectionAnchor(projection: OccurrenceProjection, mode: TimeMode): Date | undefined {
-  if (mode === "deadline") return projection.dueAt ?? primaryStart(projection);
-  return primaryStart(projection);
 }

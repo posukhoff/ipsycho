@@ -802,6 +802,7 @@ export class ActionsService implements OnApplicationBootstrap {
     if (!current || current.version !== action.expectedVersion) throw new Error("settings are stale or missing");
     if (action.operation === "timezone") {
       if (!action.timezone) throw new Error("timezone is required");
+      if (action.applyTimezoneTo === null) throw new Error("timezone scope is required");
       new Intl.DateTimeFormat("en", { timeZone: action.timezone }).format(now);
       return;
     }

@@ -24,6 +24,30 @@ for (const reply of ["Утреннюю сводку включил.", "Ранк�
   });
 }
 
+test("structured settings contract accepts a weekly-review schedule", () => {
+  const weekly = {
+    ...settingsAction,
+    operation: "weekly_review",
+    digestKind: null,
+    weekday: 7,
+    time: "18:00",
+  };
+  assert.equal(AiTurnSchema.parse(baseTurn("Еженедельный обзор включён.", weekly)).actions[0].operation, "weekly_review");
+});
+
+test("timezone changes require an explicit profile-versus-notifications scope", () => {
+  const timezone = {
+    ...settingsAction,
+    operation: "timezone",
+    timezone: "Europe/Kyiv",
+    digestKind: null,
+    enabled: null,
+    time: null,
+  };
+  assert.equal(AiTurnSchema.safeParse(baseTurn("Меняю часовой пояс.", timezone)).success, false);
+  assert.equal(AiTurnSchema.safeParse(baseTurn("Меняю часовой пояс везде.", { ...timezone, applyTimezoneTo: "all" })).success, true);
+});
+
 test("DeepSeek manual JSON contract includes every newly supported action", () => {
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /update_settings/);
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /update_occurrence/);

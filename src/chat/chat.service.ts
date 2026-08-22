@@ -14,7 +14,7 @@ import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
 import { TasksService } from "../tasks/tasks.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
-import { validateSchedulingIntent, type ProposedActionDraft } from "../core/ai-actions.js";
+import { validateMutationIntent, type ProposedActionDraft } from "../core/ai-actions.js";
 
 export type ChatProcessResult =
   | { kind: "consent_required"; provider: string; consentVersion: string }
@@ -22,6 +22,7 @@ export type ChatProcessResult =
   | { kind: "ai_unavailable" }
   | { kind: "rate_limited" }
   | { kind: "nothing_to_retry" }
+  | { kind: "duplicate" }
   | {
       kind: "ok";
       text: string;
@@ -105,20 +106,25 @@ export class ChatService {
       telegramMessageId: input.telegramMessageId,
     };
     if (input.aiStatus !== "enabled") {
-      await this.messages.save({ ...baseMessage, status: "waiting_ai" });
+      const saved = await this.messages.saveOnce({ ...baseMessage, status: "waiting_ai" });
+      if (!saved.inserted) return { kind: "duplicate" };
       return { kind: "ai_suspended" };
     }
     if (!this.ai.isConfigured()) {
-      await this.messages.save({ ...baseMessage, status: "waiting_ai" });
+      const saved = await this.messages.saveOnce({ ...baseMessage, status: "waiting_ai" });
+      if (!saved.inserted) return { kind: "duplicate" };
       return { kind: "ai_unavailable" };
     }
     if (!await this.ai.hasConsent(input.userId)) {
-      await this.messages.save({ ...baseMessage, status: "blocked_consent" });
+      const saved = await this.messages.saveOnce({ ...baseMessage, status: "blocked_consent" });
+      if (!saved.inserted) return { kind: "duplicate" };
       return { kind: "consent_required", provider: this.ai.providerName, consentVersion: this.ai.consentVersion };
     }
 
-    const inbound = await this.messages.save({ ...baseMessage, status: "processing" });
-    if (!inbound) throw new Error("failed to persist inbound message");
+    const saved = await this.messages.saveOnce({ ...baseMessage, status: "processing" });
+    if (!saved.message) throw new Error("failed to persist inbound message");
+    if (!saved.inserted) return { kind: "duplicate" };
+    const inbound = saved.message;
     if (!await this.withinAiLimits(input.userId)) {
       await this.messages.deferAiUntil(input.workspaceId, input.userId, inbound.id, new Date(Date.now() + 60 * 60_000));
       return { kind: "rate_limited" };
@@ -458,8 +464,8 @@ export class ChatService {
         turn = { ...turn, topic: pinReviewTopic(turn.topic, currentTopicId, input.inbound.content, review) };
       }
       let validationErrors = await this.actions.validate(turn.actions, scope);
-      const schedulingIntentError = validateSchedulingIntent(turn.actions, input.inbound.content);
-      if (schedulingIntentError) validationErrors.push(schedulingIntentError);
+      const mutationIntentError = validateMutationIntent(turn.actions, input.inbound.content);
+      if (mutationIntentError) validationErrors.push(mutationIntentError);
       const topicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
       if (topicError) validationErrors.push(`topic: ${topicError}`);
       if (validationErrors.length) {
@@ -477,8 +483,8 @@ export class ChatService {
           turn = { ...turn, topic: pinReviewTopic(turn.topic, currentTopicId, input.inbound.content, review) };
         }
         validationErrors = await this.actions.validate(turn.actions, scope);
-        const repairedSchedulingIntentError = validateSchedulingIntent(turn.actions, input.inbound.content);
-        if (repairedSchedulingIntentError) validationErrors.push(repairedSchedulingIntentError);
+        const repairedMutationIntentError = validateMutationIntent(turn.actions, input.inbound.content);
+        if (repairedMutationIntentError) validationErrors.push(repairedMutationIntentError);
         const repairedTopicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
         if (repairedTopicError) validationErrors.push(`topic: ${repairedTopicError}`);
         if (validationErrors.length) {

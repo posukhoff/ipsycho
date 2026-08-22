@@ -211,6 +211,10 @@ export const UpdateSettingsActionSchema = z.object({
   seenNormalMinutes: z.number().int().nullable(),
   seenRequiredMinutes: z.number().int().nullable(),
   seenCriticalMinutes: z.number().int().nullable(),
+}).superRefine((action, ctx) => {
+  if (action.operation === "timezone" && action.applyTimezoneTo === null) {
+    ctx.addIssue({ code: "custom", path: ["applyTimezoneTo"], message: "timezone scope is required" });
+  }
 });
 export const UpdateOccurrenceActionSchema = z.object({
   type: z.literal("update_occurrence"), source: ActionSourceSchema, confidence: ConfidenceSchema,

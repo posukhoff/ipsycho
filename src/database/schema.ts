@@ -6,6 +6,7 @@
  * in migrations; keep schema.ts and migrations reviewed together.
  */
 import { bigint, boolean, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const userStatus = pgEnum("user_status", ["active", "disabled", "deletion_pending"]);
 export const aiStatus = pgEnum("ai_status", ["enabled", "suspended"]);
@@ -399,6 +400,7 @@ export const actionGroups = pgTable("action_groups", {
   undoneAt: timestamp("undone_at", { withTimezone: true }),
 }, (t) => [
   unique("action_groups_workspace_id_id_uq").on(t.workspaceId, t.id),
+  uniqueIndex("action_groups_active_source_message_uq").on(t.sourceMessageId).where(sql`${t.sourceMessageId} IS NOT NULL AND ${t.status} IN ('pending', 'applying', 'undoing', 'applied')`),
   foreignKey({ columns: [t.workspaceId, t.actorUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "action_groups_actor_membership_fk" }),
   index("action_groups_workspace_status_idx").on(t.workspaceId, t.status, t.createdAt),
 ]);

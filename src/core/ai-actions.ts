@@ -171,18 +171,38 @@ export function validateActionBatchShape(actions: readonly ProposedActionDraft[]
   return "one message may create multiple tasks or memory items, but all other actions must be handled one at a time";
 }
 
-const SCHEDULE_MUTATION_TYPES = new Set<SupportedActionType>(["create_task", "reschedule_occurrence", "change_reminder", "change_series"]);
+const EXPLICIT_MUTATION_WORDS = new Set([
+  "напомни", "напомнить", "установи", "установить", "запланируй", "запланировать",
+  "создай", "создать", "добавь", "добавить", "поставь", "поставить", "перенеси", "перенести",
+  "измени", "изменить", "обнови", "обновить", "переименуй", "переименовать",
+  "включи", "включить", "выключи", "выключить", "отключи", "отключить", "настрой", "настроить",
+  "отметь", "отметить", "заверши", "завершить", "закрой", "закрыть", "начни", "начать",
+  "пропусти", "пропустить", "отмени", "отменить", "удали", "удалить", "сохрани", "сохранить",
+  "свяжи", "связать", "нагадай", "нагадати", "встанови", "встановити", "заплануй", "запланувати",
+  "створи", "створити", "додай", "додати", "зміни", "змінити", "онови", "оновити",
+  "перейменуй", "перейменувати", "увімкни", "увімкнути", "вимкни", "вимкнути",
+  "налаштуй", "налаштувати", "познач", "позначити", "завершити", "закрий", "закрити",
+  "почни", "почати", "пропустити", "скасуй", "скасувати", "видали", "видалити",
+  "збережи", "зберегти", "зв'яжи", "зв’яжи", "зв'язати", "зв’язати", "remind", "set", "schedule", "create", "add",
+  "reschedule", "change", "update", "rename", "enable", "disable", "mark", "complete", "close",
+  "start", "skip", "cancel", "delete", "save", "link",
+]);
+
+function containsExplicitMutationRequest(text: string): boolean {
+  const words = text.match(/\p{L}+(?:['’]\p{L}+)?/gu) ?? [];
+  return words.some((word) => EXPLICIT_MUTATION_WORDS.has(word)) || /(?:^|\s)turn\s+(?:on|off)(?=$|\s|[.,;:!?])/u.test(text);
+}
 
 /**
- * A question about the current discussion must not silently become a new task or
- * reminder. This is a deterministic backstop for model misclassification; the
- * model may still act when the question contains an explicit scheduling command.
+ * The model cannot prove that a mutation was explicitly requested merely by
+ * returning source=user_explicit. Questions and tentative suggestions require an
+ * independently visible mutation request before any action may be applied.
  */
-export function validateSchedulingIntent(actions: readonly ProposedActionDraft[], latestUserText: string): string | null {
-  if (!actions.some((action) => SCHEDULE_MUTATION_TYPES.has(action.type))) return null;
+export function validateMutationIntent(actions: readonly ProposedActionDraft[], latestUserText: string): string | null {
+  if (!actions.some((action) => action.source === "user_explicit")) return null;
   const text = latestUserText.trim().toLocaleLowerCase();
-  const isQuestion = /[?？]$/.test(text) || /^(как|что|когда|где|почему|зачем|можно\s+ли|будет\s+ли|як|що|коли|де|чому|навіщо|можна\s+чи|how|what|when|where|why|can\s+you|could\s+you)\b/.test(text);
-  if (!isQuestion) return null;
-  const explicitlySchedules = /\b(напомни|установи.*?напомин|запланир|созда(?:й|ть).*?(?:задач|событ)|добав(?:ь|ить).*?(?:задач|событ|напомин|план)|постав(?:ь|ить).*?напомин|перенес(?:и|ти)|измени.*?напомин|remind|schedule|reschedul|create.*?(?:task|event)|add.*?(?:task|event|reminder))\b/.test(text);
-  return explicitlySchedules ? null : "an informational question without an explicit scheduling request must not create or change a task or reminder";
+  const isQuestion = /[?？]$/.test(text) || /^(?:как|что|когда|где|почему|зачем|можно\s+ли|будет\s+ли|як|що|коли|де|чому|навіщо|можна\s+чи|how|what|when|where|why|can\s+you|could\s+you)(?:\s|$)/u.test(text);
+  const isTentative = /(?:^|[^\p{L}\p{N}_])(?:может\s+быть|наверное|возможно|стоит\s+ли|как\s+думаешь|можливо|мабуть|варто\s+чи|maybe|perhaps|should\s+i)(?=$|[^\p{L}\p{N}_])/u.test(text);
+  if (!isQuestion && !isTentative) return null;
+  return containsExplicitMutationRequest(text) ? null : "an informational question or tentative suggestion without an explicit mutation request must not change application state";
 }

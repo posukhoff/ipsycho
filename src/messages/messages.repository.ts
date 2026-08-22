@@ -20,6 +20,19 @@ export class MessagesRepository {
     telegramChatId?: number;
     telegramMessageId?: number;
   }) {
+    return (await this.saveOnce(input)).message;
+  }
+
+  async saveOnce(input: {
+    workspaceId: string;
+    userId: string;
+    role: "user" | "assistant";
+    status?: MessageProcessingStatus;
+    topicId?: string;
+    content: string;
+    telegramChatId?: number;
+    telegramMessageId?: number;
+  }): Promise<{ message: typeof messages.$inferSelect | null; inserted: boolean }> {
     const [row] = await this.database.db.insert(messages).values({
       workspaceId: input.workspaceId,
       userId: input.userId,
@@ -30,14 +43,14 @@ export class MessagesRepository {
       ...(input.telegramChatId !== undefined ? { telegramChatId: input.telegramChatId } : {}),
       ...(input.telegramMessageId !== undefined ? { telegramMessageId: input.telegramMessageId } : {}),
     }).onConflictDoNothing().returning();
-    if (row) return row;
-    if (input.telegramMessageId === undefined || input.telegramChatId === undefined) return null;
+    if (row) return { message: row, inserted: true };
+    if (input.telegramMessageId === undefined || input.telegramChatId === undefined) return { message: null, inserted: false };
     const [existing] = await this.database.db.select().from(messages).where(and(
       eq(messages.workspaceId, input.workspaceId),
       eq(messages.telegramChatId, input.telegramChatId),
       eq(messages.telegramMessageId, input.telegramMessageId),
     )).limit(1);
-    return existing ?? null;
+    return { message: existing ?? null, inserted: false };
   }
 
   async setStatus(workspaceId: string, messageId: string, status: MessageProcessingStatus): Promise<void> {

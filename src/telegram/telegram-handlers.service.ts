@@ -1171,17 +1171,6 @@ export class TelegramHandlersService implements OnModuleInit {
 
 }
 
-function followUpKeyboard(mode: "seen" | "result", occurrenceId: string): InlineKeyboard {
-  const keyboard = new InlineKeyboard()
-    .text("15 мин", `follow:${mode}:15m:${occurrenceId}`)
-    .text("1 час", `follow:${mode}:1h:${occurrenceId}`)
-    .row()
-    .text("Вечером", `follow:${mode}:evening:${occurrenceId}`)
-    .text("Своё время", `follow:${mode}:custom:${occurrenceId}`);
-  if (mode === "result") keyboard.row().text("Не проверять результат", `follow:result:none:${occurrenceId}`);
-  return keyboard;
-}
-
 function undoKeyboard(groupId: string): InlineKeyboard {
   return new InlineKeyboard().text("Отменить изменение", `act:undo:${groupId}`);
 }

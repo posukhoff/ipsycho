@@ -7,7 +7,3 @@ export function telegramLocale(pinnedLanguage?: string | null, telegramLanguage?
   if (value.startsWith("ru")) return "ru";
   return "en";
 }
-
-export function isUkrainian(locale: TelegramLocale): boolean {
-  return locale === "uk";
-}

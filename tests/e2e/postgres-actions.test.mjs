@@ -8,7 +8,8 @@ import { ContextRepository } from "../../dist/context/context.repository.js";
 import { ContextService } from "../../dist/context/context.service.js";
 import { ActionMutationsRepository } from "../../dist/actions/action-mutations.repository.js";
 import { AccessService } from "../../dist/access/access.service.js";
-import { actionEvents, actionGroups, memoryItems, taskEvents, taskOccurrences, userSettings } from "../../dist/database/schema.js";
+import { MessagesRepository } from "../../dist/messages/messages.repository.js";
+import { actionEvents, actionGroups, memoryItems, messages, taskEvents, taskOccurrences, userSettings } from "../../dist/database/schema.js";
 import { and, eq } from "drizzle-orm";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -21,6 +22,7 @@ const contextActions = new ContextActionsRepository(database);
 const contextRepository = new ContextRepository(database);
 const context = new ContextService(contextRepository);
 const access = new AccessService(database);
+const messageRepository = new MessagesRepository(database);
 let telegramUserSequence = Date.now();
 
 async function fixture() {
@@ -134,6 +136,33 @@ test("stale chat settings cannot overwrite a newer settings version", async () =
   const results = await Promise.allSettled([attempt("08:00"), attempt("08:30")]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+});
+
+test("one Telegram message can seed at most one active action group", async () => {
+  const { workspaceId, userId } = await fixture();
+  const first = await messageRepository.saveOnce({
+    workspaceId, userId, role: "user", status: "processing", content: "Создай задачу",
+    telegramChatId: telegramUserSequence, telegramMessageId: 42,
+  });
+  const duplicate = await messageRepository.saveOnce({
+    workspaceId, userId, role: "user", status: "processing", content: "Создай задачу",
+    telegramChatId: telegramUserSequence, telegramMessageId: 42,
+  });
+  assert.equal(first.inserted, true);
+  assert.equal(duplicate.inserted, false);
+  assert.equal(duplicate.message?.id, first.message?.id);
+
+  const firstGroupId = randomUUID();
+  await actions.createImmediateGroup({ id: firstGroupId, workspaceId, actorUserId: userId, sourceMessageId: first.message.id });
+  await assert.rejects(
+    actions.createImmediateGroup({ id: randomUUID(), workspaceId, actorUserId: userId, sourceMessageId: first.message.id }),
+    (error) => error?.cause?.constraint === "action_groups_active_source_message_uq",
+  );
+
+  await actions.markFailed(workspaceId, firstGroupId);
+  await actions.createImmediateGroup({ id: randomUUID(), workspaceId, actorUserId: userId, sourceMessageId: first.message.id });
+  const storedMessages = await database.db.select().from(messages).where(eq(messages.id, first.message.id));
+  assert.equal(storedMessages.length, 1);
 });
 
 async function createOccurrence(workspaceId, userId) {

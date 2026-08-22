@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { actionDisposition, splitActionsByDisposition, validateActionBatchShape, validateSchedulingIntent } from "../../.core-dist/ai-actions.js";
+import { actionDisposition, splitActionsByDisposition, validateActionBatchShape, validateMutationIntent } from "../../.core-dist/ai-actions.js";
 
 const base = {
   type: "create_task",
@@ -215,9 +215,28 @@ test("multiple memory items are accepted and confirmed as one batch when needed"
 
 test("informational questions cannot silently create a scheduled task", () => {
   const task = { ...base, source: "user_explicit", title: "Зайти в это приложение" };
-  assert.match(validateSchedulingIntent([task], "Как это будет работать сейчас?"), /informational question/);
-  assert.match(validateSchedulingIntent([task], "Как будут работать напоминания?"), /informational question/);
-  assert.equal(validateSchedulingIntent([task], "Запланируй зайти в это приложение через минуту"), null);
+  assert.match(validateMutationIntent([task], "Как это будет работать сейчас?"), /informational question/);
+  assert.match(validateMutationIntent([task], "Как будут работать напоминания?"), /informational question/);
+  assert.equal(validateMutationIntent([task], "Запланируй зайти в это приложение через минуту"), null);
+});
+
+test("informational questions cannot silently mutate settings or completion state", () => {
+  const settings = {
+    type: "update_settings", source: "user_explicit", confidence: 1, expectedVersion: 1,
+    operation: "weekly_review", timezone: null, applyTimezoneTo: null, language: null,
+    digestKind: null, enabled: true, time: "18:00", weekday: 7,
+    weekdayStart: null, weekdayEnd: null, weekendStart: null, weekendEnd: null,
+    snoozeUntil: null, eventOffsets: null, plannedTaskOffsetMinutes: null,
+    criticalPostDueMinutes: null, seenNormalMinutes: null, seenRequiredMinutes: null, seenCriticalMinutes: null,
+  };
+  const completion = {
+    type: "complete_occurrence", source: "user_explicit", confidence: 1,
+    occurrenceId: "00000000-0000-4000-8000-000000000002", expectedVersion: 1,
+  };
+  assert.match(validateMutationIntent([settings], "У меня включён еженедельный обзор?"), /informational question/);
+  assert.match(validateMutationIntent([completion], "Эта задача уже выполнена?"), /informational question/);
+  assert.equal(validateMutationIntent([settings], "Можешь включить еженедельный обзор?"), null);
+  assert.equal(validateMutationIntent([{ ...settings, source: "ai_inferred" }], "Как думаешь, стоит ли включить обзор?"), null);
 });
 
 test("high confidence inferred task-goal link applies, medium confidence confirms", () => {
