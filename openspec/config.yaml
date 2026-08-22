@@ -1,0 +1,36 @@
+schema: spec-driven
+
+context: |
+  IPsycho is a private Telegram assistant built with Node.js 24+, TypeScript,
+  NestJS, PostgreSQL, Drizzle ORM, grammY and pg-boss.
+  Natural-language messages are agent-first. Buttons and commands are
+  deterministic shortcuts and safety/recovery paths, not a competing parser.
+  PostgreSQL and domain services are authoritative. AI output is untrusted and
+  must pass structured validation, workspace ownership, optimistic versions and
+  domain rules before mutation. Operator configuration and cross-user data are
+  outside the chat agent's authority.
+  Preserve transactional action journaling, truthful Undo semantics, provider
+  consent checks and timezone/DST behavior. SQL migrations are append-only.
+  Use conventional commits. Required checks are `npm run check` and
+  `npm run test:e2e`; real Telegram/provider checks remain explicit manual gates.
+
+rules:
+  proposal:
+    - State the user-visible outcome and why the change is needed.
+    - Include explicit non-goals and security/reliability trade-offs.
+    - Do not introduce infrastructure or abstractions without a concrete need.
+  specs:
+    - Cover authorization, confirmation, transactionality and failure behavior where relevant.
+    - Distinguish deterministic application behavior from external AI or Telegram behavior.
+  tasks:
+    - Include focused automated tests and PostgreSQL e2e coverage for persistence changes.
+    - Include migration and documentation updates when the public contract changes.
+
+operations:
+  apply:
+    guidance:
+      - Preserve unrelated working-tree changes.
+      - Prefer existing application services and domain constraints over parallel implementations.
+  archive:
+    guidance:
+      - Record verification results and any remaining external manual gate.
