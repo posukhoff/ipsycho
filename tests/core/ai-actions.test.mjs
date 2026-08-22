@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { actionDisposition, splitActionsByDisposition, validateActionBatchShape } from "../../.core-dist/ai-actions.js";
+import { actionDisposition, splitActionsByDisposition, validateActionBatchShape, validateSchedulingIntent } from "../../.core-dist/ai-actions.js";
 
 const base = {
   type: "create_task",
@@ -187,6 +187,13 @@ test("multiple memory items are accepted and confirmed as one batch when needed"
   const result = splitActionsByDisposition([publicMemory, sensitiveMemory]);
   assert.deepEqual(result.immediate, []);
   assert.deepEqual(result.pending, [publicMemory, sensitiveMemory]);
+});
+
+test("informational questions cannot silently create a scheduled task", () => {
+  const task = { ...base, source: "user_explicit", title: "Зайти в это приложение" };
+  assert.match(validateSchedulingIntent([task], "Как это будет работать сейчас?"), /informational question/);
+  assert.match(validateSchedulingIntent([task], "Как будут работать напоминания?"), /informational question/);
+  assert.equal(validateSchedulingIntent([task], "Запланируй зайти в это приложение через минуту"), null);
 });
 
 test("high confidence inferred task-goal link applies, medium confidence confirms", () => {

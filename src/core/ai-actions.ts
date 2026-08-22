@@ -140,3 +140,19 @@ export function validateActionBatchShape(actions: readonly ProposedActionDraft[]
   if (actions.every((action) => action.type === "save_memory")) return null;
   return "one message may create multiple tasks or memory items, but all other actions must be handled one at a time";
 }
+
+const SCHEDULE_MUTATION_TYPES = new Set<SupportedActionType>(["create_task", "reschedule_occurrence", "change_reminder", "change_series"]);
+
+/**
+ * A question about the current discussion must not silently become a new task or
+ * reminder. This is a deterministic backstop for model misclassification; the
+ * model may still act when the question contains an explicit scheduling command.
+ */
+export function validateSchedulingIntent(actions: readonly ProposedActionDraft[], latestUserText: string): string | null {
+  if (!actions.some((action) => SCHEDULE_MUTATION_TYPES.has(action.type))) return null;
+  const text = latestUserText.trim().toLocaleLowerCase();
+  const isQuestion = /[?？]$/.test(text) || /^(как|что|когда|где|почему|зачем|можно\s+ли|будет\s+ли|як|що|коли|де|чому|навіщо|можна\s+чи|how|what|when|where|why|can\s+you|could\s+you)\b/.test(text);
+  if (!isQuestion) return null;
+  const explicitlySchedules = /\b(напомни|установи.*?напомин|запланир|созда(?:й|ть).*?(?:задач|событ)|добав(?:ь|ить).*?(?:задач|событ|напомин|план)|постав(?:ь|ить).*?напомин|перенес(?:и|ти)|измени.*?напомин|remind|schedule|reschedul|create.*?(?:task|event)|add.*?(?:task|event|reminder))\b/.test(text);
+  return explicitlySchedules ? null : "an informational question without an explicit scheduling request must not create or change a task or reminder";
+}

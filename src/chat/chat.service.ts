@@ -14,7 +14,7 @@ import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
 import { TasksService } from "../tasks/tasks.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
-import type { ProposedActionDraft } from "../core/ai-actions.js";
+import { validateSchedulingIntent, type ProposedActionDraft } from "../core/ai-actions.js";
 
 export type ChatProcessResult =
   | { kind: "consent_required"; provider: string; consentVersion: string }
@@ -458,6 +458,8 @@ export class ChatService {
         turn = { ...turn, topic: pinReviewTopic(turn.topic, currentTopicId, input.inbound.content, review) };
       }
       let validationErrors = await this.actions.validate(turn.actions, scope);
+      const schedulingIntentError = validateSchedulingIntent(turn.actions, input.inbound.content);
+      if (schedulingIntentError) validationErrors.push(schedulingIntentError);
       const topicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
       if (topicError) validationErrors.push(`topic: ${topicError}`);
       if (validationErrors.length) {
@@ -475,6 +477,8 @@ export class ChatService {
           turn = { ...turn, topic: pinReviewTopic(turn.topic, currentTopicId, input.inbound.content, review) };
         }
         validationErrors = await this.actions.validate(turn.actions, scope);
+        const repairedSchedulingIntentError = validateSchedulingIntent(turn.actions, input.inbound.content);
+        if (repairedSchedulingIntentError) validationErrors.push(repairedSchedulingIntentError);
         const repairedTopicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
         if (repairedTopicError) validationErrors.push(`topic: ${repairedTopicError}`);
         if (validationErrors.length) {
