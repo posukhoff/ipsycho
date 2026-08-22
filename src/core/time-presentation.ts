@@ -19,3 +19,10 @@ export function formatOccurrenceSchedule(schedule: OccurrenceScheduleView, local
   const date = schedule.plannedLocalDate ?? schedule.dueLocalDate;
   return date ? `📅 Запланировано: ${date} (${schedule.timezone})` : null;
 }
+
+/** Do not repeat a reminder when Telegram would render it as the same minute as the displayed schedule anchor. */
+export function reminderAddsTimingInformation(schedule: OccurrenceScheduleView, reminderAt: Date): boolean {
+  const displayedExact = schedule.plannedStartAt ?? schedule.dueAt ?? schedule.plannedEndAt;
+  if (!displayedExact) return true;
+  return Math.floor(displayedExact.getTime() / 60_000) !== Math.floor(reminderAt.getTime() / 60_000);
+}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatOccurrenceSchedule } from "../../.core-dist/time-presentation.js";
+import { formatOccurrenceSchedule, reminderAddsTimingInformation } from "../../.core-dist/time-presentation.js";
 
 const empty = { plannedStartAt: null, plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null };
 
@@ -22,4 +22,16 @@ test("deadline is shown when a point start is absent", () => {
     timezone: "Europe/Kyiv",
     dueAt: new Date("2026-01-15T12:00:00Z"),
   }), "📅 Запланировано: 15.01, 14:00 (Europe/Kyiv)");
+});
+
+test("reminder at the displayed schedule minute adds no duplicate information", () => {
+  const schedule = { ...empty, timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-08-23T07:00:00Z") };
+  assert.equal(reminderAddsTimingInformation(schedule, new Date("2026-08-23T07:00:00Z")), false);
+  assert.equal(reminderAddsTimingInformation(schedule, new Date("2026-08-23T07:00:45Z")), false);
+  assert.equal(reminderAddsTimingInformation(schedule, new Date("2026-08-23T06:45:00Z")), true);
+});
+
+test("date-only schedule keeps its concrete reminder visible", () => {
+  const schedule = { ...empty, timezone: "Europe/Kyiv", dueLocalDate: "2026-08-23" };
+  assert.equal(reminderAddsTimingInformation(schedule, new Date("2026-08-23T06:00:00Z")), true);
 });

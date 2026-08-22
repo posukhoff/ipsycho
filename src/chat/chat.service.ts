@@ -7,7 +7,7 @@ import { aiBurstAllowed } from "../core/ai-usage-policy.js";
 import { reviewClarificationDecision, reviewCorrection, reviewPresentation, type ReviewKind } from "../core/review-policy.js";
 import { localDateAt } from "../core/timezone.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
-import { formatOccurrenceSchedule } from "../core/time-presentation.js";
+import { formatOccurrenceSchedule, reminderAddsTimingInformation } from "../core/time-presentation.js";
 import { detectConversationControl, isClearConversationRequest } from "../core/conversation-control.js";
 import { canonicalizeTopicDirective } from "../core/context-policy.js";
 import { ContextService } from "../context/context.service.js";
@@ -632,7 +632,9 @@ function appendAppliedTiming(
     const detail = formatOccurrenceSchedule(occurrence);
     if (detail) details.push(detail);
   }
-  if (!applied.scheduledReminderAt) return details.length ? `${text}\n\n${details.join("\n")}` : text;
+  if (!applied.scheduledReminderAt || (occurrence && !reminderAddsTimingInformation(occurrence, applied.scheduledReminderAt))) {
+    return details.length ? `${text}\n\n${details.join("\n")}` : text;
+  }
   const reminders = actions.flatMap((action) => {
     if (action.type !== "create_task") return [];
     const time = new Intl.DateTimeFormat("ru-RU", {
