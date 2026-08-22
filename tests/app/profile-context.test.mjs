@@ -23,7 +23,7 @@ test("the durable user profile is supplied to AI context on every turn", async (
     searchMemory: async () => [profileFact, sensitiveProfileFact],
     listProfile: async () => [profileFact, sensitiveProfileFact],
     profileInvitationState: async () => null,
-    listGoalsForContext: async () => [],
+    listGoalsWithTasks: async () => [],
     listOpenOccurrences: async () => [],
     listTaskGoalLinks: async () => [],
     listAvoidanceEvents: async () => [],

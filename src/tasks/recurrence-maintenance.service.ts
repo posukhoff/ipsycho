@@ -4,7 +4,7 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { planReminders } from "../core/reminder-planning.js";
 import { buildRecurringOccurrences } from "../core/recurrence.js";
 import { DatabaseService } from "../database/database.service.js";
-import { reminderDeliveries, reminderRules, taskOccurrences, tasks, userSettings, workspaces } from "../database/schema.js";
+import { reminderDeliveries, reminderRules, taskOccurrences, taskRecurrenceExclusions, tasks, userSettings, workspaces } from "../database/schema.js";
 import { reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "./task-record-mappers.js";
 import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
@@ -73,7 +73,13 @@ export class RecurrenceMaintenanceService implements OnApplicationBootstrap, OnA
     settingsRow: typeof userSettings.$inferSelect,
     now: Date,
   ): Promise<void> {
-    const definition = taskDefinitionFromRow(taskRow);
+    const exclusions = await this.database.db.select({ localDate: taskRecurrenceExclusions.localDate })
+      .from(taskRecurrenceExclusions)
+      .where(and(
+        eq(taskRecurrenceExclusions.workspaceId, taskRow.workspaceId),
+        eq(taskRecurrenceExclusions.taskId, taskRow.id),
+      ));
+    const definition = taskDefinitionFromRow(taskRow, exclusions.map((row) => row.localDate));
     const projections = buildRecurringOccurrences(definition, now);
     if (!projections.length) return;
 

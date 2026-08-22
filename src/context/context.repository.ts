@@ -52,7 +52,7 @@ export class ContextRepository {
   }
 
   async createTopic(input: {
-    workspaceId: string; userId: string; title: string; summary: string; mode: "normal" | "analysis"; reviewKind?: "evening" | "weekly"; now: Date; summaryExpiresAt: Date;
+    workspaceId: string; userId: string; title: string; summary: string; mode: "normal" | "analysis"; reviewKind?: "evening" | "weekly"; reviewState?: unknown; now: Date; summaryExpiresAt: Date;
   }) {
     return this.database.db.transaction(async (tx) => {
       await tx.update(conversationTopics).set({ status: "paused", updatedAt: input.now }).where(and(
@@ -68,6 +68,7 @@ export class ContextRepository {
         status: "active",
         mode: input.mode,
         ...(input.reviewKind ? { reviewKind: input.reviewKind } : {}),
+        ...(input.reviewState !== undefined ? { reviewState: input.reviewState } : {}),
         lastMessageAt: input.now,
         summaryExpiresAt: input.summaryExpiresAt,
         createdAt: input.now,
@@ -76,6 +77,15 @@ export class ContextRepository {
       if (!row) throw new Error("failed to create conversation topic");
       return row;
     });
+  }
+
+  async updateReviewState(input: { workspaceId: string; userId: string; topicId: string; reviewState: unknown; now: Date }) {
+    const [row] = await this.database.db.update(conversationTopics).set({ reviewState: input.reviewState, updatedAt: input.now }).where(and(
+      eq(conversationTopics.workspaceId, input.workspaceId), eq(conversationTopics.userId, input.userId),
+      eq(conversationTopics.id, input.topicId), eq(conversationTopics.reviewKind, "weekly"),
+      inArray(conversationTopics.status, ["active", "paused"]),
+    )).returning();
+    return row ?? null;
   }
 
   async updateTopic(input: {

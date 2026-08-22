@@ -13,6 +13,24 @@ test("habit requires recurring task and minimum/desired actions", () => assert.e
 
 test("unsupported recurrence frequency is rejected", () => assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=YEARLY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over" }).ok, false));
 test("miss policy without recurrence is rejected", () => assert.equal(validateTaskDefinition({ ...base, missPolicy: "carry_over" }).ok, false));
+test("recurrence bounds and exclusions require a valid series", () => {
+  assert.equal(validateTaskDefinition({ ...base, recurrenceEndLocalDate: "2026-09-30" }).ok, false);
+  assert.equal(validateTaskDefinition({
+    ...base,
+    recurrenceRule: "FREQ=DAILY",
+    recurrenceTimezone: "Europe/Kyiv",
+    missPolicy: "carry_over",
+    recurrenceEndLocalDate: "2026-08-09",
+  }).ok, false);
+  assert.equal(validateTaskDefinition({
+    ...base,
+    recurrenceRule: "FREQ=DAILY",
+    recurrenceTimezone: "Europe/Kyiv",
+    missPolicy: "carry_over",
+    recurrenceEndLocalDate: "2026-09-30",
+    recurrenceExcludedLocalDates: ["2026-08-12"],
+  }).ok, true);
+});
 test("point cannot secretly contain deadline", () => assert.equal(validateTaskDefinition({ ...base, dueAt: new Date("2026-08-11T09:00:00Z") }).ok, false));
 test("fuzzy cannot contain concrete start", () => assert.equal(validateTaskDefinition({ ...base, timeMode: "fuzzy", fuzzyHorizonText: "в течение месяца", reviewAt: new Date() }).ok, false));
 test("unsupported recurrence fields are rejected", () => assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=DAILY;COUNT=4", recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over" }).ok, false));

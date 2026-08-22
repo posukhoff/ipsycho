@@ -16,6 +16,12 @@ This file contains only checks that cannot be proven by the local automated suit
 - [ ] On a phone, exercise Today, Tasks, task details, Reminders and Settings; verify callbacks edit the current card when possible, stale buttons fail briefly, and payloads remain within Telegram's 64-byte limit.
 - [ ] Verify a scheduled item does not print a separate reminder line when the reminder time is identical to the scheduled time.
 - [ ] Test quiet hours, snooze, morning/evening digests, weekly review, notification defaults and one real IANA timezone DST boundary.
+- [ ] With `TASK_BATCH_ENABLED=false`, verify ordinary single-task actions still work and a provider cannot apply `task_batch`; restart and verify any incompatible pending batch is cancelled with an audit event.
+- [ ] Apply migration `0022_complex_planning_foundations.sql`, then test bounded recurrence through its inclusive end date, every-second-week cadence, an excluded first occurrence and one real DST boundary.
+- [ ] With `TASK_BATCH_ENABLED=true`, ask for one four-step package mixing create, update, reschedule and goal link. Verify exactly one confirmation (when needed), no internal step IDs, one applied summary and one Undo control.
+- [ ] Make one batch target stale before confirmation and inject one failing middle step in a non-production rehearsal. Verify zero partial task/link/reminder changes and a precise whole-package rejection.
+- [ ] Run a weekly review where the first answer contains only the desired outcome. Verify the review continues through capacity, risks, minimum success and commitments; then accept proposed task changes explicitly and verify they use normal confirmation/Undo rules without creating memory implicitly.
+- [ ] Inspect logs from successful, rejected, conflicted and undone batches. Verify they contain only IDs, counts and sanitized reason codes—not message bodies, task titles, raw provider payloads or internal step IDs.
 - [ ] Test voice with valid, oversized and over-duration recordings; revoke OpenAI consent during download and confirm upload to the provider is blocked.
 - [ ] Exercise transport errors and process restarts during AI retry, reminder processing and action acknowledgement; record whether the known external duplicate/missing-acknowledgement window is acceptable for release.
 - [ ] Force a fatal Telegram polling failure and verify the process exits non-zero and the deployment supervisor restarts it.
@@ -27,3 +33,10 @@ This file contains only checks that cannot be proven by the local automated suit
 - [ ] Configure daily encrypted S3-compatible backups with 7 daily and 4 weekly copies; keep `BACKUP_KEY_FILE` separate from the repository and bucket.
 - [ ] Run `scripts/restore-compose.sh` against a selected encrypted backup before launch and at least monthly thereafter.
 - [ ] Alert on process/container health, disk usage, PostgreSQL, Telegram/provider errors, stuck jobs and backup freshness.
+
+## Task-batch staged rollout and rollback
+
+- [ ] Deploy the migration and application with `TASK_BATCH_ENABLED=false`; run the disabled-mode and recurrence checks above.
+- [ ] Enable the flag for a synthetic allowlisted user, complete the package/confirmation/Undo checks, and ensure no synthetic active tasks, goals, occurrences or reminders remain.
+- [ ] Expand rollout only after sanitized logs show no unexplained conflicts or reconciliation failures.
+- [ ] For rollback, set `TASK_BATCH_ENABLED=false` and restart. Confirm pending task batches were cancelled and audited; do not delete committed action journals because they are required for Undo and diagnosis.

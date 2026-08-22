@@ -93,6 +93,25 @@ export class ActionsRepository {
     });
   }
 
+  async cancelPendingTaskBatches(now: Date): Promise<number> {
+    return this.database.db.transaction(async (tx) => {
+      const rows = await tx.select({ workspaceId: pendingActions.workspaceId, groupId: pendingActions.groupId })
+        .from(pendingActions).where(eq(pendingActions.actionType, "task_batch"));
+      const unique = [...new Map(rows.map((row) => [`${row.workspaceId}:${row.groupId}`, row])).values()];
+      let cancelledCount = 0;
+      for (const row of unique) {
+        const [cancelled] = await tx.update(actionGroups).set({ status: "cancelled" }).where(and(
+          eq(actionGroups.workspaceId, row.workspaceId), eq(actionGroups.id, row.groupId), eq(actionGroups.status, "pending"),
+        )).returning({ id: actionGroups.id });
+        if (!cancelled) continue;
+        cancelledCount += 1;
+        await tx.delete(pendingActions).where(and(eq(pendingActions.workspaceId, row.workspaceId), eq(pendingActions.groupId, row.groupId)));
+        await tx.insert(actionEvents).values({ workspaceId: row.workspaceId, groupId: row.groupId, actionType: "task_batch_rollout_cancelled", entityType: "action_group", entityId: row.groupId, afterState: { cancelledAt: now.toISOString(), reason: "rollout_disabled" } });
+      }
+      return cancelledCount;
+    });
+  }
+
   async finalizeApplied(input: {
     workspaceId: string;
     groupId: string;

@@ -47,3 +47,10 @@ test("AI prompt does not require an existing task ID when creating a new task", 
   assert.match(prompt, /Creating a new task never requires an existing task ID/);
   assert.match(prompt, /never claim that creation is blocked/);
 });
+
+test("AI prompt requires structured local schedules and recurrence", () => {
+  const prompt = buildSystemPrompt("Europe/Kyiv", new Date("2026-08-11T12:00:00.000Z"));
+  assert.match(prompt, /localSchedule=\{mode,timezone,startDate,startTime/);
+  assert.match(prompt, /recurrence=\{frequency,interval,startsOn,endsOn/);
+  assert.match(prompt, /Do not generate them in a new action/);
+});

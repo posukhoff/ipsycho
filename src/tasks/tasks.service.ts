@@ -8,7 +8,7 @@ import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefiniti
 import { localDateAt } from "../core/timezone.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import type { TaskDefinition } from "../core/types.js";
-import type { reminderDeliveries, reminderRules, taskChecklistItems, taskOccurrences, tasks } from "../database/schema.js";
+import type { reminderDeliveries, reminderRules, taskChecklistItems, taskOccurrences, taskRecurrenceExclusions, tasks } from "../database/schema.js";
 import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { TasksRepository, type PersistedTaskPlan } from "./tasks.repository.js";
 import { RecurrenceMaintenanceService } from "./recurrence-maintenance.service.js";
@@ -36,7 +36,7 @@ export interface CreatedTaskResult {
   occurrenceSchedule?: OccurrenceScheduleView;
 }
 
-interface BuiltTaskPlan {
+export interface BuiltTaskPlan {
   plan: PersistedTaskPlan;
   result: CreatedTaskResult;
 }
@@ -56,12 +56,19 @@ export class TasksService {
   }
 
   async createTasks(inputs: readonly CreateTaskInput[]): Promise<CreatedTaskResult[]> {
-    if (!inputs.length) return [];
+    const built = await this.prepareTaskPlans(inputs);
+    await this.repository.createPlans(built.map((item) => item.plan));
+    await this.enqueuePreparedTaskPlans(built);
+    return built.map((item) => item.result);
+  }
+
+  async prepareTaskPlans(inputs: readonly CreateTaskInput[]): Promise<BuiltTaskPlan[]> {
     const built: BuiltTaskPlan[] = [];
     for (const input of inputs) built.push(await this.buildTaskPlan(input));
+    return built;
+  }
 
-    await this.repository.createPlans(built.map((item) => item.plan));
-
+  async enqueuePreparedTaskPlans(built: readonly BuiltTaskPlan[]): Promise<void> {
     for (const item of built) {
       for (const delivery of item.plan.reminderDeliveries) {
         if (delivery.status !== "pending" || !delivery.id) continue;
@@ -72,7 +79,6 @@ export class TasksService {
         }
       }
     }
-    return built.map((item) => item.result);
   }
 
   async undoCreatedTasks(workspaceId: string, tasksToDelete: readonly { id: string; version: number }[]): Promise<void> {
@@ -149,6 +155,7 @@ export class TasksService {
       ...(definition.reviewAt ? { reviewAt: definition.reviewAt } : {}),
       ...(definition.recurrenceRule ? { recurrenceRule: definition.recurrenceRule } : {}),
       ...(definition.recurrenceTimezone ? { recurrenceTimezone: definition.recurrenceTimezone } : {}),
+      ...(definition.recurrenceEndLocalDate ? { recurrenceEndLocalDate: definition.recurrenceEndLocalDate } : {}),
       ...(definition.missPolicy ? { missPolicy: definition.missPolicy } : {}),
       ...(definition.habitMode !== undefined ? { habitMode: definition.habitMode } : {}),
       ...(definition.minimumAction ? { minimumAction: definition.minimumAction } : {}),
@@ -175,6 +182,12 @@ export class TasksService {
     const checklistRows: Array<typeof taskChecklistItems.$inferInsert> = (input.checklist ?? []).map((item, index) => ({
       id: randomUUID(), workspaceId: input.workspaceId, taskId, text: item.text.trim(), sortOrder: index, done: item.done,
     }));
+    const recurrenceExclusionRows: Array<typeof taskRecurrenceExclusions.$inferInsert> =
+      (definition.recurrenceExcludedLocalDates ?? []).map((localDate) => ({
+        workspaceId: input.workspaceId,
+        taskId,
+        localDate,
+      }));
 
     const ruleRows: Array<typeof reminderRules.$inferInsert> = ruleSpecs.map((rule, index) => ({
       id: ruleIds[index],
@@ -225,7 +238,14 @@ export class TasksService {
     }
 
     return {
-      plan: { task: taskRow, occurrences: occurrenceRows, reminderRules: ruleRows, reminderDeliveries: deliveryRows, checklist: checklistRows },
+      plan: {
+        task: taskRow,
+        occurrences: occurrenceRows,
+        reminderRules: ruleRows,
+        reminderDeliveries: deliveryRows,
+        checklist: checklistRows,
+        recurrenceExclusions: recurrenceExclusionRows,
+      },
       result: {
         taskId,
         occurrenceIds,

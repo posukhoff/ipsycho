@@ -7,6 +7,7 @@ import { ContextActionsRepository } from "../../dist/context/context-actions.rep
 import { ContextRepository } from "../../dist/context/context.repository.js";
 import { ContextService } from "../../dist/context/context.service.js";
 import { ActionMutationsRepository } from "../../dist/actions/action-mutations.repository.js";
+import { TaskBatchRepository } from "../../dist/actions/task-batch.repository.js";
 import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
 import { actionEvents, actionGroups, conversationTopics, memoryItems, messages, taskEvents, taskOccurrences, userSettings } from "../../dist/database/schema.js";
@@ -18,6 +19,7 @@ if (!url) throw new Error("TEST_DATABASE_URL is required; run npm run test:e2e")
 const database = new DatabaseService({ databaseUrl: url });
 const actions = new ActionsRepository(database);
 const mutations = new ActionMutationsRepository(database);
+const taskBatches = new TaskBatchRepository(database);
 const contextActions = new ContextActionsRepository(database);
 const contextRepository = new ContextRepository(database);
 const context = new ContextService(contextRepository);
@@ -144,6 +146,12 @@ test("weekly review topics satisfy the production database constraint", async ()
   const [stored] = await database.db.select().from(conversationTopics).where(eq(conversationTopics.id, topic.id));
   assert.equal(stored?.reviewKind, "weekly");
   assert.equal(stored?.status, "active");
+  assert.equal(stored?.reviewState?.version, 1);
+  const state = await context.mergeWeeklyReviewProgress({
+    workspaceId, userId, topicId: topic.id,
+    progress: { outcome: { status: "provided", summary: "Пять интервью" }, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
+  });
+  assert.equal(state.outcome.summary, "Пять интервью");
 });
 
 test("one Telegram message can seed at most one active action group", async () => {
@@ -243,6 +251,24 @@ test("only one concurrent confirmation may claim a pending action group", async 
   assert.equal(events.length, 0);
 });
 
+test("disabled rollout cancels pending task batches and records an audit event", async () => {
+  const { workspaceId, userId } = await fixture();
+  const groupId = randomUUID();
+  await actions.createPendingGroup({
+    id: groupId,
+    workspaceId,
+    actorUserId: userId,
+    expiresAt: new Date(Date.now() + 60_000),
+    actions: [{ id: randomUUID(), actionType: "task_batch", payload: { type: "task_batch", steps: [] } }],
+  });
+  assert.equal(await actions.cancelPendingTaskBatches(new Date()), 1);
+  assert.equal((await database.pool.query("select status from action_groups where id=$1", [groupId])).rows[0].status, "cancelled");
+  assert.equal((await database.pool.query("select id from pending_actions where group_id=$1", [groupId])).rowCount, 0);
+  const audit = await database.pool.query("select action_type, after_state from action_events where group_id=$1", [groupId]);
+  assert.equal(audit.rows[0].action_type, "task_batch_rollout_cancelled");
+  assert.equal(audit.rows[0].after_state.reason, "rollout_disabled");
+});
+
 test("the E2E database includes every migration required by the running schema", async () => {
   const { rows } = await database.pool.query(
     "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'user_settings' and column_name = 'profile_invited_at'",
@@ -252,6 +278,107 @@ test("the E2E database includes every migration required by the running schema",
     "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'user_settings' and column_name = 'version'",
   );
   assert.deepEqual(version.rows.map((row) => row.column_name), ["version"]);
+});
+
+test("recurrence exclusions are unique and cannot cross workspace boundaries", async () => {
+  const owner = await fixture();
+  const other = await fixture();
+  const taskId = randomUUID();
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, planned_start_at, recurrence_rule, recurrence_timezone, recurrence_end_local_date) values ($1,$2,$3,'Ограниченная серия','task','normal','active','point','Europe/Kyiv','2026-09-01T06:00:00Z','FREQ=DAILY','Europe/Kyiv','2026-09-30')",
+    [taskId, owner.workspaceId, owner.userId],
+  );
+  await database.pool.query(
+    "insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-10')",
+    [owner.workspaceId, taskId],
+  );
+  await assert.rejects(
+    database.pool.query(
+      "insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-10')",
+      [owner.workspaceId, taskId],
+    ),
+    (error) => error?.constraint === "task_recurrence_exclusions_pkey",
+  );
+  await assert.rejects(
+    database.pool.query(
+      "insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-11')",
+      [other.workspaceId, taskId],
+    ),
+    (error) => {
+      assert.match(error?.constraint ?? "", /task_recurrence_exclusions.*fkey/);
+      return true;
+    },
+  );
+});
+
+test("task batch create and goal link commit atomically", async () => {
+  const { workspaceId, userId } = await fixture();
+  const goalId = randomUUID();
+  await database.pool.query("insert into goals(id, workspace_id, created_by_user_id, title) values ($1,$2,$3,'Цель')", [goalId, workspaceId, userId]);
+  const makeCreate = (taskId, groupId) => ({
+    kind: "create", stepId: "new_task",
+    action: {
+      operation: "create", stepId: "new_task", source: "user_explicit", confidence: 1, criticalExplicit: false, habitModeExplicit: false,
+      title: "Новая задача", why: null, nextAction: null, context: null, checklist: null, goalLink: null,
+      definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: "2026-09-01T06:30:00Z", plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null, fuzzyHorizonText: null, reviewAt: null, recurrenceRule: null, recurrenceTimezone: null, missPolicy: null, habitMode: false, minimumAction: null, desiredAction: null, habitTrigger: null },
+    },
+    built: {
+      plan: {
+        task: { id: taskId, workspaceId, createdByUserId: userId, sourceActionGroupId: groupId, title: "Новая задача", kind: "task", importance: "normal", status: "active", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-09-01T06:30:00Z") },
+        occurrences: [], reminderRules: [], reminderDeliveries: [], checklist: [], recurrenceExclusions: [],
+      },
+      result: { taskId, occurrenceIds: [], deliveryIds: [], reminderSchedules: [] },
+    },
+  });
+  const link = { kind: "link", stepId: "link", target: { kind: "created", stepId: "new_task" }, goalId, expectedGoalVersion: 1, source: "user_explicit", confidence: 1 };
+
+  const failedTaskId = randomUUID();
+  const failedGroupId = randomUUID();
+  await assert.rejects(taskBatches.apply({ workspaceId, actorUserId: userId, groupId: failedGroupId, groupExists: false, steps: [makeCreate(failedTaskId, failedGroupId), link, { ...link, stepId: "duplicate" }], now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000) }));
+  assert.equal((await database.pool.query("select id from tasks where id=$1", [failedTaskId])).rowCount, 0);
+  assert.equal((await database.pool.query("select id from action_groups where id=$1", [failedGroupId])).rowCount, 0);
+
+  const taskId = randomUUID();
+  const groupId = randomUUID();
+  const applied = await taskBatches.apply({ workspaceId, actorUserId: userId, groupId, groupExists: false, steps: [makeCreate(taskId, groupId), link], now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000) });
+  assert.equal(applied.count, 2);
+  assert.equal((await database.pool.query("select task_id from task_goals where workspace_id=$1 and task_id=$2 and goal_id=$3", [workspaceId, taskId, goalId])).rowCount, 1);
+  assert.equal((await database.pool.query("select status from action_groups where id=$1 and status='applied'", [groupId])).rowCount, 1);
+  const undoClaim = await actions.claimUndo(workspaceId, userId, groupId, new Date());
+  assert.ok(undoClaim);
+  await taskBatches.undo({ workspaceId, groupId, events: undoClaim.events, now: new Date() });
+  assert.equal((await database.pool.query("select id from tasks where id=$1", [taskId])).rowCount, 0);
+  assert.equal((await database.pool.query("select status from action_groups where id=$1 and status='undone'", [groupId])).rowCount, 1);
+
+  const changedTaskId = randomUUID();
+  const changedGroupId = randomUUID();
+  await taskBatches.apply({ workspaceId, actorUserId: userId, groupId: changedGroupId, groupExists: false, steps: [makeCreate(changedTaskId, changedGroupId), link], now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000) });
+  await database.pool.query("update tasks set title='Изменено позже', version=version+1 where id=$1", [changedTaskId]);
+  const changedClaim = await actions.claimUndo(workspaceId, userId, changedGroupId, new Date());
+  assert.ok(changedClaim);
+  await assert.rejects(taskBatches.undo({ workspaceId, groupId: changedGroupId, events: changedClaim.events, now: new Date() }), /changed after the batch/);
+  assert.equal((await database.pool.query("select title from tasks where id=$1", [changedTaskId])).rows[0].title, "Изменено позже");
+});
+
+test("concurrent task batches cannot both apply the same expected task version", async () => {
+  const { workspaceId, userId } = await fixture();
+  const taskId = randomUUID();
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone) values ($1,$2,$3,'Исходная','task','normal','active','fuzzy','Europe/Kyiv')",
+    [taskId, workspaceId, userId],
+  );
+  const attempt = (title) => taskBatches.apply({
+    workspaceId, actorUserId: userId, groupId: randomUUID(), groupExists: false,
+    steps: [{ kind: "update", stepId: "edit", target: { kind: "persisted", taskId, expectedTaskVersion: 1 }, patch: { title } }],
+    now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000),
+  });
+  const results = await Promise.allSettled([attempt("Первый вариант"), attempt("Второй вариант")]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+  const row = (await database.pool.query("select title, version from tasks where id=$1", [taskId])).rows[0];
+  assert.ok(["Первый вариант", "Второй вариант"].includes(row.title));
+  assert.equal(row.version, 2);
+  assert.equal((await database.pool.query("select count(*)::int as count from action_groups where workspace_id=$1 and status='applied'", [workspaceId])).rows[0].count, 1);
 });
 
 test("sensitive profile and memory facts never enter the AI context", async () => {

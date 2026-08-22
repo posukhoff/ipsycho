@@ -1,5 +1,7 @@
 import { goalLinkDisposition, memoryDisposition } from "./context-policy.js";
 import type { Importance, MissPolicy, TaskKind, TimeMode } from "./types.js";
+import type { StructuredLocalScheduleInput } from "./local-schedule.js";
+import type { StructuredRecurrenceInput } from "./recurrence-input.js";
 
 export type ActionSource = "user_explicit" | "ai_inferred";
 export type SupportedActionType =
@@ -7,7 +9,7 @@ export type SupportedActionType =
   | "create_goal" | "update_goal" | "save_memory" | "delete_memory" | "link_task_to_goal"
   | "create_goal_plan"
   | "update_memory"
-  | "change_reminder" | "change_series" | "update_settings" | "update_occurrence";
+  | "change_reminder" | "change_series" | "update_settings" | "update_occurrence" | "task_batch";
 
 interface ActionBase { type: SupportedActionType; source: ActionSource; confidence: number; }
 
@@ -18,7 +20,9 @@ export interface CreateTaskDraft extends ActionBase {
     kind: TaskKind; importance: Importance; timeMode: TimeMode; timezone: string;
     plannedStartAt: string | null; plannedEndAt: string | null; plannedLocalDate: string | null;
     dueAt: string | null; dueLocalDate: string | null; fuzzyHorizonText: string | null; reviewAt: string | null;
+    localSchedule?: StructuredLocalScheduleInput | null;
     recurrenceRule: string | null; recurrenceTimezone: string | null; missPolicy: MissPolicy | null;
+    recurrence?: StructuredRecurrenceInput | null;
     habitMode: boolean; minimumAction: string | null; desiredAction: string | null; habitTrigger: string | null;
   };
 }
@@ -39,6 +43,7 @@ export interface RescheduleOccurrenceDraft extends ActionBase {
   schedule: {
     timezone: string; plannedStartAt: string | null; plannedEndAt: string | null; plannedLocalDate: string | null;
     dueAt: string | null; dueLocalDate: string | null; fuzzyHorizonText: string | null; reviewAt: string | null;
+    localSchedule?: StructuredLocalScheduleInput | null;
   };
 }
 
@@ -84,7 +89,7 @@ export interface ChangeSeriesDraft extends ActionBase {
   operation: "pause" | "resume" | "stop" | "cancel" | "edit";
   edit: null | {
     timezone: string;
-    recurrenceRule: string;
+    recurrenceRule: string | null;
     recurrenceTimezone: string;
     missPolicy: MissPolicy | null;
     plannedStartAt: string | null;
@@ -92,6 +97,8 @@ export interface ChangeSeriesDraft extends ActionBase {
     plannedLocalDate: string | null;
     dueAt: string | null;
     dueLocalDate: string | null;
+    localSchedule?: StructuredLocalScheduleInput | null;
+    recurrence?: StructuredRecurrenceInput | null;
   };
 }
 export interface UpdateSettingsDraft extends ActionBase {
@@ -125,12 +132,30 @@ export interface UpdateOccurrenceDraft extends ActionBase {
   details: string | null;
 }
 
+export type TaskBatchTaskRef =
+  | { kind: "persisted"; taskId: string; expectedTaskVersion: number }
+  | { kind: "created"; stepId: string };
+
+export type TaskBatchStepDraft =
+  | ({ operation: "create"; stepId: string } & Omit<CreateTaskDraft, "type">)
+  | ({ operation: "update"; stepId: string; target: Extract<TaskBatchTaskRef, { kind: "persisted" }> } & Omit<UpdateTaskDraft, "type" | "taskId" | "expectedVersion">)
+  | ({ operation: "reschedule"; stepId: string } & Omit<RescheduleOccurrenceDraft, "type">)
+  | ({ operation: "link_goal"; stepId: string; target: TaskBatchTaskRef } & Omit<LinkTaskToGoalDraft, "type" | "taskId" | "expectedTaskVersion">);
+
+export interface TaskBatchDraft extends ActionBase {
+  type: "task_batch";
+  steps: TaskBatchStepDraft[];
+}
+
 export type ProposedActionDraft = CreateTaskDraft | UpdateTaskDraft | CompleteOccurrenceDraft | RescheduleOccurrenceDraft
-  | CreateGoalDraft | CreateGoalPlanDraft | UpdateGoalDraft | SaveMemoryDraft | DeleteMemoryDraft | UpdateMemoryDraft | LinkTaskToGoalDraft | ChangeReminderDraft | ChangeSeriesDraft | UpdateSettingsDraft | UpdateOccurrenceDraft;
+  | CreateGoalDraft | CreateGoalPlanDraft | UpdateGoalDraft | SaveMemoryDraft | DeleteMemoryDraft | UpdateMemoryDraft | LinkTaskToGoalDraft | ChangeReminderDraft | ChangeSeriesDraft | UpdateSettingsDraft | UpdateOccurrenceDraft | TaskBatchDraft;
 
 export type ActionDisposition = "apply" | "confirm";
 
 export function actionDisposition(action: ProposedActionDraft): ActionDisposition {
+  if (action.type === "task_batch") {
+    return action.steps.some((step) => taskBatchStepDisposition(step) === "confirm") ? "confirm" : "apply";
+  }
   if (action.type === "save_memory") return memoryDisposition(action);
   if (action.type === "delete_memory") return "confirm";
   // A profile edit can replace sensitive information already stored on the account.
@@ -149,6 +174,18 @@ export function actionDisposition(action: ProposedActionDraft): ActionDispositio
   }
   if (action.type === "change_reminder" && action.reminder?.quietPolicy === "bypass" && !action.quietBypassExplicit) return "confirm";
   return "apply";
+}
+
+function taskBatchStepDisposition(step: TaskBatchStepDraft): ActionDisposition {
+  if (step.operation === "create") return actionDisposition({ ...step, type: "create_task" });
+  if (step.operation === "update") {
+    if (step.source !== "user_explicit") return "confirm";
+    if (step.patch.importance === "critical" && !step.criticalExplicit) return "confirm";
+    if (step.patch.habitMode === true && !step.habitModeExplicit) return "confirm";
+    return "apply";
+  }
+  if (step.operation === "link_goal") return goalLinkDisposition(step);
+  return step.source === "user_explicit" ? "apply" : "confirm";
 }
 
 export function splitActionsByDisposition(actions: readonly ProposedActionDraft[]): { immediate: ProposedActionDraft[]; pending: ProposedActionDraft[] } {

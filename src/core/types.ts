@@ -19,6 +19,8 @@ export interface TaskDefinition {
   reviewAt?: Date;
   recurrenceRule?: string;
   recurrenceTimezone?: string;
+  recurrenceEndLocalDate?: string;
+  recurrenceExcludedLocalDates?: readonly string[];
   missPolicy?: MissPolicy;
   habitMode?: boolean;
   minimumAction?: string;

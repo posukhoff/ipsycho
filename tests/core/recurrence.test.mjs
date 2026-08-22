@@ -10,6 +10,18 @@ test("recurrence parser accepts the supported subset", () => {
   });
 });
 
+test("bounded recurrence stops inclusively and skips excluded local dates", () => {
+  const occurrences = buildRecurringOccurrences({
+    kind: "event", importance: "normal", timeMode: "window", timezone: "Europe/Kyiv",
+    plannedStartAt: new Date("2026-08-25T15:30:00Z"),
+    plannedEndAt: new Date("2026-08-25T16:15:00Z"),
+    recurrenceRule: "FREQ=WEEKLY;BYDAY=TU,TH", recurrenceTimezone: "Europe/Kyiv", missPolicy: "expire",
+    recurrenceEndLocalDate: "2026-09-03",
+    recurrenceExcludedLocalDates: ["2026-08-25"],
+  }, new Date("2026-08-24T08:00:00Z"), 30);
+  assert.deepEqual(occurrences.map((item) => item.recurrenceKey), ["2026-08-27", "2026-09-01", "2026-09-03"]);
+});
+
 test("daily recurrence supports several explicit local times", () => {
   assert.deepEqual(parseRecurrenceRule("FREQ=DAILY;BYTIME=09:00,14:30,21:00"), {
     freq: "DAILY", interval: 1, byTime: ["09:00", "14:30", "21:00"],

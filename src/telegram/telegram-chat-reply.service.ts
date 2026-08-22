@@ -48,7 +48,7 @@ export class TelegramChatReplyService {
   }
 }
 
-function chatResultKeyboard(
+export function chatResultKeyboard(
   appliedGroupId?: string,
   pendingGroupId?: string,
   checkpointTopicId?: string,
@@ -82,7 +82,7 @@ function reviewHeader(review?: { kind: "evening" | "weekly"; step?: number; tota
   return `💭 Вечерний разбор · ${review.step ?? 1}/${review.totalSteps ?? 3}`;
 }
 
-function actionSummary(pendingCount: number): string {
+export function actionSummary(pendingCount: number): string {
   const parts: string[] = [];
   if (pendingCount) parts.push(pendingCount === 1 ? "Нужно подтверждение." : `Нужно подтвердить: ${pendingCount}.`);
   return parts.join(" ");

@@ -53,4 +53,25 @@ test("DeepSeek manual JSON contract includes every newly supported action", () =
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /update_occurrence/);
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /checklist/);
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /expectedVersion/);
+  assert.match(DEEPSEEK_JSON_INSTRUCTION, /task_batch/);
+});
+
+test("task_batch contract accepts task-only steps and rejects duplicate IDs", () => {
+  const create = {
+    operation: "create", stepId: "create_outreach", source: "user_explicit", confidence: 1,
+    criticalExplicit: false, habitModeExplicit: false, title: "Связаться с клиентом", why: null, nextAction: null, context: null,
+    checklist: null, goalLink: null,
+    definition: {
+      kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv",
+      plannedStartAt: null, plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null,
+      fuzzyHorizonText: null, reviewAt: null, recurrenceRule: null, recurrenceTimezone: null, missPolicy: null,
+      habitMode: false, minimumAction: null, desiredAction: null, habitTrigger: null,
+      localSchedule: { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-09-01", startTime: "09:30", endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null },
+      recurrence: null,
+    },
+  };
+  const batch = { type: "task_batch", source: "user_explicit", confidence: 1, steps: [create] };
+  assert.equal(AiTurnSchema.safeParse(baseTurn("Готово", batch)).success, true);
+  assert.equal(AiTurnSchema.safeParse(baseTurn("Нет", { ...batch, steps: [create, { ...create }] })).success, false);
+  assert.equal(AiTurnSchema.safeParse(baseTurn("Нет", { ...batch, steps: [{ ...create, operation: "save_memory" }] })).success, false);
 });

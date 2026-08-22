@@ -1,8 +1,35 @@
 import { z } from "zod";
+import { WeeklyReviewProgressSchema } from "../core/weekly-review-state.js";
 
 const NullableString = z.string().nullable();
 const ActionSourceSchema = z.enum(["user_explicit", "ai_inferred"]);
 const ConfidenceSchema = z.number().min(0).max(1);
+
+export const StructuredLocalScheduleSchema = z.object({
+  mode: z.enum(["exact", "window", "date", "deadline", "fuzzy"]),
+  timezone: z.string().min(1),
+  startDate: NullableString,
+  startTime: NullableString,
+  endDate: NullableString,
+  endTime: NullableString,
+  dueDate: NullableString,
+  dueTime: NullableString,
+  durationMinutes: z.number().int().min(1).max(10080).nullable(),
+  fuzzyHorizonText: NullableString,
+  reviewDate: NullableString,
+  reviewTime: NullableString,
+}).strict();
+
+export const StructuredRecurrenceSchema = z.object({
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  interval: z.number().int().min(1).max(365),
+  startsOn: z.string(),
+  endsOn: NullableString,
+  weekdays: z.array(z.enum(["MO", "TU", "WE", "TH", "FR", "SA", "SU"])).max(7).nullable(),
+  monthDays: z.array(z.number().int().min(1).max(31)).max(31).nullable(),
+  localTimes: z.array(z.string()).max(16).nullable(),
+  excludedLocalDates: z.array(z.string()).max(32).nullable(),
+}).strict();
 
 export const TaskDefinitionDraftSchema = z.object({
   kind: z.enum(["task", "event"]),
@@ -16,8 +43,10 @@ export const TaskDefinitionDraftSchema = z.object({
   dueLocalDate: NullableString,
   fuzzyHorizonText: NullableString,
   reviewAt: NullableString,
+  localSchedule: StructuredLocalScheduleSchema.nullable().optional().default(null),
   recurrenceRule: NullableString,
   recurrenceTimezone: NullableString,
+  recurrence: StructuredRecurrenceSchema.nullable().optional().default(null),
   missPolicy: z.enum(["expire", "carry_over"]).nullable(),
   habitMode: z.boolean(),
   minimumAction: NullableString,
@@ -92,6 +121,7 @@ export const RescheduleOccurrenceActionSchema = z.object({
     dueLocalDate: NullableString,
     fuzzyHorizonText: NullableString,
     reviewAt: NullableString,
+    localSchedule: StructuredLocalScheduleSchema.nullable().optional().default(null),
   }),
 });
 
@@ -155,6 +185,40 @@ export const LinkTaskToGoalActionSchema = z.object({
   expectedGoalVersion: z.number().int().positive(),
 });
 
+const TaskBatchTaskRefSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("persisted"), taskId: z.string().uuid(), expectedTaskVersion: z.number().int().positive() }).strict(),
+  z.object({ kind: z.literal("created"), stepId: z.string().min(1).max(64) }).strict(),
+]);
+
+const TaskBatchCreateStepSchema = CreateTaskActionSchema.omit({ type: true }).extend({
+  operation: z.literal("create"), stepId: z.string().min(1).max(64),
+}).strict();
+const TaskBatchUpdateStepSchema = UpdateTaskActionSchema.omit({ type: true, taskId: true, expectedVersion: true }).extend({
+  operation: z.literal("update"), stepId: z.string().min(1).max(64),
+  target: z.object({ kind: z.literal("persisted"), taskId: z.string().uuid(), expectedTaskVersion: z.number().int().positive() }).strict(),
+}).strict();
+const TaskBatchRescheduleStepSchema = RescheduleOccurrenceActionSchema.omit({ type: true }).extend({
+  operation: z.literal("reschedule"), stepId: z.string().min(1).max(64),
+}).strict();
+const TaskBatchGoalLinkStepSchema = LinkTaskToGoalActionSchema.omit({ type: true, taskId: true, expectedTaskVersion: true }).extend({
+  operation: z.literal("link_goal"), stepId: z.string().min(1).max(64), target: TaskBatchTaskRefSchema,
+}).strict();
+
+export const TaskBatchActionSchema = z.object({
+  type: z.literal("task_batch"),
+  source: ActionSourceSchema,
+  confidence: ConfidenceSchema,
+  steps: z.array(z.discriminatedUnion("operation", [
+    TaskBatchCreateStepSchema, TaskBatchUpdateStepSchema, TaskBatchRescheduleStepSchema, TaskBatchGoalLinkStepSchema,
+  ])).min(1).max(12),
+}).strict().superRefine((batch, ctx) => {
+  const seen = new Set<string>();
+  for (const [index, step] of batch.steps.entries()) {
+    if (seen.has(step.stepId)) ctx.addIssue({ code: "custom", path: ["steps", index, "stepId"], message: "stepId must be unique" });
+    seen.add(step.stepId);
+  }
+});
+
 
 export const ChangeReminderActionSchema = z.object({
   type: z.literal("change_reminder"),
@@ -181,7 +245,7 @@ export const ChangeSeriesActionSchema = z.object({
   operation: z.enum(["pause", "resume", "stop", "cancel", "edit"]),
   edit: z.object({
     timezone: z.string().min(1),
-    recurrenceRule: z.string().min(1),
+    recurrenceRule: NullableString,
     recurrenceTimezone: z.string().min(1),
     missPolicy: z.enum(["expire", "carry_over"]).nullable(),
     plannedStartAt: NullableString,
@@ -189,6 +253,8 @@ export const ChangeSeriesActionSchema = z.object({
     plannedLocalDate: NullableString,
     dueAt: NullableString,
     dueLocalDate: NullableString,
+    localSchedule: StructuredLocalScheduleSchema.nullable().optional().default(null),
+    recurrence: StructuredRecurrenceSchema.nullable().optional().default(null),
   }).nullable(),
 });
 export const UpdateSettingsActionSchema = z.object({
@@ -239,6 +305,7 @@ export const ProposedActionSchema = z.discriminatedUnion("type", [
   ChangeSeriesActionSchema,
   UpdateSettingsActionSchema,
   UpdateOccurrenceActionSchema,
+  TaskBatchActionSchema,
 ]);
 
 export const TopicDirectiveSchema = z.object({
@@ -255,6 +322,8 @@ export const AiTurnSchema = z.object({
   profileInvitation: z.boolean().optional().default(false),
   topic: TopicDirectiveSchema,
   topicModeSuggestion: z.enum(["normal", "analysis"]).nullable(),
+  goalAnalysisFocus: z.object({ goalId: z.string().uuid(), expectedVersion: z.number().int().positive() }).nullable().optional().default(null),
+  reviewProgress: WeeklyReviewProgressSchema.nullable().optional().default(null),
   actions: z.array(ProposedActionSchema).max(8),
 });
 

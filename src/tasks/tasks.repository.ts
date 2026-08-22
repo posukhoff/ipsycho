@@ -7,6 +7,7 @@ import {
   taskChecklistItems,
   taskEvents,
   taskOccurrences,
+  taskRecurrenceExclusions,
   tasks,
   userSettings,
   workspaceMembers,
@@ -18,6 +19,7 @@ export interface PersistedTaskPlan {
   reminderRules: Array<typeof reminderRules.$inferInsert>;
   reminderDeliveries: Array<typeof reminderDeliveries.$inferInsert>;
   checklist: Array<typeof taskChecklistItems.$inferInsert>;
+  recurrenceExclusions: Array<typeof taskRecurrenceExclusions.$inferInsert>;
 }
 
 @Injectable()
@@ -85,6 +87,14 @@ export class TasksRepository {
       eq(taskChecklistItems.workspaceId, workspaceId),
       inArray(taskChecklistItems.taskId, [...taskIds]),
     )).orderBy(asc(taskChecklistItems.sortOrder));
+  }
+
+  async listRecurrenceExclusions(workspaceId: string, taskIds: readonly string[]) {
+    if (!taskIds.length) return [];
+    return this.database.db.select().from(taskRecurrenceExclusions).where(and(
+      eq(taskRecurrenceExclusions.workspaceId, workspaceId),
+      inArray(taskRecurrenceExclusions.taskId, [...taskIds]),
+    )).orderBy(asc(taskRecurrenceExclusions.taskId), asc(taskRecurrenceExclusions.localDate));
   }
 
   async listActiveOccurrencesForTasks(workspaceId: string, taskIds: readonly string[], limit = 40) {
@@ -157,6 +167,7 @@ export class TasksRepository {
     await this.database.db.transaction(async (tx) => {
       for (const plan of plans) {
         await tx.insert(tasks).values(plan.task);
+        if (plan.recurrenceExclusions.length) await tx.insert(taskRecurrenceExclusions).values(plan.recurrenceExclusions);
         if (plan.occurrences.length) await tx.insert(taskOccurrences).values(plan.occurrences);
         if (plan.reminderRules.length) await tx.insert(reminderRules).values(plan.reminderRules);
         if (plan.reminderDeliveries.length) await tx.insert(reminderDeliveries).values(plan.reminderDeliveries);

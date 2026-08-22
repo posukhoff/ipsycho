@@ -4,6 +4,8 @@ import { validateTopicDirective, type TopicDirective } from "../core/context-pol
 import { profileOnboardingState } from "../core/profile-onboarding.js";
 import { ContextRepository } from "./context.repository.js";
 import { SettingsService } from "../settings/settings.service.js";
+import { resolveGoalFocus } from "../core/goal-focus.js";
+import { emptyWeeklyReviewState, mergeWeeklyReviewProgress, parseWeeklyReviewState, type WeeklyReviewProgress } from "../core/weekly-review-state.js";
 
 const TOPIC_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
@@ -20,12 +22,14 @@ export class ContextService {
       this.repository.listTopics(input.workspaceId, input.userId),
       this.repository.searchMemory(input.workspaceId, input.userId, input.query, 5),
       this.repository.listProfile(input.workspaceId, input.userId),
-      this.repository.listGoalsForContext(input.workspaceId),
+      this.repository.listGoalsWithTasks(input.workspaceId, 12),
       this.repository.listOpenOccurrences(input.workspaceId),
       this.repository.profileInvitationState(input.userId),
       this.settings?.get(input.userId) ?? Promise.resolve(null),
     ]);
     const taskGoalLinks = await this.repository.listTaskGoalLinks(input.workspaceId, [...new Set(openOccurrences.map((row) => row.task.id))]);
+    const goalRows = goals.map((item) => item.goal);
+    const goalResolution = resolveGoalFocus(input.query, goalRows.map((goal) => ({ goalId: goal.id, goalVersion: goal.version, title: goal.title, status: goal.status })), topics.flatMap((topic) => [topic.title, topic.summary]));
     const aiSafeMemories = memories.filter((item) => !item.sensitive);
     const aiSafeProfile = profile.filter((item) => !item.sensitive);
 
@@ -64,6 +68,7 @@ export class ContextService {
         mode: topic.mode,
         reviewKind: topic.reviewKind,
         clarificationCount: topic.clarificationCount,
+        reviewState: topic.reviewKind === "weekly" ? parseWeeklyReviewState(topic.reviewState) : null,
         lastMessageAt: topic.lastMessageAt.toISOString(),
       })),
       // Sensitive facts are durable local records, not AI context. A user can still
@@ -87,7 +92,7 @@ export class ContextService {
         lastInvitedAt: profileInvitedAt,
         now: input.now ?? new Date(),
       }),
-      goals: goals.map((goal) => ({
+      goals: goals.map(({ goal, tasks: linkedTasks }) => ({
         goalId: goal.id,
         goalVersion: goal.version,
         title: goal.title,
@@ -96,7 +101,14 @@ export class ContextService {
         reviewEnabled: goal.reviewEnabled,
         targetLocalDate: goal.targetLocalDate,
         nextReviewAt: goal.nextReviewAt?.toISOString() ?? null,
+        linkedTasks: linkedTasks.map((task) => ({
+          taskId: task.id, taskVersion: task.version, title: task.title, importance: task.importance, timeMode: task.timeMode,
+          plannedStartAt: task.plannedStartAt?.toISOString() ?? null, plannedLocalDate: task.plannedLocalDate,
+          dueAt: task.dueAt?.toISOString() ?? null, dueLocalDate: task.dueLocalDate, recurrenceRule: task.recurrenceRule,
+          status: task.status,
+        })),
       })),
+      goalResolution,
       taskGoalLinks: taskGoalLinks.map((link) => ({ taskId: link.taskId, goalId: link.goalId })),
       recentBlockers: recentBlockers.filter((item) => item.details).map((item) => ({
         taskId: item.taskId, occurrenceId: item.occurrenceId, blocker: item.details, createdAt: item.createdAt.toISOString(),
@@ -216,6 +228,7 @@ export class ContextService {
         : "Совместное планирование следующей недели: приоритеты, незавершённые задачи и реалистичные сроки. Ничего не переносить без явного выбора пользователя.",
       mode: "normal",
       reviewKind: input.kind,
+      ...(input.kind === "weekly" ? { reviewState: emptyWeeklyReviewState() } : {}),
       now,
       summaryExpiresAt: new Date(now.getTime() + TOPIC_RETENTION_MS),
     });
@@ -225,6 +238,15 @@ export class ContextService {
 
   updateClarificationCount(input: { workspaceId: string; userId: string; topicId: string; askedQuestion: boolean; now?: Date }): Promise<number> {
     return this.repository.updateClarificationCount({ ...input, now: input.now ?? new Date() });
+  }
+
+  async mergeWeeklyReviewProgress(input: { workspaceId: string; userId: string; topicId: string; progress: WeeklyReviewProgress | null | undefined; now?: Date }) {
+    const topic = await this.repository.findTopic(input.workspaceId, input.userId, input.topicId);
+    if (!topic || topic.reviewKind !== "weekly") throw new Error("weekly review topic is missing");
+    const state = mergeWeeklyReviewProgress(topic.reviewState, input.progress);
+    const updated = await this.repository.updateReviewState({ workspaceId: input.workspaceId, userId: input.userId, topicId: input.topicId, reviewState: state, now: input.now ?? new Date() });
+    if (!updated) throw new Error("weekly review state changed");
+    return state;
   }
 
   resetClarificationCount(workspaceId: string, userId: string, topicId: string, now = new Date()): Promise<void> {

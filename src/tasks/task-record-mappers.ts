@@ -3,7 +3,7 @@ import type { OccurrenceProjection } from "../core/recurrence.js";
 import type { TaskDefinition } from "../core/types.js";
 import { reminderRules, taskOccurrences, tasks, userSettings } from "../database/schema.js";
 
-export function taskDefinitionFromRow(row: typeof tasks.$inferSelect): TaskDefinition {
+export function taskDefinitionFromRow(row: typeof tasks.$inferSelect, recurrenceExcludedLocalDates: readonly string[] = []): TaskDefinition {
   return {
     kind: row.kind,
     importance: row.importance,
@@ -18,6 +18,8 @@ export function taskDefinitionFromRow(row: typeof tasks.$inferSelect): TaskDefin
     ...(row.reviewAt ? { reviewAt: row.reviewAt } : {}),
     ...(row.recurrenceRule ? { recurrenceRule: row.recurrenceRule } : {}),
     ...(row.recurrenceTimezone ? { recurrenceTimezone: row.recurrenceTimezone } : {}),
+    ...(row.recurrenceEndLocalDate ? { recurrenceEndLocalDate: row.recurrenceEndLocalDate } : {}),
+    ...(recurrenceExcludedLocalDates.length ? { recurrenceExcludedLocalDates } : {}),
     ...(row.missPolicy ? { missPolicy: row.missPolicy } : {}),
     habitMode: row.habitMode,
     ...(row.minimumAction ? { minimumAction: row.minimumAction } : {}),

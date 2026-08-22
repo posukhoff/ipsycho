@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, type OnApplicationBootstrap } from "@nestjs/common";
+import { Inject, Injectable, type OnApplicationBootstrap } from "@nestjs/common";
+import { APP_CONFIG, type AppConfig } from "../config.js";
 import { ProposedActionSchema } from "../ai/ai-contracts.js";
 import { ACTION_CONFIRMATION_TTL_MS, ACTION_UNDO_TTL_MS, actionExpiry } from "../core/action-lifecycle.js";
 import { habitOfferEligible } from "../core/habit-policy.js";
 import { validateOneTimeTaskTiming } from "../core/task-policy.js";
+import { compileTaskBatchShape } from "../core/task-batch.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import {
   splitActionsByDisposition,
@@ -30,6 +32,7 @@ import { ActionMutationsRepository } from "./action-mutations.repository.js";
 import { ActionsRepository } from "./actions.repository.js";
 import { safeError } from "../observability/safe-error.js";
 import { SettingsService } from "../settings/settings.service.js";
+import { TaskBatchRepository, type PreparedTaskBatchStep } from "./task-batch.repository.js";
 
 export interface ActionScope {
   workspaceId: string;
@@ -71,7 +74,13 @@ export class ActionsService implements OnApplicationBootstrap {
     private readonly context: ContextService,
     private readonly contextActions: ContextActionsRepository,
     private readonly settings: SettingsService,
+    private readonly taskBatches: TaskBatchRepository,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  isTaskBatchEnabled(): boolean {
+    return this.config.taskBatchEnabled;
+  }
 
   async validate(actions: readonly ProposedActionDraft[], scope: Omit<ActionScope, "sourceMessageId">): Promise<string[]> {
     const now = scope.now ?? new Date();
@@ -83,6 +92,41 @@ export class ActionsService implements OnApplicationBootstrap {
       const action = actions[index];
       if (!action) continue;
       try {
+        if (action.type === "task_batch") {
+          if (!this.config.taskBatchEnabled) throw new Error("task_batch rollout is disabled");
+          compileTaskBatchShape(action);
+          for (const step of action.steps) {
+            if (step.operation === "create") {
+              createTaskInputFromAction({ ...step, type: "create_task" }, { ...scope, now });
+              if (step.goalLink) {
+                const goal = await this.context.findGoal(scope.workspaceId, step.goalLink.goalId);
+                if (!goal || goal.status !== "active" || goal.version !== step.goalLink.expectedGoalVersion) throw new Error(`step ${step.stepId}: linked goal is missing or stale`);
+              }
+              continue;
+            }
+            if (step.operation === "update") {
+              validateUpdateTaskAction({ ...step, type: "update_task", taskId: step.target.kind === "persisted" ? step.target.taskId : scope.actorUserId, expectedVersion: step.target.kind === "persisted" ? step.target.expectedTaskVersion : 1 });
+              if (step.target.kind === "persisted") {
+                const task = await this.tasks.getTask(scope.workspaceId, step.target.taskId);
+                if (!task || task.version !== step.target.expectedTaskVersion) throw new Error(`step ${step.stepId}: target task is missing or stale`);
+              }
+              continue;
+            }
+            if (step.operation === "link_goal") {
+              const goal = await this.context.findGoal(scope.workspaceId, step.goalId);
+              if (!goal || goal.version !== step.expectedGoalVersion || goal.status !== "active") throw new Error(`step ${step.stepId}: target goal is missing or stale`);
+              if (step.target.kind === "persisted") {
+                const task = await this.tasks.getTask(scope.workspaceId, step.target.taskId);
+                if (!task || task.version !== step.target.expectedTaskVersion) throw new Error(`step ${step.stepId}: target task is missing or stale`);
+                if (await this.context.findTaskGoalLink(scope.workspaceId, step.target.taskId, step.goalId)) throw new Error(`step ${step.stepId}: task is already linked to this goal`);
+              }
+              continue;
+            }
+            const stepErrors = await this.validate([{ ...step, type: "reschedule_occurrence" }], scope);
+            if (stepErrors.length) throw new Error(`step ${step.stepId}: ${stepErrors.join("; ")}`);
+          }
+          continue;
+        }
         if (action.type === "create_task") {
           createTaskInputFromAction(action, { ...scope, now });
           if (action.goalLink) {
@@ -218,12 +262,14 @@ export class ActionsService implements OnApplicationBootstrap {
   }
 
   async handleProposed(actions: readonly ProposedActionDraft[], scope: ActionScope): Promise<ProposedActionsResult> {
+    if (this.config.taskBatchEnabled) actions = normalizeEligibleTaskBatch(actions);
     const batchError = validateActionBatchShape(actions);
     if (batchError) throw new InvalidAiActionError(batchError);
     const { immediate, pending } = splitActionsByDisposition(actions);
     const result: ProposedActionsResult = {};
     const warnings: string[] = [];
-    let newCriticalCount = actions.filter((action) => action.type === "create_task" && action.definition.importance === "critical").length;
+    let newCriticalCount = actions.reduce((count, action) => count + (action.type === "create_task" && action.definition.importance === "critical" ? 1
+      : action.type === "task_batch" ? action.steps.filter((step) => step.operation === "create" && step.definition.importance === "critical").length : 0), 0);
     for (const action of actions) {
       if (action.type !== "update_task" || action.patch.importance !== "critical") continue;
       const existing = await this.tasks.getTask(scope.workspaceId, action.taskId);
@@ -290,6 +336,12 @@ export class ActionsService implements OnApplicationBootstrap {
       const action = actions[0];
       if (!action) throw new Error("empty action group");
       if (action.type === "create_goal_plan") return this.applyGoalPlan(action, { workspaceId, actorUserId, recipientUserId, now, ...(claimed.group.sourceMessageId ? { sourceMessageId: claimed.group.sourceMessageId } : {}) }, groupId);
+      if (action.type === "task_batch") {
+        const scope = { workspaceId, actorUserId, recipientUserId, now, ...(claimed.group.sourceMessageId ? { sourceMessageId: claimed.group.sourceMessageId } : {}) };
+        const errors = await this.validate([action], scope);
+        if (errors.length) throw new InvalidAiActionError(errors.join("; "));
+        return this.applyTaskBatch(action, scope, groupId, true);
+      }
       if (action.type === "create_task") throw new Error("mixed create/mutation action group is not supported");
       return await this.applyClaimedMutation(action, {
         workspaceId, actorUserId, recipientUserId, now,
@@ -349,6 +401,22 @@ export class ActionsService implements OnApplicationBootstrap {
       }
     }
 
+    const mixedTaskBatch = (claimed.events.some((event) => event.actionType === "create_task") && !createOnly)
+      || (claimed.events.some((event) => event.entityType === "task_goal") && !contextOnly);
+    if (mixedTaskBatch) {
+      try {
+        const result = await this.taskBatches.undo({ workspaceId, groupId, events: claimed.events, now });
+        for (const occurrenceId of result.reminderRebuildOccurrenceIds) {
+          await this.reminders.rebuildOccurrence(workspaceId, occurrenceId).catch((error) => console.error("batch reminder rebuild deferred after undo", { occurrenceId, error: safeError(error) }));
+        }
+        return;
+      } catch (error) {
+        console.warn("task batch undo refused", { groupId, reasonCode: taskBatchFailureCode(error), error: safeError(error) });
+        await this.repository.releaseUndoClaim(workspaceId, groupId).catch(() => undefined);
+        throw error;
+      }
+    }
+
     try {
       const result = await this.mutations.undoMutationGroup({
         workspaceId,
@@ -389,6 +457,7 @@ export class ActionsService implements OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap(): Promise<void> {
+    if (!this.config.taskBatchEnabled) await this.repository.cancelPendingTaskBatches(new Date()).catch((error) => console.error("pending task batch cancellation failed", safeError(error)));
     await this.recoverInterruptedActions();
   }
 
@@ -442,12 +511,9 @@ export class ActionsService implements OnApplicationBootstrap {
   private async applyActions(actions: ProposedActionDraft[], scope: ActionScope) {
     const now = scope.now ?? new Date();
     const groupId = randomUUID();
-    await this.repository.createImmediateGroup({
-      id: groupId,
-      workspaceId: scope.workspaceId,
-      actorUserId: scope.actorUserId,
-      ...(scope.sourceMessageId ? { sourceMessageId: scope.sourceMessageId } : {}),
-    });
+    const taskBatch = actions.length === 1 && actions[0]?.type === "task_batch" ? actions[0] : null;
+    if (taskBatch) return this.applyTaskBatch(taskBatch, { ...scope, now }, groupId, false);
+    await this.repository.createImmediateGroup({ id: groupId, workspaceId: scope.workspaceId, actorUserId: scope.actorUserId, ...(scope.sourceMessageId ? { sourceMessageId: scope.sourceMessageId } : {}) });
 
     if (actions.every((action) => action.type === "create_task")) {
       const createActions = actions as Array<Extract<ProposedActionDraft, { type: "create_task" }>>;
@@ -522,6 +588,7 @@ export class ActionsService implements OnApplicationBootstrap {
     groupId: string,
   ) {
     const undoExpiresAt = actionExpiry(scope.now, ACTION_UNDO_TTL_MS);
+    if (action.type === "task_batch") return this.applyTaskBatch(action, scope, groupId, true);
     if (action.type === "update_task") {
       validateUpdateTaskAction(action);
       const result = await this.mutations.applyUpdateTask({
@@ -713,6 +780,69 @@ export class ActionsService implements OnApplicationBootstrap {
     }
   }
 
+  private async applyTaskBatch(
+    action: Extract<ProposedActionDraft, { type: "task_batch" }>,
+    scope: ActionScope & { now: Date },
+    groupId: string,
+    groupExists: boolean,
+  ) {
+    compileTaskBatchShape(action);
+    const createSteps = action.steps.filter((step): step is Extract<typeof step, { operation: "create" }> => step.operation === "create");
+    const builtCreates = await this.tasks.prepareTaskPlans(createSteps.map((step) => createTaskInputFromAction(
+      { ...step, type: "create_task" },
+      { workspaceId: scope.workspaceId, actorUserId: scope.actorUserId, recipientUserId: scope.recipientUserId, sourceActionGroupId: groupId, now: scope.now },
+    )));
+    const builtByStep = new Map(createSteps.map((step, index) => [step.stepId, builtCreates[index]!]));
+    const prepared: PreparedTaskBatchStep[] = action.steps.map((step) => {
+      if (step.operation === "create") return { kind: "create", stepId: step.stepId, action: step, built: builtByStep.get(step.stepId)! };
+      if (step.operation === "update") {
+        validateUpdateTaskAction({ ...step, type: "update_task", taskId: step.target.kind === "persisted" ? step.target.taskId : scope.actorUserId, expectedVersion: step.target.kind === "persisted" ? step.target.expectedTaskVersion : 1 });
+        return {
+          kind: "update", stepId: step.stepId, target: step.target,
+          patch: {
+            ...(step.patch.title !== null ? { title: step.patch.title.trim() } : {}), ...(step.patch.why !== null ? { why: step.patch.why.trim() } : {}),
+            ...(step.patch.nextAction !== null ? { nextAction: step.patch.nextAction.trim() } : {}), ...(step.patch.context !== null ? { context: step.patch.context.trim() } : {}),
+            ...(step.patch.importance !== null ? { importance: step.patch.importance } : {}),
+            ...(step.patch.checklist !== null ? { checklist: step.patch.checklist.map((item) => ({ text: item.text.trim(), done: item.done })) } : {}),
+            ...(step.patch.habitMode !== null ? { habitMode: step.patch.habitMode } : {}),
+            ...(step.patch.minimumAction !== null ? { minimumAction: step.patch.minimumAction.trim() } : {}),
+            ...(step.patch.desiredAction !== null ? { desiredAction: step.patch.desiredAction.trim() } : {}),
+            ...(step.patch.habitTrigger !== null ? { habitTrigger: step.patch.habitTrigger.trim() } : {}),
+          },
+        };
+      }
+      if (step.operation === "reschedule") return {
+        kind: "reschedule", stepId: step.stepId, occurrenceId: step.occurrenceId, expectedVersion: step.expectedVersion,
+        scheduleTimezone: step.schedule.timezone, schedule: rescheduleFieldsFromAction({ ...step, type: "reschedule_occurrence" }),
+        ...(step.reason?.trim() ? { reason: step.reason.trim() } : {}),
+      };
+      return { kind: "link", stepId: step.stepId, target: step.target, goalId: step.goalId, expectedGoalVersion: step.expectedGoalVersion, source: step.source, confidence: step.confidence };
+    });
+    let applied: Awaited<ReturnType<TaskBatchRepository["apply"]>>;
+    try {
+      applied = await this.taskBatches.apply({
+        workspaceId: scope.workspaceId, actorUserId: scope.actorUserId, groupId, groupExists, steps: prepared,
+        ...(scope.sourceMessageId ? { sourceMessageId: scope.sourceMessageId } : {}),
+        now: scope.now, undoExpiresAt: actionExpiry(scope.now, ACTION_UNDO_TTL_MS),
+      });
+    } catch (error) {
+      console.warn("task batch application refused", { groupId, stepCount: prepared.length, reasonCode: taskBatchFailureCode(error), error: safeError(error) });
+      throw error;
+    }
+    console.info("task batch applied", {
+      groupId: applied.groupId,
+      stepCount: applied.count,
+      reminderRebuildCount: applied.reminderRebuildOccurrenceIds.length,
+    });
+    await this.tasks.enqueuePreparedTaskPlans(builtCreates);
+    for (const occurrenceId of applied.reminderRebuildOccurrenceIds) {
+      await this.reminders.rebuildOccurrence(scope.workspaceId, occurrenceId).catch((error) => {
+        console.error("batch reminder rebuild deferred", { occurrenceId, error: safeError(error) });
+      });
+    }
+    return { groupId: applied.groupId, count: applied.count, titles: applied.titles };
+  }
+
   private async storePending(actions: ProposedActionDraft[], scope: ActionScope) {
     const now = scope.now ?? new Date();
     const groupId = randomUUID();
@@ -730,7 +860,8 @@ export class ActionsService implements OnApplicationBootstrap {
         if (!marked) { await this.repository.cancelPendingGroup(scope.workspaceId, scope.actorUserId, groupId).catch(() => undefined); throw new InvalidAiActionError("habit mode was already offered for this task"); }
       }
     }
-    return { groupId, count: actions.length, titles: actions.map(describeAction) };
+    const batch = actions.length === 1 && actions[0]?.type === "task_batch" ? actions[0] : null;
+    return { groupId, count: batch ? batch.steps.length : actions.length, titles: batch ? [...compileTaskBatchShape(batch).summaries] : actions.map(describeAction) };
   }
 
   private async finalizeCreatedTasks(
@@ -879,6 +1010,7 @@ export class ActionsService implements OnApplicationBootstrap {
 }
 
 function describeAction(action: ProposedActionDraft): string {
+  if (action.type === "task_batch") return `Пакет из ${action.steps.length} действий`;
   if (action.type === "create_task") return action.title;
   if (action.type === "update_task") return "Изменить задачу";
   if (action.type === "complete_occurrence") return "Отметить выполнение";
@@ -894,6 +1026,30 @@ function describeAction(action: ProposedActionDraft): string {
   if (action.type === "update_settings") return "Изменить настройки";
   if (action.type === "update_occurrence") return "Изменить состояние задачи";
   return "Связать задачу с целью";
+}
+
+function normalizeEligibleTaskBatch(actions: readonly ProposedActionDraft[]): readonly ProposedActionDraft[] {
+  if (actions.length <= 1 || !actions.every((action) => action.type === "create_task")) return actions;
+  const creates = actions as readonly Extract<ProposedActionDraft, { type: "create_task" }>[];
+  return [{
+    type: "task_batch",
+    source: creates.every((action) => action.source === "user_explicit") ? "user_explicit" : "ai_inferred",
+    confidence: Math.min(...creates.map((action) => action.confidence)),
+    steps: creates.map((action, index) => {
+      const { type: _type, ...draft } = action;
+      return { ...draft, operation: "create" as const, stepId: `legacy_create_${index + 1}` };
+    }),
+  }];
+}
+
+function taskBatchFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/stale|changed|version|claimable/i.test(message)) return "optimistic_conflict";
+  if (/missing/i.test(message)) return "missing_target";
+  if (/already linked|duplicate|unique/i.test(message)) return "duplicate_relation";
+  if (/workspace|member|foreign key/i.test(message)) return "workspace_scope";
+  if (/reminder|reschedul/i.test(message)) return "schedule_conflict";
+  return "invalid_batch";
 }
 
 

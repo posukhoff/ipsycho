@@ -134,7 +134,7 @@ function recurrenceDates(seed: string, rule: RecurrenceRule, through: string): s
   return result.sort();
 }
 
-function recurrenceAnchorLocalDate(task: TaskDefinition, timezone: string): string {
+export function recurrenceAnchorLocalDate(task: TaskDefinition, timezone: string): string {
   if (task.timeMode === "point" || task.timeMode === "window") {
     if (task.plannedStartAt) return localDateAt(task.plannedStartAt, timezone);
     if (task.plannedLocalDate) return task.plannedLocalDate;
@@ -267,7 +267,11 @@ export function buildRecurringOccurrences(task: TaskDefinition, now: Date, horiz
     : rule.freq === "WEEKLY"
       ? rule.interval * 7
       : 370 * rule.interval;
-  const extension = shiftLocalDate(horizon, extensionDays);
+  const requestedExtension = shiftLocalDate(horizon, extensionDays);
+  const extension = task.recurrenceEndLocalDate && compareLocalDates(task.recurrenceEndLocalDate, requestedExtension) < 0
+    ? task.recurrenceEndLocalDate
+    : requestedExtension;
+  if (compareLocalDates(extension, seed) < 0 || compareLocalDates(extension, today) < 0) return [];
   const dates = recurrenceDates(seed, rule, extension);
   const visible = dates.filter((date) => compareLocalDates(date, horizon) <= 0 && compareLocalDates(date, today) >= 0);
   if (!visible.length && compareLocalDates(seed, horizon) <= 0 && compareLocalDates(seed, today) < 0) {
@@ -275,7 +279,8 @@ export function buildRecurringOccurrences(task: TaskDefinition, now: Date, horiz
     return [];
   }
 
-  const slots = dates.flatMap((date) => (rule.byTime ?? [undefined])
+  const excludedDates = new Set(task.recurrenceExcludedLocalDates ?? []);
+  const slots = dates.filter((date) => !excludedDates.has(date)).flatMap((date) => (rule.byTime ?? [undefined])
     .filter((time) => date !== seed || !time || !seedTime || time >= seedTime)
     .map((time) => ({ date, time })));
   const projections = slots.map(({ date, time }) => buildProjectionForDate(task, date, seed, timezone, time));

@@ -18,6 +18,7 @@ import {
   taskChecklistItems,
   taskEvents,
   taskOccurrences,
+  taskRecurrenceExclusions,
   tasks,
   userSettings,
 } from "../database/schema.js";
@@ -570,6 +571,10 @@ export class ActionMutationsRepository {
       if (input.operation === "resume" && (task.status !== "paused" || !task.recurrenceRule)) throw new Error("only a paused recurring series can resume");
       if (input.operation === "edit" && !input.editDefinition) throw new Error("series edit definition is required");
 
+      const beforeExclusions = await tx.select({ localDate: taskRecurrenceExclusions.localDate }).from(taskRecurrenceExclusions).where(and(
+        eq(taskRecurrenceExclusions.workspaceId, input.workspaceId), eq(taskRecurrenceExclusions.taskId, input.taskId),
+      ));
+
       const occurrences = await tx.select().from(taskOccurrences).where(and(
         eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.taskId, input.taskId),
       ));
@@ -582,7 +587,7 @@ export class ActionMutationsRepository {
 
       const taskPatch: Partial<typeof tasks.$inferInsert> = { status: parentStatus, updatedAt: input.now };
       if (input.operation === "stop") {
-        taskPatch.recurrenceRule = null; taskPatch.recurrenceTimezone = null; taskPatch.missPolicy = null;
+        taskPatch.recurrenceRule = null; taskPatch.recurrenceTimezone = null; taskPatch.recurrenceEndLocalDate = null; taskPatch.missPolicy = null;
       }
       if (input.operation === "edit") {
         const definition = input.editDefinition!;
@@ -594,6 +599,7 @@ export class ActionMutationsRepository {
         taskPatch.dueLocalDate = definition.dueLocalDate ?? null;
         taskPatch.recurrenceRule = definition.recurrenceRule!;
         taskPatch.recurrenceTimezone = definition.recurrenceTimezone!;
+        taskPatch.recurrenceEndLocalDate = definition.recurrenceEndLocalDate ?? null;
         taskPatch.missPolicy = definition.missPolicy ?? null;
         taskPatch.seriesRevision = task.seriesRevision + 1;
       }
@@ -604,9 +610,24 @@ export class ActionMutationsRepository {
         eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, input.taskId), eq(tasks.version, input.expectedVersion),
       )).returning();
       if (!afterTask) throw new Error("series task changed");
+      if (input.operation === "stop" || input.operation === "edit") {
+        await tx.delete(taskRecurrenceExclusions).where(and(
+          eq(taskRecurrenceExclusions.workspaceId, input.workspaceId), eq(taskRecurrenceExclusions.taskId, input.taskId),
+        ));
+        if (input.operation === "edit" && input.editDefinition?.recurrenceExcludedLocalDates?.length) {
+          await tx.insert(taskRecurrenceExclusions).values(input.editDefinition.recurrenceExcludedLocalDates.map((localDate) => ({
+            workspaceId: input.workspaceId, taskId: input.taskId, localDate,
+          })));
+        }
+      }
+      const afterExcludedDates = input.operation === "edit"
+        ? [...(input.editDefinition?.recurrenceExcludedLocalDates ?? [])]
+        : input.operation === "stop" ? [] : beforeExclusions.map((row) => row.localDate);
       await tx.insert(actionEvents).values({
         workspaceId: input.workspaceId, groupId: input.groupId, actionType: "change_series", entityType: "task", entityId: task.id,
-        postVersion: afterTask.version, beforeState: taskMutableState(task), afterState: taskMutableState(afterTask),
+        postVersion: afterTask.version,
+        beforeState: taskMutableState(task, beforeExclusions.map((row) => row.localDate)),
+        afterState: taskMutableState(afterTask, afterExcludedDates),
       });
 
       for (const occurrence of occurrences) {
@@ -727,6 +748,7 @@ export class ActionMutationsRepository {
             reviewAt: parseJsonDate(state.reviewAt),
             recurrenceRule: state.recurrenceRule,
             recurrenceTimezone: state.recurrenceTimezone,
+            recurrenceEndLocalDate: state.recurrenceEndLocalDate,
             missPolicy: state.missPolicy,
             habitMode: state.habitMode,
             minimumAction: state.minimumAction,
@@ -742,7 +764,17 @@ export class ActionMutationsRepository {
             eq(tasks.version, event.postVersion),
           )).returning({ id: tasks.id });
           if (!restored) throw new Error("undo target task changed after action");
-          if (event.actionType === "change_series") reconcileTasks.add(event.entityId);
+          if (event.actionType === "change_series") {
+            await tx.delete(taskRecurrenceExclusions).where(and(
+              eq(taskRecurrenceExclusions.workspaceId, input.workspaceId), eq(taskRecurrenceExclusions.taskId, event.entityId),
+            ));
+            if (state.recurrenceExcludedLocalDates.length) {
+              await tx.insert(taskRecurrenceExclusions).values(state.recurrenceExcludedLocalDates.map((localDate) => ({
+                workspaceId: input.workspaceId, taskId: event.entityId, localDate,
+              })));
+            }
+            reconcileTasks.add(event.entityId);
+          }
           const checklist = (state as typeof state & { checklist?: Array<{ text: string; done: boolean }> }).checklist;
           if (event.actionType === "update_task" && checklist) {
             await tx.delete(taskChecklistItems).where(and(
@@ -842,7 +874,7 @@ async function finalizeGroup(tx: DbTransaction, workspaceId: string, groupId: st
   if (!updated) throw new Error("action group is not claimable as applied");
 }
 
-function taskMutableState(row: typeof tasks.$inferSelect) {
+function taskMutableState(row: typeof tasks.$inferSelect, recurrenceExcludedLocalDates: readonly string[] = []) {
   return {
     title: row.title,
     why: row.why,
@@ -861,6 +893,8 @@ function taskMutableState(row: typeof tasks.$inferSelect) {
     reviewAt: row.reviewAt?.toISOString() ?? null,
     recurrenceRule: row.recurrenceRule,
     recurrenceTimezone: row.recurrenceTimezone,
+    recurrenceEndLocalDate: row.recurrenceEndLocalDate,
+    recurrenceExcludedLocalDates: [...recurrenceExcludedLocalDates],
     missPolicy: row.missPolicy,
     habitMode: row.habitMode,
     minimumAction: row.minimumAction,

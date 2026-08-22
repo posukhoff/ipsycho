@@ -7,8 +7,8 @@ Current package version: `1.0.0-rc.4`. The product contract is defined by [Imple
 ## Capabilities
 
 - Private, allowlisted multi-user bot with isolated workspaces.
-- Tasks and events with point, window, deadline and fuzzy scheduling; checklists, importance, next actions and optimistic versions.
-- Daily, weekly and monthly recurrence with timezone/DST-aware materialization and occurrence-level start, completion, skip, cancel, reschedule, Seen and blocker states.
+- Tasks and events with structured local point, window, date-only, deadline and fuzzy scheduling; checklists, importance, next actions and optimistic versions.
+- Daily, weekly and monthly recurrence with timezone/DST-aware materialization, optional inclusive end date and finite excluded local dates; occurrence-level start, completion, skip, cancel, reschedule, Seen and blocker states.
 - Durable reminders, quiet hours, snooze, escalation, morning/evening digests and weekly reviews.
 - Goals, task-goal links, conversational topics, profile context and PostgreSQL full-text memory.
 - OpenAI, Gemini and DeepSeek adapters with one explicitly configured active provider and no automatic cross-provider fallback.
@@ -26,6 +26,8 @@ Ordinary natural-language messages go to the agent first. The agent can propose 
 - changing chat-accessible timezone, language, digest, weekly-review, quiet-hour, snooze and reminder-default settings.
 
 Explicit safe instructions can be applied immediately. Inferred or risky changes require confirmation. Reversible mutations receive a 24-hour Undo where the domain supports a truthful rollback. Buttons and commands remain deterministic shortcuts and recovery paths, not a competing natural-language pre-parser.
+
+When `TASK_BATCH_ENABLED=true`, one natural-language request may contain a mixed package of 1–12 task operations: create, update, reschedule and link to a goal. The package has one safety disposition, one confirmation and one Undo. It is committed atomically: if any target is missing, stale, outside the workspace or otherwise invalid, none of the package is applied. Memory, settings, consent and account actions cannot be mixed into a task batch.
 
 The agent cannot change operator configuration, provider keys/models, allowlists or deployment state; invite users; revoke consent; or access another workspace. Account deletion/restoration and other high-impact account operations stay behind dedicated deterministic flows.
 
@@ -56,6 +58,8 @@ npm run dev
 ```
 
 `AI_MODEL` intentionally has no default. Set `AI_PRICING_JSON` when monetary usage warnings must be meaningful. With `AI_PROVIDER=openai`, voice messages use `AI_TRANSCRIPTION_MODEL` (default `gpt-4o-mini-transcribe`); audio remains in memory only for transcription.
+
+`TASK_BATCH_ENABLED` defaults to `false`. Enable it only after migration `0022_complex_planning_foundations.sql` is applied and disabled-mode smoke tests pass. To roll back generation and application, set it back to `false` and restart the app; startup cancels incompatible pending batches and records an audit event. Already committed batches remain available for truthful Undo during their normal window.
 
 ## Verification
 

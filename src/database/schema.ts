@@ -111,6 +111,7 @@ export const conversationTopics = pgTable("conversation_topics", {
   mode: topicMode("mode").notNull().default("normal"),
   clarificationCount: integer("clarification_count").notNull().default(0),
   reviewKind: varchar("review_kind", { length: 16 }),
+  reviewState: jsonb("review_state").$type<unknown>(),
   lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
   summaryExpiresAt: timestamp("summary_expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -182,6 +183,7 @@ export const tasks = pgTable("tasks", {
   reviewAt: timestamp("review_at", { withTimezone: true }),
   recurrenceRule: text("recurrence_rule"),
   recurrenceTimezone: varchar("recurrence_timezone", { length: 128 }),
+  recurrenceEndLocalDate: date("recurrence_end_local_date"),
   missPolicy: missPolicy("miss_policy"),
   habitMode: boolean("habit_mode").notNull().default(false),
   minimumAction: text("minimum_action"),
@@ -197,6 +199,17 @@ export const tasks = pgTable("tasks", {
   foreignKey({ columns: [t.workspaceId, t.createdByUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "tasks_creator_membership_fk" }),
   index("tasks_workspace_status_idx").on(t.workspaceId, t.status),
   index("tasks_source_action_group_idx").on(t.workspaceId, t.sourceActionGroupId),
+]);
+
+export const taskRecurrenceExclusions = pgTable("task_recurrence_exclusions", {
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  taskId: uuid("task_id").notNull(),
+  localDate: date("local_date").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.workspaceId, t.taskId, t.localDate] }),
+  foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "task_recurrence_exclusions_task_workspace_fk" }).onDelete("cascade"),
+  index("task_recurrence_exclusions_task_idx").on(t.workspaceId, t.taskId, t.localDate),
 ]);
 
 export const taskGoals = pgTable("task_goals", {

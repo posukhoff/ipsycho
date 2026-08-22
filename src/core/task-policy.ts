@@ -1,5 +1,5 @@
-import { parseRecurrenceRule } from "./recurrence.js";
-import { localDateAt, localDateTimeAt } from "./timezone.js";
+import { parseRecurrenceRule, recurrenceAnchorLocalDate } from "./recurrence.js";
+import { compareLocalDates, localDateAt, localDateTimeAt, parseLocalDate } from "./timezone.js";
 import type { TaskDefinition } from "./types.js";
 
 export type ValidationResult = { ok: true } | { ok: false; errors: string[] };
@@ -22,6 +22,36 @@ export function validateTaskDefinition(task: TaskDefinition): ValidationResult {
       recurrence = parseRecurrenceRule(task.recurrenceRule);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : "invalid recurrence rule");
+    }
+  }
+  if (!recurring && task.recurrenceEndLocalDate) errors.push("recurrenceEndLocalDate is only valid for recurring tasks");
+  if (!recurring && task.recurrenceExcludedLocalDates?.length) errors.push("recurrenceExcludedLocalDates are only valid for recurring tasks");
+  if (recurring) {
+    let anchor: string | undefined;
+    try {
+      anchor = recurrenceAnchorLocalDate(task, task.recurrenceTimezone ?? task.timezone);
+    } catch {
+      // Existing timing validation reports the missing anchor with the mode-specific message.
+    }
+    if (task.recurrenceEndLocalDate) {
+      try {
+        parseLocalDate(task.recurrenceEndLocalDate);
+        if (anchor && compareLocalDates(task.recurrenceEndLocalDate, anchor) < 0) errors.push("recurrence end must not be before start");
+      } catch {
+        errors.push("invalid recurrenceEndLocalDate");
+      }
+    }
+    const excluded = task.recurrenceExcludedLocalDates ?? [];
+    if (excluded.length > 32) errors.push("recurrence supports at most 32 excluded dates");
+    if (new Set(excluded).size !== excluded.length) errors.push("recurrence excluded dates must be distinct");
+    for (const date of excluded) {
+      try {
+        parseLocalDate(date);
+        if (anchor && compareLocalDates(date, anchor) < 0) errors.push("excluded recurrence date must not be before start");
+        if (task.recurrenceEndLocalDate && compareLocalDates(date, task.recurrenceEndLocalDate) > 0) errors.push("excluded recurrence date must not be after end");
+      } catch {
+        errors.push("invalid recurrence excluded date");
+      }
     }
   }
   if (recurrence?.byTime && (!task.plannedStartAt || (task.timeMode !== "point" && task.timeMode !== "window"))) {

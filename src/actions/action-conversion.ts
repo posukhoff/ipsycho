@@ -1,4 +1,7 @@
 import { parseLocalDate, parseLocalTime } from "../core/timezone.js";
+import { compileStructuredLocalSchedule } from "../core/local-schedule.js";
+import { compileStructuredRecurrence } from "../core/recurrence-input.js";
+import { recurrenceAnchorLocalDate } from "../core/recurrence.js";
 import { validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
 import type { ChangeSeriesDraft, ProposedActionDraft, RescheduleOccurrenceDraft, UpdateTaskDraft } from "../core/ai-actions.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
@@ -18,31 +21,10 @@ function parseInstant(value: string | null, field: string): Date | undefined {
   return date;
 }
 
-function inputOffsetMinutes(value: string): number {
-  if (value.endsWith("Z")) return 0;
-  const match = /([+-])(\d{2}):(\d{2})$/.exec(value);
-  if (!match) throw new InvalidAiActionError("timestamp has no timezone offset");
-  const minutes = Number(match[2]) * 60 + Number(match[3]);
-  return match[1] === "-" ? -minutes : minutes;
-}
-
-function ianaOffsetMinutes(date: Date, timezone: string): number {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
-  const asUtc = Date.UTC(value("year"), value("month") - 1, value("day"), value("hour"), value("minute"), value("second"));
-  return Math.round((asUtc - Math.floor(date.getTime() / 1000) * 1000) / 60_000);
-}
-
 function assertTimestampTimezone(value: string | null, parsed: Date | undefined, timezone: string, field: string): void {
-  if (value === null || !parsed) return;
-  if (inputOffsetMinutes(value) !== ianaOffsetMinutes(parsed, timezone)) {
-    throw new InvalidAiActionError(`${field} offset does not match timezone ${timezone}`);
-  }
+  // Legacy timestamps are absolute instants. Their textual offset need not equal
+  // the task timezone; downstream presentation canonicalizes the instant there.
+  void value; void parsed; void timezone; void field;
 }
 
 function parseDateOnly(value: string | null, field: string): string | undefined {
@@ -73,38 +55,38 @@ export function createTaskInputFromAction(action: Extract<ProposedActionDraft, {
   assertTimezone(action.definition.timezone);
   if (action.definition.recurrenceTimezone) assertTimezone(action.definition.recurrenceTimezone);
 
-  const plannedStartAt = parseInstant(action.definition.plannedStartAt, "plannedStartAt");
-  const plannedEndAt = parseInstant(action.definition.plannedEndAt, "plannedEndAt");
-  const plannedLocalDate = parseDateOnly(action.definition.plannedLocalDate, "plannedLocalDate");
-  const dueAt = parseInstant(action.definition.dueAt, "dueAt");
-  const dueLocalDate = parseDateOnly(action.definition.dueLocalDate, "dueLocalDate");
-  const reviewAt = parseInstant(action.definition.reviewAt, "reviewAt");
-
-  assertTimestampTimezone(action.definition.plannedStartAt, plannedStartAt, action.definition.timezone, "plannedStartAt");
-  assertTimestampTimezone(action.definition.plannedEndAt, plannedEndAt, action.definition.timezone, "plannedEndAt");
-  assertTimestampTimezone(action.definition.dueAt, dueAt, action.definition.timezone, "dueAt");
-  assertTimestampTimezone(action.definition.reviewAt, reviewAt, action.definition.timezone, "reviewAt");
+  const legacyTiming = legacyScheduleFields(action.definition, action.definition.timezone, "");
+  const structuredTiming = action.definition.localSchedule ? compileStructuredLocalSchedule(action.definition.localSchedule) : undefined;
+  if (structuredTiming && hasLegacySchedule(action.definition)) throw new InvalidAiActionError("localSchedule cannot be combined with legacy timestamp fields");
+  if (structuredTiming && (structuredTiming.timezone !== action.definition.timezone || structuredTiming.timeMode !== action.definition.timeMode)) {
+    throw new InvalidAiActionError("localSchedule mode and timezone must match the task definition");
+  }
+  const timing = structuredTiming ?? legacyTiming;
+  const structuredRecurrence = action.definition.recurrence ? compileStructuredRecurrence(action.definition.recurrence) : undefined;
+  if (structuredRecurrence && action.definition.recurrenceRule) throw new InvalidAiActionError("recurrence cannot be combined with recurrenceRule");
 
   const definition: TaskDefinition = {
     kind: action.definition.kind,
     importance: action.definition.importance,
     timeMode: action.definition.timeMode,
     timezone: action.definition.timezone,
-    ...(plannedStartAt ? { plannedStartAt } : {}),
-    ...(plannedEndAt ? { plannedEndAt } : {}),
-    ...(plannedLocalDate ? { plannedLocalDate } : {}),
-    ...(dueAt ? { dueAt } : {}),
-    ...(dueLocalDate ? { dueLocalDate } : {}),
-    ...(action.definition.fuzzyHorizonText ? { fuzzyHorizonText: action.definition.fuzzyHorizonText } : {}),
-    ...(reviewAt ? { reviewAt } : {}),
-    ...(action.definition.recurrenceRule ? { recurrenceRule: action.definition.recurrenceRule } : {}),
-    ...(action.definition.recurrenceTimezone ? { recurrenceTimezone: action.definition.recurrenceTimezone } : {}),
+    ...timing,
+    ...(!structuredTiming && action.definition.fuzzyHorizonText ? { fuzzyHorizonText: action.definition.fuzzyHorizonText } : {}),
+    ...(structuredRecurrence ? {
+      recurrenceRule: structuredRecurrence.recurrenceRule,
+      recurrenceTimezone: action.definition.timezone,
+      ...(structuredRecurrence.recurrenceEndLocalDate ? { recurrenceEndLocalDate: structuredRecurrence.recurrenceEndLocalDate } : {}),
+      ...(structuredRecurrence.recurrenceExcludedLocalDates.length ? { recurrenceExcludedLocalDates: structuredRecurrence.recurrenceExcludedLocalDates } : {}),
+    } : action.definition.recurrenceRule ? { recurrenceRule: action.definition.recurrenceRule, ...(action.definition.recurrenceTimezone ? { recurrenceTimezone: action.definition.recurrenceTimezone } : {}) } : {}),
     ...(action.definition.missPolicy ? { missPolicy: action.definition.missPolicy } : {}),
     habitMode: action.definition.habitMode,
     ...(action.definition.minimumAction ? { minimumAction: action.definition.minimumAction } : {}),
     ...(action.definition.desiredAction ? { desiredAction: action.definition.desiredAction } : {}),
     ...(action.definition.habitTrigger ? { habitTrigger: action.definition.habitTrigger } : {}),
   };
+  if (structuredRecurrence && recurrenceAnchorLocalDate(definition, definition.recurrenceTimezone ?? definition.timezone) !== structuredRecurrence.recurrenceStartLocalDate) {
+    throw new InvalidAiActionError("recurrence startsOn must match the schedule start date");
+  }
   const validation = validateTaskDefinition(definition);
   if (!validation.ok) throw new InvalidAiActionError(validation.errors.join("; "));
   const timingErrors = validateNewTaskTiming(definition, scope.now);
@@ -154,6 +136,13 @@ export function validateUpdateTaskAction(action: UpdateTaskDraft): void {
 export function rescheduleFieldsFromAction(action: RescheduleOccurrenceDraft): RescheduleFields {
   const timezone = action.schedule.timezone;
   assertTimezone(timezone);
+  if (action.schedule.localSchedule) {
+    if (hasLegacySchedule(action.schedule)) throw new InvalidAiActionError("localSchedule cannot be combined with legacy timestamp fields");
+    const compiled = compileStructuredLocalSchedule(action.schedule.localSchedule);
+    if (compiled.timezone !== timezone) throw new InvalidAiActionError("localSchedule timezone must match the target occurrence timezone");
+    const { timeMode: _mode, timezone: _timezone, ...fields } = compiled;
+    return fields;
+  }
   const plannedStartAt = parseInstant(action.schedule.plannedStartAt, "plannedStartAt");
   const plannedEndAt = parseInstant(action.schedule.plannedEndAt, "plannedEndAt");
   const plannedLocalDate = parseDateOnly(action.schedule.plannedLocalDate, "plannedLocalDate");
@@ -189,7 +178,12 @@ export function seriesDefinitionFromAction(
   assertTimezone(edit.recurrenceTimezone);
   if (edit.timezone !== edit.recurrenceTimezone) throw new InvalidAiActionError("series timezone and recurrenceTimezone must match");
 
-  const plannedStartAt = parseInstant(edit.plannedStartAt, "series.plannedStartAt");
+  if (edit.localSchedule && hasLegacySchedule(edit)) throw new InvalidAiActionError("series localSchedule cannot be combined with legacy timestamp fields");
+  const compiledSchedule = edit.localSchedule ? compileStructuredLocalSchedule(edit.localSchedule) : undefined;
+  if (compiledSchedule && (compiledSchedule.timezone !== edit.timezone || compiledSchedule.timeMode !== current.timeMode)) {
+    throw new InvalidAiActionError("series localSchedule mode and timezone must match the existing task");
+  }
+  const plannedStartAt = compiledSchedule?.plannedStartAt ?? parseInstant(edit.plannedStartAt, "series.plannedStartAt");
   const plannedEndAt = parseInstant(edit.plannedEndAt, "series.plannedEndAt");
   const plannedLocalDate = parseDateOnly(edit.plannedLocalDate, "series.plannedLocalDate");
   const dueAt = parseInstant(edit.dueAt, "series.dueAt");
@@ -198,27 +192,67 @@ export function seriesDefinitionFromAction(
   assertTimestampTimezone(edit.plannedEndAt, plannedEndAt, edit.timezone, "series.plannedEndAt");
   assertTimestampTimezone(edit.dueAt, dueAt, edit.timezone, "series.dueAt");
 
+  const structuredRecurrence = edit.recurrence ? compileStructuredRecurrence(edit.recurrence) : undefined;
+  if (structuredRecurrence && edit.recurrenceRule) throw new InvalidAiActionError("series recurrence cannot be combined with recurrenceRule");
   const next: TaskDefinition = {
     kind: current.kind,
     importance: current.importance,
     timeMode: current.timeMode,
     timezone: edit.timezone,
-    recurrenceRule: edit.recurrenceRule.trim(),
+    recurrenceRule: structuredRecurrence?.recurrenceRule ?? edit.recurrenceRule?.trim() ?? "",
     recurrenceTimezone: edit.recurrenceTimezone,
     ...(edit.missPolicy ? { missPolicy: edit.missPolicy } : {}),
     ...(current.habitMode !== undefined ? { habitMode: current.habitMode } : {}),
     ...(current.minimumAction ? { minimumAction: current.minimumAction } : {}),
     ...(current.desiredAction ? { desiredAction: current.desiredAction } : {}),
     ...(current.habitTrigger ? { habitTrigger: current.habitTrigger } : {}),
-    ...(plannedStartAt ? { plannedStartAt } : {}),
-    ...(plannedEndAt ? { plannedEndAt } : {}),
-    ...(plannedLocalDate ? { plannedLocalDate } : {}),
-    ...(dueAt ? { dueAt } : {}),
-    ...(dueLocalDate ? { dueLocalDate } : {}),
+    ...(compiledSchedule ? omitCompiledMode(compiledSchedule) : {
+      ...(plannedStartAt ? { plannedStartAt } : {}),
+      ...(plannedEndAt ? { plannedEndAt } : {}),
+      ...(plannedLocalDate ? { plannedLocalDate } : {}),
+      ...(dueAt ? { dueAt } : {}),
+      ...(dueLocalDate ? { dueLocalDate } : {}),
+    }),
+    ...(structuredRecurrence?.recurrenceEndLocalDate ? { recurrenceEndLocalDate: structuredRecurrence.recurrenceEndLocalDate } : {}),
+    ...(structuredRecurrence?.recurrenceExcludedLocalDates.length ? { recurrenceExcludedLocalDates: structuredRecurrence.recurrenceExcludedLocalDates } : {}),
   };
+  if (structuredRecurrence && recurrenceAnchorLocalDate(next, next.recurrenceTimezone ?? next.timezone) !== structuredRecurrence.recurrenceStartLocalDate) {
+    throw new InvalidAiActionError("series recurrence startsOn must match the schedule start date");
+  }
   const validation = validateTaskDefinition(next);
   if (!validation.ok) throw new InvalidAiActionError(validation.errors.join("; "));
   return next;
+}
+
+type LegacyScheduleShape = {
+  plannedStartAt: string | null; plannedEndAt: string | null; plannedLocalDate: string | null;
+  dueAt: string | null; dueLocalDate: string | null; reviewAt?: string | null; fuzzyHorizonText?: string | null;
+};
+
+function hasLegacySchedule(value: LegacyScheduleShape): boolean {
+  return Boolean(value.plannedStartAt || value.plannedEndAt || value.plannedLocalDate || value.dueAt || value.dueLocalDate || value.reviewAt || value.fuzzyHorizonText);
+}
+
+function legacyScheduleFields(value: LegacyScheduleShape, timezone: string, prefix: string): Omit<ReturnType<typeof compileStructuredLocalSchedule>, "timeMode" | "timezone"> {
+  const plannedStartAt = parseInstant(value.plannedStartAt, `${prefix}plannedStartAt`);
+  const plannedEndAt = parseInstant(value.plannedEndAt, `${prefix}plannedEndAt`);
+  const plannedLocalDate = parseDateOnly(value.plannedLocalDate, `${prefix}plannedLocalDate`);
+  const dueAt = parseInstant(value.dueAt, `${prefix}dueAt`);
+  const dueLocalDate = parseDateOnly(value.dueLocalDate, `${prefix}dueLocalDate`);
+  const reviewAt = parseInstant(value.reviewAt ?? null, `${prefix}reviewAt`);
+  // Legacy absolute timestamps denote instants. Z and an equivalent explicit offset
+  // therefore canonicalize to the declared IANA timezone instead of being rejected.
+  void timezone;
+  return {
+    ...(plannedStartAt ? { plannedStartAt } : {}), ...(plannedEndAt ? { plannedEndAt } : {}),
+    ...(plannedLocalDate ? { plannedLocalDate } : {}), ...(dueAt ? { dueAt } : {}),
+    ...(dueLocalDate ? { dueLocalDate } : {}), ...(reviewAt ? { reviewAt } : {}),
+  };
+}
+
+function omitCompiledMode(value: ReturnType<typeof compileStructuredLocalSchedule>): Omit<ReturnType<typeof compileStructuredLocalSchedule>, "timeMode" | "timezone"> {
+  const { timeMode: _mode, timezone: _timezone, ...fields } = value;
+  return fields;
 }
 
 export function reminderRuleFromAction(action: Extract<ProposedActionDraft, { type: "change_reminder" }>): ReminderRuleSpec | undefined {
