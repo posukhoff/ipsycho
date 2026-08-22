@@ -27,6 +27,8 @@ test("weekly review stays open for collaborative planning instead of making auto
   );
   assert.match(reviewCorrection("weekly"), /Never reschedule/);
   assert.match(reviewCorrection("weekly"), /explicitly/);
+  assert.match(reviewCorrection("weekly"), /structured question field/);
+  assert.match(reviewCorrection("weekly"), /do not hide it in reply/);
 });
 
 test("weekly planning concludes after three focused questions", () => {

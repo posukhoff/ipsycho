@@ -41,3 +41,9 @@ test("AI prompt exposes task-card lifecycle operations with series scope safety"
   assert.match(prompt, /start, skip one recurring occurrence, cancel one occurrence, seen/);
   assert.match(prompt, /unclear whether they mean this occurrence or the whole series/);
 });
+
+test("AI prompt does not require an existing task ID when creating a new task", () => {
+  const prompt = buildSystemPrompt("Europe/Kyiv", new Date("2026-08-11T12:00:00.000Z"));
+  assert.match(prompt, /Creating a new task never requires an existing task ID/);
+  assert.match(prompt, /never claim that creation is blocked/);
+});
