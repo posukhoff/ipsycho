@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.core-dist/
+.env
+.idea/
+*.log
+.DS_Store
