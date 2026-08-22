@@ -191,6 +191,33 @@ export const ChangeSeriesActionSchema = z.object({
     dueLocalDate: NullableString,
   }).nullable(),
 });
+export const UpdateSettingsActionSchema = z.object({
+  type: z.literal("update_settings"), source: ActionSourceSchema, confidence: ConfidenceSchema,
+  expectedVersion: z.number().int().positive(),
+  operation: z.enum(["timezone", "language", "digest", "weekly_review", "quiet_hours", "snooze", "reminder_defaults"]),
+  timezone: NullableString,
+  applyTimezoneTo: z.enum(["profile_only", "all"]).nullable(),
+  language: NullableString,
+  digestKind: z.enum(["morning", "evening"]).nullable(),
+  enabled: z.boolean().nullable(),
+  time: NullableString,
+  weekday: z.number().int().min(1).max(7).nullable(),
+  weekdayStart: NullableString, weekdayEnd: NullableString,
+  weekendStart: NullableString, weekendEnd: NullableString,
+  snoozeUntil: NullableString,
+  eventOffsets: z.array(z.number().int()).max(12).nullable(),
+  plannedTaskOffsetMinutes: z.number().int().nullable(),
+  criticalPostDueMinutes: z.number().int().nullable(),
+  seenNormalMinutes: z.number().int().nullable(),
+  seenRequiredMinutes: z.number().int().nullable(),
+  seenCriticalMinutes: z.number().int().nullable(),
+});
+export const UpdateOccurrenceActionSchema = z.object({
+  type: z.literal("update_occurrence"), source: ActionSourceSchema, confidence: ConfidenceSchema,
+  occurrenceId: z.string().uuid(), expectedVersion: z.number().int().positive(),
+  operation: z.enum(["start", "skip", "cancel", "seen", "record_blocker"]),
+  details: z.string().min(1).max(1000).nullable(),
+});
 
 export const ProposedActionSchema = z.discriminatedUnion("type", [
   CreateTaskActionSchema,
@@ -206,6 +233,8 @@ export const ProposedActionSchema = z.discriminatedUnion("type", [
   LinkTaskToGoalActionSchema,
   ChangeReminderActionSchema,
   ChangeSeriesActionSchema,
+  UpdateSettingsActionSchema,
+  UpdateOccurrenceActionSchema,
 ]);
 
 export const TopicDirectiveSchema = z.object({

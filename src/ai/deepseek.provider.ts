@@ -4,14 +4,15 @@ import { AiTurnSchema } from "./ai-contracts.js";
 import type { AiProvider, AiProviderResult, AiRequest } from "./ai-provider.js";
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
-const JSON_INSTRUCTION = [
+export const DEEPSEEK_JSON_INSTRUCTION = [
   "Return only one valid JSON object. Do not use markdown or prose outside JSON.",
   'Top level: {"reply":string,"question":string|null,"profileInvitation":boolean,"topic":TopicDirective,"topicModeSuggestion":"normal"|"analysis"|null,"actions":Action[]}.',
   "TopicDirective fields: mode,topicId,title,summary. Use null where a nullable topic field is absent.",
-  "Action is exactly one of create_task, create_goal_plan, update_task, complete_occurrence, reschedule_occurrence, create_goal, update_goal, save_memory, update_memory, delete_memory, link_task_to_goal, change_reminder, change_series.",
-  "create_task fields: type,source,confidence,criticalExplicit,habitModeExplicit,title,why,nextAction,context,goalLink,definition. context is a concise durable task-specific nuance, constraint or desired quality from the user, otherwise null. goalLink is null or {goalId,expectedGoalVersion,confidence} for one clearly matching listed active goal.",
+  "Action is exactly one of create_task, create_goal_plan, update_task, complete_occurrence, update_occurrence, reschedule_occurrence, create_goal, update_goal, save_memory, update_memory, delete_memory, link_task_to_goal, change_reminder, change_series, update_settings.",
+  "create_task fields: type,source,confidence,criticalExplicit,habitModeExplicit,title,why,nextAction,context,checklist,goalLink,definition. context is a concise durable task-specific nuance, constraint or desired quality from the user, otherwise null. checklist is null or [{text,done}]. goalLink is null or {goalId,expectedGoalVersion,confidence} for one clearly matching listed active goal.",
   "update_task fields: type,source,confidence,taskId,expectedVersion,criticalExplicit,habitModeExplicit,patch. patch fields: title,why,nextAction,context,importance,checklist,habitMode,minimumAction,desiredAction,habitTrigger; checklist is [{text,done}]; use null for unchanged fields.",
   "complete_occurrence fields: type,source,confidence,occurrenceId,expectedVersion.",
+  "update_occurrence fields: type,source,confidence,occurrenceId,expectedVersion,operation,details. operation is start|skip|cancel|seen|record_blocker; details is required only for record_blocker and null otherwise.",
   "reschedule_occurrence fields: type,source,confidence,occurrenceId,expectedVersion,reason,schedule.",
   "create_goal fields: type,source,confidence,title,why,targetLocalDate.",
   "create_goal_plan fields: type,source,confidence,goal,tasks. Use it only when the user explicitly asks to create a new goal together with its initial new tasks; goal={title,why,targetLocalDate}, tasks are create_task fields except type/source/confidence/goalLink. The server creates links to the new goal atomically.",
@@ -22,6 +23,7 @@ const JSON_INSTRUCTION = [
   "link_task_to_goal fields: type,source,confidence,taskId,expectedTaskVersion,goalId,expectedGoalVersion.",
   "change_reminder fields: type,source,confidence,occurrenceId,expectedVersion,mode,quietBypassExplicit,reminder; reminder is null for clear or {triggerKind,exactAt,anchor,offsetMinutes,daysOffset,localTime,quietPolicy}. triggerKind is exact|relative_timestamp|local_date; use null for fields irrelevant to the chosen trigger.",
   "change_series fields: type,source,confidence,taskId,expectedVersion,operation,edit. operation is pause|resume|stop|cancel|edit; edit must be null except for edit operation, where it contains timezone,recurrenceRule,recurrenceTimezone,missPolicy,plannedStartAt,plannedEndAt,plannedLocalDate,dueAt,dueLocalDate.",
+  "update_settings fields: type,source,confidence,expectedVersion,operation,timezone,applyTimezoneTo,language,digestKind,enabled,time,weekday,weekdayStart,weekdayEnd,weekendStart,weekendEnd,snoozeUntil,eventOffsets,plannedTaskOffsetMinutes,criticalPostDueMinutes,seenNormalMinutes,seenRequiredMinutes,seenCriticalMinutes. operation is timezone|language|digest|weekly_review|quiet_hours|snooze|reminder_defaults; use null for fields irrelevant to the operation.",
   "Use null for absent nullable fields. The application will reject any missing, invented or extra-invalid structure.",
 ].join("\n");
 
@@ -53,7 +55,7 @@ export class DeepSeekProvider implements AiProvider {
         messages: [
           {
             role: "system",
-            content: `${request.systemPrompt}\n\n${JSON_INSTRUCTION}${attempt ? "\nPrevious structured output was invalid. Return one object matching the contract exactly." : ""}`,
+            content: `${request.systemPrompt}\n\n${DEEPSEEK_JSON_INSTRUCTION}${attempt ? "\nPrevious structured output was invalid. Return one object matching the contract exactly." : ""}`,
           },
           ...request.messages.map((message) => ({ role: message.role, content: message.content })),
         ],

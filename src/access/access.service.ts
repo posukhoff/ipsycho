@@ -57,7 +57,7 @@ export class AccessService {
   async createRegistrationInvite(createdByUserId: string, now = new Date()): Promise<{ token: string; expiresAt: Date }> {
     const expiresAt = new Date(now.getTime() + REGISTRATION_INVITE_TTL_MS);
     const token = randomBytes(32).toString("base64url");
-    await this.database.db.insert(registrationInvites).values({ token, createdByUserId, expiresAt });
+    await this.database.db.insert(registrationInvites).values({ token, createdByUserId, expiresAt, createdAt: now });
     await this.database.db.insert(adminAuditLog).values({ action: "registration-invite:create", targetUserId: createdByUserId });
     return { token, expiresAt };
   }

@@ -12,6 +12,7 @@ import {
 } from "../core/ai-actions.js";
 import { rescheduledDefinition } from "../core/reschedule.js";
 import { parseLocalDate } from "../core/timezone.js";
+import { normalizeLanguageTag } from "../core/language.js";
 import { ContextActionsRepository } from "../context/context-actions.repository.js";
 import { ContextService } from "../context/context.service.js";
 import { taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
@@ -28,6 +29,7 @@ import {
 import { ActionMutationsRepository } from "./action-mutations.repository.js";
 import { ActionsRepository } from "./actions.repository.js";
 import { safeError } from "../observability/safe-error.js";
+import { SettingsService } from "../settings/settings.service.js";
 
 export interface ActionScope {
   workspaceId: string;
@@ -40,6 +42,8 @@ export interface ActionScope {
 export interface ProposedActionsResult {
   applied?: {
     groupId: string;
+    /** False for interaction-only actions such as Seen/blocker that have no reversible state transition. */
+    undoable?: boolean;
     count: number;
     titles: string[];
     scheduledReminderAt?: Date;
@@ -66,6 +70,7 @@ export class ActionsService implements OnApplicationBootstrap {
     private readonly reminders: ReminderSchedulingService,
     private readonly context: ContextService,
     private readonly contextActions: ContextActionsRepository,
+    private readonly settings: SettingsService,
   ) {}
 
   async validate(actions: readonly ProposedActionDraft[], scope: Omit<ActionScope, "sourceMessageId">): Promise<string[]> {
@@ -129,6 +134,19 @@ export class ActionsService implements OnApplicationBootstrap {
         }
         if (action.type === "save_memory") {
           if (!action.content.trim()) throw new Error("memory content is required");
+          continue;
+        }
+        if (action.type === "update_settings") {
+          await this.validateSettingsAction(action, scope.actorUserId, now);
+          continue;
+        }
+        if (action.type === "update_occurrence") {
+          const occurrenceContext = await this.tasks.getOccurrenceContext(scope.workspaceId, action.occurrenceId);
+          if (!occurrenceContext || occurrenceContext.occurrence.version !== action.expectedVersion) throw new Error("target occurrence is missing or stale");
+          if (["done", "skipped", "cancelled", "elapsed"].includes(occurrenceContext.occurrence.status)) throw new Error("terminal occurrence cannot be changed");
+          if (action.operation === "skip" && !occurrenceContext.task.recurrenceRule) throw new Error("a one-time task cannot be skipped; cancel it instead");
+          if (action.operation === "record_blocker" && !action.details?.trim()) throw new Error("blocker details are required");
+          if (action.operation !== "record_blocker" && action.details !== null) throw new Error("details are only valid when recording a blocker");
           continue;
         }
         if (action.type === "delete_memory") {
@@ -560,6 +578,38 @@ export class ActionsService implements OnApplicationBootstrap {
         undoExpiresAt,
       });
     }
+    if (action.type === "update_settings") {
+      const current = await this.settings.get(scope.actorUserId);
+      if (!current || current.version !== action.expectedVersion) throw new Error("settings are stale or missing");
+      const { patch, title } = this.settingsPatchForAction(action, current);
+      const result = await this.mutations.applyUpdateSettings({
+        workspaceId: scope.workspaceId, groupId, actorUserId: scope.actorUserId,
+        expectedVersion: action.expectedVersion, patch, now: scope.now, undoExpiresAt,
+      });
+      return { ...result, titles: [title] };
+    }
+    if (action.type === "update_occurrence") {
+      const occurrenceContext = await this.tasks.getOccurrenceContext(scope.workspaceId, action.occurrenceId);
+      if (!occurrenceContext || occurrenceContext.occurrence.version !== action.expectedVersion) throw new Error("target occurrence is missing or stale");
+      if (action.operation === "seen") {
+        const result = await this.mutations.applyOccurrenceInteraction({
+          workspaceId: scope.workspaceId, groupId, actorUserId: scope.actorUserId, occurrenceId: action.occurrenceId,
+          expectedVersion: action.expectedVersion, operation: "seen", now: scope.now,
+        });
+        await this.reminders.scheduleSeenFallback({ workspaceId: scope.workspaceId, userId: scope.recipientUserId, occurrenceId: action.occurrenceId });
+        return result;
+      }
+      if (action.operation === "record_blocker") {
+        return this.mutations.applyOccurrenceInteraction({
+          workspaceId: scope.workspaceId, groupId, actorUserId: scope.actorUserId, occurrenceId: action.occurrenceId,
+          expectedVersion: action.expectedVersion, operation: "record_blocker", details: action.details!, now: scope.now,
+        });
+      }
+      return this.mutations.applyUpdateOccurrence({
+        workspaceId: scope.workspaceId, occurrenceId: action.occurrenceId, expectedVersion: action.expectedVersion,
+        groupId, actorUserId: scope.actorUserId, operation: action.operation, now: scope.now, undoExpiresAt,
+      });
+    }
     if (action.type === "delete_memory") {
       return this.contextActions.applyDeleteMemory({
         workspaceId: scope.workspaceId, groupId, actorUserId: scope.actorUserId,
@@ -746,6 +796,85 @@ export class ActionsService implements OnApplicationBootstrap {
     }
     return titles;
   }
+
+  private async validateSettingsAction(action: Extract<ProposedActionDraft, { type: "update_settings" }>, userId: string, now: Date): Promise<void> {
+    const current = await this.settings.get(userId);
+    if (!current || current.version !== action.expectedVersion) throw new Error("settings are stale or missing");
+    if (action.operation === "timezone") {
+      if (!action.timezone) throw new Error("timezone is required");
+      new Intl.DateTimeFormat("en", { timeZone: action.timezone }).format(now);
+      return;
+    }
+    if (action.operation === "language") {
+      if (action.language !== null && !action.language.trim()) throw new Error("language cannot be blank");
+      if (action.language !== null) normalizeLanguageTag(action.language);
+      return;
+    }
+    if (action.operation === "digest") {
+      if (action.digestKind === null || action.enabled === null) throw new Error("digest kind and enabled state are required");
+      if (action.time !== null && !/^([01]\d|2[0-3]):[0-5]\d$/u.test(action.time)) throw new Error("digest time must be HH:MM");
+      return;
+    }
+    if (action.operation === "weekly_review") {
+      if (action.enabled === null) throw new Error("weekly review enabled state is required");
+      if (action.enabled && (action.weekday === null || action.time === null)) throw new Error("weekly review requires weekday and time");
+      if (action.time !== null && !/^([01]\d|2[0-3]):[0-5]\d$/u.test(action.time)) throw new Error("weekly review time must be HH:MM");
+      return;
+    }
+    if (action.operation === "quiet_hours") {
+      if (action.enabled === null) throw new Error("quiet hours enabled state is required");
+      const times = [action.weekdayStart, action.weekdayEnd, action.weekendStart, action.weekendEnd];
+      if (action.enabled && times.some((value) => value === null)) throw new Error("enabled quiet hours require weekday and weekend ranges");
+      if (times.some((value) => value !== null && !/^([01]\d|2[0-3]):[0-5]\d$/u.test(value))) throw new Error("quiet hours times must be HH:MM");
+      return;
+    }
+    if (action.operation === "snooze") {
+      if (action.snoozeUntil !== null) {
+        const until = new Date(action.snoozeUntil);
+        if (!Number.isFinite(until.getTime()) || until <= now) throw new Error("snoozeUntil must be a future ISO timestamp");
+        if (until.getTime() - now.getTime() > 7 * 24 * 60 * 60_000) throw new Error("notification snooze cannot exceed 7 days");
+      }
+      return;
+    }
+    const values = [action.eventOffsets, action.plannedTaskOffsetMinutes, action.criticalPostDueMinutes, action.seenNormalMinutes, action.seenRequiredMinutes, action.seenCriticalMinutes];
+    if (values.every((value) => value === null)) throw new Error("at least one reminder default is required");
+    if (action.eventOffsets !== null && action.eventOffsets.length === 0) throw new Error("event offsets cannot be empty");
+    for (const value of [action.criticalPostDueMinutes, action.seenNormalMinutes, action.seenRequiredMinutes, action.seenCriticalMinutes]) {
+      if (value !== null && value < 15) throw new Error("critical and Seen intervals must be at least 15 minutes");
+    }
+  }
+
+  private settingsPatchForAction(action: Extract<ProposedActionDraft, { type: "update_settings" }>, current: NonNullable<Awaited<ReturnType<SettingsService["get"]>>>) {
+    if (action.operation === "timezone") {
+      return { patch: { timezone: action.timezone!, ...(action.applyTimezoneTo === "all" ? { digestTimezone: action.timezone!, quietHoursTimezone: action.timezone! } : {}) }, title: "Изменить часовой пояс" };
+    }
+    if (action.operation === "language") {
+      return { patch: { pinnedLanguage: action.language === null ? null : normalizeLanguageTag(action.language) }, title: "Изменить язык интерфейса" };
+    }
+    if (action.operation === "digest") {
+      const patch = action.digestKind === "morning"
+        ? { morningDigestEnabled: action.enabled!, digestTimezone: current.timezone, ...(action.time !== null ? { morningReferenceTime: action.time } : {}) }
+        : { eveningDigestEnabled: action.enabled!, digestTimezone: current.timezone, ...(action.time !== null ? { eveningReferenceTime: action.time } : {}) };
+      return { patch, title: action.digestKind === "morning" ? "Настроить утреннюю сводку" : "Настроить вечернюю сводку" };
+    }
+    if (action.operation === "weekly_review") {
+      return { patch: { weeklyReviewEnabled: action.enabled!, digestTimezone: current.timezone, ...(action.weekday !== null ? { weeklyReviewWeekday: action.weekday } : {}), ...(action.time !== null ? { weeklyReviewTime: action.time } : {}) }, title: "Настроить еженедельный обзор" };
+    }
+    if (action.operation === "quiet_hours") {
+      return { patch: { quietHoursEnabled: action.enabled!, quietHoursTimezone: current.timezone, ...(action.weekdayStart !== null ? { weekdayQuietStart: action.weekdayStart } : {}), ...(action.weekdayEnd !== null ? { weekdayQuietEnd: action.weekdayEnd } : {}), ...(action.weekendStart !== null ? { weekendQuietStart: action.weekendStart } : {}), ...(action.weekendEnd !== null ? { weekendQuietEnd: action.weekendEnd } : {}) }, title: "Настроить тихие часы" };
+    }
+    if (action.operation === "snooze") {
+      return { patch: { notificationsSnoozedUntil: action.snoozeUntil === null ? null : new Date(action.snoozeUntil) }, title: action.snoozeUntil === null ? "Включить уведомления" : "Приостановить уведомления" };
+    }
+    return { patch: {
+      ...(action.eventOffsets !== null ? { eventReminderOffsetsMinutes: [...new Set(action.eventOffsets)].sort((a, b) => a - b) } : {}),
+      ...(action.plannedTaskOffsetMinutes !== null ? { plannedTaskReminderOffsetMinutes: action.plannedTaskOffsetMinutes } : {}),
+      ...(action.criticalPostDueMinutes !== null ? { criticalPostDueMinutes: action.criticalPostDueMinutes } : {}),
+      ...(action.seenNormalMinutes !== null ? { seenNormalMinutes: action.seenNormalMinutes } : {}),
+      ...(action.seenRequiredMinutes !== null ? { seenRequiredMinutes: action.seenRequiredMinutes } : {}),
+      ...(action.seenCriticalMinutes !== null ? { seenCriticalMinutes: action.seenCriticalMinutes } : {}),
+    }, title: "Изменить стандартные напоминания" };
+  }
 }
 
 function describeAction(action: ProposedActionDraft): string {
@@ -761,6 +890,8 @@ function describeAction(action: ProposedActionDraft): string {
   if (action.type === "update_memory") return "Изменить память";
   if (action.type === "change_reminder") return "Изменить напоминание";
   if (action.type === "change_series") return "Изменить повторяющуюся серию";
+  if (action.type === "update_settings") return "Изменить настройки";
+  if (action.type === "update_occurrence") return "Изменить состояние задачи";
   return "Связать задачу с целью";
 }
 

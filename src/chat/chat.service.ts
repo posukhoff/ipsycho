@@ -538,7 +538,7 @@ export class ChatService {
           turn.actions,
           actionResult.applied,
         ),
-        ...(actionResult.applied ? { appliedGroupId: actionResult.applied.groupId } : {}),
+        ...(actionResult.applied && actionResult.applied.undoable !== false ? { appliedGroupId: actionResult.applied.groupId } : {}),
         ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId } : {}),
         appliedCount: actionResult.applied?.count ?? 0,
         pendingCount: actionResult.pending?.count ?? 0,

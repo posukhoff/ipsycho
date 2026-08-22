@@ -148,6 +148,30 @@ test("explicit completion and reschedule apply immediately", () => {
   }), "apply");
 });
 
+test("chat settings apply only when explicit", () => {
+  const settings = {
+    type: "update_settings", source: "user_explicit", confidence: 1,
+    expectedVersion: 1,
+    operation: "digest", timezone: null, applyTimezoneTo: null, language: null,
+    digestKind: "morning", enabled: true, time: "08:30", weekday: null,
+    weekdayStart: null, weekdayEnd: null, weekendStart: null, weekendEnd: null,
+    snoozeUntil: null, eventOffsets: null, plannedTaskOffsetMinutes: null,
+    criticalPostDueMinutes: null, seenNormalMinutes: null, seenRequiredMinutes: null, seenCriticalMinutes: null,
+  };
+  assert.equal(actionDisposition(settings), "apply");
+  assert.equal(actionDisposition({ ...settings, source: "ai_inferred" }), "confirm");
+});
+
+test("task-card operations apply only when explicit", () => {
+  const action = {
+    type: "update_occurrence", source: "user_explicit", confidence: 1,
+    occurrenceId: "00000000-0000-4000-8000-000000000003", expectedVersion: 1,
+    operation: "start", details: null,
+  };
+  assert.equal(actionDisposition(action), "apply");
+  assert.equal(actionDisposition({ ...action, source: "ai_inferred" }), "confirm");
+});
+
 
 test("mutation batches stay intentionally single-action", () => {
   const update = {

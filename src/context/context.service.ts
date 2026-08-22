@@ -3,25 +3,27 @@ import { assessAvoidance, deriveAvoidanceSignals } from "../core/avoidance.js";
 import { validateTopicDirective, type TopicDirective } from "../core/context-policy.js";
 import { profileOnboardingState } from "../core/profile-onboarding.js";
 import { ContextRepository } from "./context.repository.js";
+import { SettingsService } from "../settings/settings.service.js";
 
 const TOPIC_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
 @Injectable()
 export class ContextService {
-  constructor(private readonly repository: ContextRepository) {}
+  constructor(private readonly repository: ContextRepository, private readonly settings?: SettingsService) {}
 
   goalsOverview(workspaceId: string) {
     return this.repository.listGoalsWithTasks(workspaceId);
   }
 
   async buildAiContext(input: { workspaceId: string; userId: string; query: string; now?: Date }) {
-    const [topics, memories, profile, goals, openOccurrences, profileInvitedAt] = await Promise.all([
+    const [topics, memories, profile, goals, openOccurrences, profileInvitedAt, settings] = await Promise.all([
       this.repository.listTopics(input.workspaceId, input.userId),
       this.repository.searchMemory(input.workspaceId, input.userId, input.query, 5),
       this.repository.listProfile(input.workspaceId, input.userId),
       this.repository.listGoalsForContext(input.workspaceId),
       this.repository.listOpenOccurrences(input.workspaceId),
       this.repository.profileInvitationState(input.userId),
+      this.settings?.get(input.userId) ?? Promise.resolve(null),
     ]);
     const taskGoalLinks = await this.repository.listTaskGoalLinks(input.workspaceId, [...new Set(openOccurrences.map((row) => row.task.id))]);
     const aiSafeMemories = memories.filter((item) => !item.sensitive);
@@ -41,6 +43,18 @@ export class ContextService {
     }
 
     return {
+      settings: settings ? {
+        version: settings.version,
+        timezone: settings.timezone,
+        language: settings.pinnedLanguage,
+        morningDigest: { enabled: settings.morningDigestEnabled, time: settings.morningReferenceTime },
+        eveningDigest: { enabled: settings.eveningDigestEnabled, time: settings.eveningReferenceTime },
+        digestTimezone: settings.digestTimezone,
+        weeklyReview: { enabled: settings.weeklyReviewEnabled, weekday: settings.weeklyReviewWeekday, time: settings.weeklyReviewTime },
+        quietHours: { enabled: settings.quietHoursEnabled, weekdayStart: settings.weekdayQuietStart, weekdayEnd: settings.weekdayQuietEnd, weekendStart: settings.weekendQuietStart, weekendEnd: settings.weekendQuietEnd, timezone: settings.quietHoursTimezone },
+        notificationsSnoozedUntil: settings.notificationsSnoozedUntil?.toISOString() ?? null,
+        reminderDefaults: { eventOffsets: settings.eventReminderOffsetsMinutes, plannedTaskOffsetMinutes: settings.plannedTaskReminderOffsetMinutes, criticalPostDueMinutes: settings.criticalPostDueMinutes, seenNormalMinutes: settings.seenNormalMinutes, seenRequiredMinutes: settings.seenRequiredMinutes, seenCriticalMinutes: settings.seenCriticalMinutes },
+      } : null,
       modelMode: topics.find((topic) => topic.status === "active")?.mode === "analysis" ? "deep" as const : "default" as const,
       topics: topics.map((topic) => ({
         topicId: topic.id,

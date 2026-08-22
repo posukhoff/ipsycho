@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { localDateAndTimeToUtc, localDateAt, parseLocalTime, shiftLocalDate } from "../core/timezone.js";
 import { normalizeLanguageTag } from "../core/language.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -42,6 +42,7 @@ export class SettingsService {
       morningReferenceTime: "09:00",
       eveningReferenceTime: "20:00",
       digestTimezone: current.timezone,
+      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
     }).where(eq(userSettings.userId, userId));
   }
 
@@ -53,6 +54,7 @@ export class SettingsService {
       weeklyReviewWeekday: 7,
       weeklyReviewTime: "20:00",
       digestTimezone: current.timezone,
+      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
     }).where(eq(userSettings.userId, userId));
   }
 
@@ -70,12 +72,12 @@ export class SettingsService {
     const current = await this.get(userId);
     if (!current) throw new Error("settings missing");
     values.quietHoursTimezone = current.timezone;
-    await this.database.db.update(userSettings).set(values).where(eq(userSettings.userId, userId));
+    await this.database.db.update(userSettings).set({ ...values, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
   }
 
   async setTimezone(userId: string, timezone: string): Promise<void> {
     new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date());
-    await this.database.db.update(userSettings).set({ timezone }).where(eq(userSettings.userId, userId));
+    await this.database.db.update(userSettings).set({ timezone, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
   }
 
   async applyProfileTimezone(userId: string, target: "digests" | "quiet" | "both"): Promise<void> {
@@ -84,12 +86,13 @@ export class SettingsService {
     await this.database.db.update(userSettings).set({
       ...(target === "digests" || target === "both" ? { digestTimezone: current.timezone } : {}),
       ...(target === "quiet" || target === "both" ? { quietHoursTimezone: current.timezone } : {}),
+      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
     }).where(eq(userSettings.userId, userId));
   }
 
   async setLanguage(userId: string, language: string | null): Promise<string | null> {
     const normalized = language === null ? null : normalizeLanguageTag(language);
-    await this.database.db.update(userSettings).set({ pinnedLanguage: normalized }).where(eq(userSettings.userId, userId));
+    await this.database.db.update(userSettings).set({ pinnedLanguage: normalized, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
     return normalized;
   }
 
@@ -98,8 +101,8 @@ export class SettingsService {
     const current = await this.get(input.userId);
     if (!current) throw new Error("settings missing");
     const patch = input.kind === "morning"
-      ? { morningDigestEnabled: input.enabled, digestTimezone: current.timezone, ...(input.time ? { morningReferenceTime: input.time } : {}) }
-      : { eveningDigestEnabled: input.enabled, digestTimezone: current.timezone, ...(input.time ? { eveningReferenceTime: input.time } : {}) };
+      ? { morningDigestEnabled: input.enabled, digestTimezone: current.timezone, ...(input.time ? { morningReferenceTime: input.time } : {}), version: sql`${userSettings.version} + 1`, updatedAt: new Date() }
+      : { eveningDigestEnabled: input.enabled, digestTimezone: current.timezone, ...(input.time ? { eveningReferenceTime: input.time } : {}), version: sql`${userSettings.version} + 1`, updatedAt: new Date() };
     await this.database.db.update(userSettings).set(patch).where(eq(userSettings.userId, input.userId));
   }
 
@@ -113,11 +116,12 @@ export class SettingsService {
       digestTimezone: current.timezone,
       ...(input.weekday !== undefined ? { weeklyReviewWeekday: input.weekday } : {}),
       ...(input.time ? { weeklyReviewTime: input.time } : {}),
+      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
     }).where(eq(userSettings.userId, input.userId));
   }
 
   async snoozeUntil(userId: string, until: Date | null): Promise<void> {
-    await this.database.db.update(userSettings).set({ notificationsSnoozedUntil: until }).where(eq(userSettings.userId, userId));
+    await this.database.db.update(userSettings).set({ notificationsSnoozedUntil: until, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
   }
 
   async snoozeUntilMorning(userId: string, now = new Date()): Promise<Date> {
@@ -160,6 +164,7 @@ export class SettingsService {
       ...(input.seenNormalMinutes !== undefined ? { seenNormalMinutes: input.seenNormalMinutes } : {}),
       ...(input.seenRequiredMinutes !== undefined ? { seenRequiredMinutes: input.seenRequiredMinutes } : {}),
       ...(input.seenCriticalMinutes !== undefined ? { seenCriticalMinutes: input.seenCriticalMinutes } : {}),
+      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
     }).where(eq(userSettings.userId, input.userId));
   }
 

@@ -6,8 +6,9 @@ import { ActionsRepository } from "../../dist/actions/actions.repository.js";
 import { ContextActionsRepository } from "../../dist/context/context-actions.repository.js";
 import { ContextRepository } from "../../dist/context/context.repository.js";
 import { ContextService } from "../../dist/context/context.service.js";
+import { ActionMutationsRepository } from "../../dist/actions/action-mutations.repository.js";
 import { AccessService } from "../../dist/access/access.service.js";
-import { actionEvents, memoryItems } from "../../dist/database/schema.js";
+import { actionEvents, actionGroups, memoryItems, taskEvents, taskOccurrences, userSettings } from "../../dist/database/schema.js";
 import { and, eq } from "drizzle-orm";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -15,6 +16,7 @@ if (!url) throw new Error("TEST_DATABASE_URL is required; run npm run test:e2e")
 
 const database = new DatabaseService({ databaseUrl: url });
 const actions = new ActionsRepository(database);
+const mutations = new ActionMutationsRepository(database);
 const contextActions = new ContextActionsRepository(database);
 const contextRepository = new ContextRepository(database);
 const context = new ContextService(contextRepository);
@@ -28,6 +30,7 @@ async function fixture() {
   await database.pool.query("insert into users(id, telegram_user_id) values ($1, $2)", [userId, BigInt(telegramUserSequence)]);
   await database.pool.query("insert into workspaces(id, owner_user_id) values ($1, $2)", [workspaceId, userId]);
   await database.pool.query("insert into workspace_members(workspace_id, user_id, role) values ($1, $2, 'owner')", [workspaceId, userId]);
+  await database.pool.query("insert into user_settings(user_id) values ($1)", [userId]);
   return { workspaceId, userId };
 }
 
@@ -94,6 +97,97 @@ test("stale concurrent profile edits cannot both overwrite one fact", async () =
   assert.equal(memory?.version, 2);
 });
 
+test("chat settings update is atomic, versioned and undoable", async () => {
+  const { workspaceId, userId } = await fixture();
+  const groupId = randomUUID();
+  const now = new Date("2026-08-12T09:00:00Z");
+  await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
+  await mutations.applyUpdateSettings({
+    workspaceId, groupId, actorUserId: userId, expectedVersion: 1,
+    patch: { morningDigestEnabled: true, morningReferenceTime: "08:30" }, now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
+  });
+  let [settings] = await database.db.select().from(userSettings).where(eq(userSettings.userId, userId));
+  assert.equal(settings?.morningDigestEnabled, true);
+  assert.equal(settings?.morningReferenceTime, "08:30");
+  assert.equal(settings?.version, 2);
+  const claimed = await actions.claimUndo(workspaceId, userId, groupId, new Date(now.getTime() + 1_000));
+  assert.ok(claimed);
+  await mutations.undoMutationGroup({ workspaceId, groupId, events: claimed.events, now: new Date(now.getTime() + 2_000) });
+  [settings] = await database.db.select().from(userSettings).where(eq(userSettings.userId, userId));
+  assert.equal(settings?.morningDigestEnabled, false);
+  assert.equal(settings?.morningReferenceTime, "09:00");
+  assert.equal(settings?.version, 3);
+});
+
+test("stale chat settings cannot overwrite a newer settings version", async () => {
+  const { workspaceId, userId } = await fixture();
+  const now = new Date();
+  const attempt = async (time) => {
+    const groupId = randomUUID();
+    await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
+    return mutations.applyUpdateSettings({
+      workspaceId, groupId, actorUserId: userId, expectedVersion: 1,
+      patch: { morningReferenceTime: time }, now, undoExpiresAt: new Date(now.getTime() + 60_000),
+    });
+  };
+  const results = await Promise.allSettled([attempt("08:00"), attempt("08:30")]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+});
+
+async function createOccurrence(workspaceId, userId) {
+  const taskId = randomUUID();
+  const occurrenceId = randomUUID();
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, planned_start_at) values ($1,$2,$3,'Тестовая задача','task','normal','active','point','Europe/Kyiv',$4)",
+    [taskId, workspaceId, userId, new Date(Date.now() - 60_000)],
+  );
+  await database.pool.query(
+    "insert into task_occurrences(id, workspace_id, task_id, status, timezone, planned_start_at) values ($1,$2,$3,'open','Europe/Kyiv',$4)",
+    [occurrenceId, workspaceId, taskId, new Date(Date.now() - 60_000)],
+  );
+  return { taskId, occurrenceId };
+}
+
+test("task-card lifecycle and action journal commit in one transaction and undo cleanly", async () => {
+  const { workspaceId, userId } = await fixture();
+  const { occurrenceId } = await createOccurrence(workspaceId, userId);
+  const groupId = randomUUID();
+  const now = new Date();
+  await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
+  await mutations.applyUpdateOccurrence({
+    workspaceId, groupId, actorUserId: userId, occurrenceId, expectedVersion: 1,
+    operation: "start", now, undoExpiresAt: new Date(now.getTime() + 60_000),
+  });
+  let [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
+  let [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
+  assert.equal(occurrence?.status, "in_progress");
+  assert.equal(occurrence?.version, 2);
+  assert.equal(group?.status, "applied");
+  const claimed = await actions.claimUndo(workspaceId, userId, groupId, new Date(now.getTime() + 1_000));
+  assert.ok(claimed);
+  await mutations.undoMutationGroup({ workspaceId, groupId, events: claimed.events, now: new Date(now.getTime() + 2_000) });
+  [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
+  assert.equal(occurrence?.status, "open");
+  assert.equal(occurrence?.version, 3);
+});
+
+test("Seen interaction and its action group commit atomically", async () => {
+  const { workspaceId, userId } = await fixture();
+  const { occurrenceId } = await createOccurrence(workspaceId, userId);
+  const groupId = randomUUID();
+  await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
+  const result = await mutations.applyOccurrenceInteraction({
+    workspaceId, groupId, actorUserId: userId, occurrenceId, expectedVersion: 1, operation: "seen", now: new Date(),
+  });
+  assert.equal(result.undoable, false);
+  const [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
+  const events = await database.db.select().from(taskEvents).where(and(eq(taskEvents.occurrenceId, occurrenceId), eq(taskEvents.eventType, "occurrence:seen")));
+  assert.equal(group?.status, "applied");
+  assert.equal(events.length, 1);
+});
+
 test("only one concurrent confirmation may claim a pending action group", async () => {
   const { workspaceId, userId } = await fixture();
   const groupId = randomUUID();
@@ -117,6 +211,10 @@ test("the E2E database includes every migration required by the running schema",
     "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'user_settings' and column_name = 'profile_invited_at'",
   );
   assert.deepEqual(rows.map((row) => row.column_name), ["profile_invited_at"]);
+  const version = await database.pool.query(
+    "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'user_settings' and column_name = 'version'",
+  );
+  assert.deepEqual(version.rows.map((row) => row.column_name), ["version"]);
 });
 
 test("sensitive profile and memory facts never enter the AI context", async () => {

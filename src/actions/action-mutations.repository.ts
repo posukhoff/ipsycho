@@ -19,6 +19,7 @@ import {
   taskEvents,
   taskOccurrences,
   tasks,
+  userSettings,
 } from "../database/schema.js";
 import { taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { seriesOperationState } from "../core/series-policy.js";
@@ -27,6 +28,7 @@ type DbTransaction = Parameters<Parameters<DatabaseService["db"]["transaction"]>
 
 export interface MutationAppliedResult {
   groupId: string;
+  undoable?: boolean;
   count: 1;
   titles: string[];
   reminderRebuildOccurrenceId?: string;
@@ -38,6 +40,123 @@ export interface MutationAppliedResult {
 @Injectable()
 export class ActionMutationsRepository {
   constructor(private readonly database: DatabaseService) {}
+
+  async applyUpdateSettings(input: {
+    workspaceId: string; groupId: string; actorUserId: string; expectedVersion: number;
+    patch: Partial<Pick<typeof userSettings.$inferInsert,
+      "timezone" | "digestTimezone" | "quietHoursTimezone" | "pinnedLanguage" |
+      "quietHoursEnabled" | "weekdayQuietStart" | "weekdayQuietEnd" | "weekendQuietStart" | "weekendQuietEnd" |
+      "notificationsSnoozedUntil" | "morningReferenceTime" | "eveningReferenceTime" |
+      "morningDigestEnabled" | "eveningDigestEnabled" | "weeklyReviewEnabled" | "weeklyReviewWeekday" | "weeklyReviewTime" |
+      "eventReminderOffsetsMinutes" | "plannedTaskReminderOffsetMinutes" | "criticalPostDueMinutes" |
+      "seenNormalMinutes" | "seenRequiredMinutes" | "seenCriticalMinutes">>;
+    now: Date; undoExpiresAt: Date;
+  }): Promise<MutationAppliedResult> {
+    return this.database.db.transaction(async (tx) => {
+      const [before] = await tx.select().from(userSettings).where(and(
+        eq(userSettings.userId, input.actorUserId), eq(userSettings.version, input.expectedVersion),
+      )).limit(1);
+      if (!before) throw new Error("settings are stale or missing");
+      const [after] = await tx.update(userSettings).set({
+        ...input.patch, version: sql`${userSettings.version} + 1`, updatedAt: input.now,
+      }).where(and(eq(userSettings.userId, input.actorUserId), eq(userSettings.version, input.expectedVersion))).returning();
+      if (!after) throw new Error("settings are stale or missing");
+      await tx.insert(actionEvents).values({
+        workspaceId: input.workspaceId, groupId: input.groupId, actionType: "update_settings",
+        entityType: "settings", entityId: input.actorUserId, postVersion: after.version,
+        beforeState: settingsMutableState(before), afterState: settingsMutableState(after),
+      });
+      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
+      return { groupId: input.groupId, count: 1, titles: ["Настройки"] };
+    });
+  }
+
+  async applyUpdateOccurrence(input: {
+    workspaceId: string; groupId: string; actorUserId: string; occurrenceId: string; expectedVersion: number;
+    operation: "start" | "skip" | "cancel"; now: Date; undoExpiresAt: Date;
+  }): Promise<MutationAppliedResult> {
+    return this.database.db.transaction(async (tx) => {
+      const [row] = await tx.select({ task: tasks, occurrence: taskOccurrences }).from(taskOccurrences)
+        .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
+        .where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion))).limit(1);
+      if (!row) throw new Error("occurrence is stale or missing");
+      const nextStatus = input.operation === "start" ? "in_progress" : input.operation === "skip" ? "skipped" : "cancelled";
+      const transition = validateOccurrenceTransition(row.occurrence.status, nextStatus, {
+        kind: row.task.kind, recurring: Boolean(row.task.recurrenceRule), now: input.now,
+        ...(row.occurrence.plannedStartAt ? { plannedStartAt: row.occurrence.plannedStartAt } : {}),
+        ...(row.occurrence.plannedEndAt ? { plannedEndAt: row.occurrence.plannedEndAt } : {}),
+        eventElapseGraceMinutes: 15, explicitUserAction: true, systemExpire: false,
+      });
+      if (!transition.ok) throw new Error(transition.reason);
+      const [afterOccurrence] = await tx.update(taskOccurrences).set({
+        status: nextStatus, version: sql`${taskOccurrences.version} + 1`, updatedAt: input.now,
+      }).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion))).returning();
+      if (!afterOccurrence) throw new Error("occurrence is stale or missing");
+      const activeSystemFollowUps = input.operation === "start" ? await tx.select({ id: reminderRules.id }).from(reminderRules).where(and(
+        eq(reminderRules.workspaceId, input.workspaceId), eq(reminderRules.occurrenceId, input.occurrenceId),
+        eq(reminderRules.purpose, "follow_up"), eq(reminderRules.origin, "system"), eq(reminderRules.active, true),
+      )) : [];
+      await tx.insert(actionEvents).values({
+        workspaceId: input.workspaceId, groupId: input.groupId, actionType: "update_occurrence", entityType: "occurrence",
+        entityId: input.occurrenceId, postVersion: afterOccurrence.version,
+        beforeState: { ...occurrenceMutableState(row.occurrence), systemFollowUpRuleIds: activeSystemFollowUps.map((item) => item.id) }, afterState: occurrenceMutableState(afterOccurrence),
+      });
+      if (input.operation === "cancel" && !row.task.recurrenceRule) {
+        const [afterTask] = await tx.update(tasks).set({ status: "cancelled", version: sql`${tasks.version} + 1`, updatedAt: input.now })
+          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, row.task.id), eq(tasks.version, row.task.version))).returning();
+        if (!afterTask) throw new Error("task changed while cancelling occurrence");
+        await tx.insert(actionEvents).values({
+          workspaceId: input.workspaceId, groupId: input.groupId, actionType: "update_occurrence", entityType: "task",
+          entityId: row.task.id, postVersion: afterTask.version, beforeState: taskMutableState(row.task), afterState: taskMutableState(afterTask),
+        });
+      }
+      if (input.operation === "start") {
+        const ids = activeSystemFollowUps.map((item) => item.id);
+        if (ids.length) {
+          await tx.update(reminderDeliveries).set({ status: "cancelled", suppressedReason: "superseded" }).where(and(
+            eq(reminderDeliveries.workspaceId, input.workspaceId), eq(reminderDeliveries.occurrenceId, input.occurrenceId),
+            inArray(reminderDeliveries.reminderRuleId, ids), inArray(reminderDeliveries.status, ["pending", "processing"]),
+          ));
+          await tx.update(reminderRules).set({ active: false }).where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, ids)));
+        }
+      } else {
+        await tx.update(reminderDeliveries).set({ status: "suppressed", suppressedReason: "no_longer_applicable" }).where(and(
+          eq(reminderDeliveries.workspaceId, input.workspaceId), eq(reminderDeliveries.occurrenceId, input.occurrenceId),
+          inArray(reminderDeliveries.status, ["pending", "processing"]),
+        ));
+      }
+      await tx.insert(taskEvents).values({
+        workspaceId: input.workspaceId, taskId: row.task.id, occurrenceId: input.occurrenceId,
+        actorUserId: input.actorUserId, eventType: `occurrence:${nextStatus}`,
+      });
+      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
+      return { groupId: input.groupId, count: 1, titles: [row.task.title] };
+    });
+  }
+
+  async applyOccurrenceInteraction(input: {
+    workspaceId: string; groupId: string; actorUserId: string; occurrenceId: string; expectedVersion: number;
+    operation: "seen" | "record_blocker"; details?: string; now: Date;
+  }): Promise<MutationAppliedResult> {
+    return this.database.db.transaction(async (tx) => {
+      const [row] = await tx.select({ task: tasks, occurrence: taskOccurrences }).from(taskOccurrences)
+        .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
+        .where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion))).limit(1);
+      if (!row) throw new Error("occurrence is stale or missing");
+      await tx.insert(taskEvents).values(input.operation === "seen" ? [{
+        workspaceId: input.workspaceId, taskId: row.task.id, occurrenceId: input.occurrenceId,
+        actorUserId: input.actorUserId, eventType: "occurrence:seen",
+      }] : [{
+        workspaceId: input.workspaceId, taskId: row.task.id, occurrenceId: input.occurrenceId,
+        actorUserId: input.actorUserId, eventType: "occurrence:cant_start",
+      }, {
+        workspaceId: input.workspaceId, taskId: row.task.id, occurrenceId: input.occurrenceId,
+        actorUserId: input.actorUserId, eventType: "occurrence:blocker", details: input.details,
+      }]);
+      await finalizeGroup(tx, input.workspaceId, input.groupId, input.now);
+      return { groupId: input.groupId, undoable: false, count: 1, titles: [row.task.title] };
+    });
+  }
 
   async applyUpdateTask(input: {
     workspaceId: string;
@@ -549,6 +668,25 @@ export class ActionMutationsRepository {
       const reconcileTasks = new Set<string>();
       for (const event of [...input.events].reverse()) {
         if (event.postVersion === null || !event.beforeState || typeof event.beforeState !== "object") throw new Error("undo state is incomplete");
+        if (event.entityType === "settings") {
+          const state = event.beforeState as ReturnType<typeof settingsMutableState>;
+          const [restored] = await tx.update(userSettings).set({
+            timezone: state.timezone, digestTimezone: state.digestTimezone, quietHoursTimezone: state.quietHoursTimezone,
+            pinnedLanguage: state.pinnedLanguage, quietHoursEnabled: state.quietHoursEnabled,
+            weekdayQuietStart: state.weekdayQuietStart, weekdayQuietEnd: state.weekdayQuietEnd,
+            weekendQuietStart: state.weekendQuietStart, weekendQuietEnd: state.weekendQuietEnd,
+            notificationsSnoozedUntil: parseJsonDate(state.notificationsSnoozedUntil),
+            morningReferenceTime: state.morningReferenceTime, eveningReferenceTime: state.eveningReferenceTime,
+            morningDigestEnabled: state.morningDigestEnabled, eveningDigestEnabled: state.eveningDigestEnabled,
+            weeklyReviewEnabled: state.weeklyReviewEnabled, weeklyReviewWeekday: state.weeklyReviewWeekday, weeklyReviewTime: state.weeklyReviewTime,
+            eventReminderOffsetsMinutes: state.eventReminderOffsetsMinutes,
+            plannedTaskReminderOffsetMinutes: state.plannedTaskReminderOffsetMinutes, criticalPostDueMinutes: state.criticalPostDueMinutes,
+            seenNormalMinutes: state.seenNormalMinutes, seenRequiredMinutes: state.seenRequiredMinutes, seenCriticalMinutes: state.seenCriticalMinutes,
+            version: sql`${userSettings.version} + 1`, updatedAt: input.now,
+          }).where(and(eq(userSettings.userId, event.entityId), eq(userSettings.version, event.postVersion))).returning({ userId: userSettings.userId });
+          if (!restored) throw new Error("undo target settings changed after action");
+          continue;
+        }
         if (event.entityType === "task") {
           const state = event.beforeState as ReturnType<typeof taskMutableState>;
           if (event.actionType === "change_series") {
@@ -575,6 +713,7 @@ export class ActionMutationsRepository {
             title: state.title,
             why: state.why,
             nextAction: state.nextAction,
+            context: state.context,
             importance: state.importance,
             status: state.status,
             timeMode: state.timeMode,
@@ -619,7 +758,7 @@ export class ActionMutationsRepository {
           continue;
         }
         if (event.entityType === "occurrence") {
-          const state = event.beforeState as ReturnType<typeof occurrenceMutableState> & { explicitReminderRuleIds?: string[] };
+          const state = event.beforeState as ReturnType<typeof occurrenceMutableState> & { explicitReminderRuleIds?: string[]; systemFollowUpRuleIds?: string[] };
           if (event.actionType === "change_reminder") {
             await tx.update(reminderRules).set({ active: false }).where(and(
               eq(reminderRules.workspaceId, input.workspaceId), eq(reminderRules.occurrenceId, event.entityId), eq(reminderRules.origin, "explicit"), eq(reminderRules.active, true),
@@ -653,8 +792,18 @@ export class ActionMutationsRepository {
             eq(taskOccurrences.version, event.postVersion),
           )).returning({ id: taskOccurrences.id });
           if (!restored) throw new Error("undo target occurrence changed after action");
+          if (event.actionType === "update_occurrence" && state.systemFollowUpRuleIds?.length) {
+            await tx.update(reminderRules).set({ active: true }).where(and(
+              eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, state.systemFollowUpRuleIds),
+            ));
+            await tx.update(reminderDeliveries).set({ status: "pending", suppressedReason: null }).where(and(
+              eq(reminderDeliveries.workspaceId, input.workspaceId), eq(reminderDeliveries.occurrenceId, event.entityId),
+              inArray(reminderDeliveries.reminderRuleId, state.systemFollowUpRuleIds), eq(reminderDeliveries.status, "cancelled"),
+              sql`${reminderDeliveries.scheduledFor} > ${input.now}`,
+            ));
+          }
           if (["reschedule_occurrence", "change_reminder", "change_series"].includes(event.actionType)) rebuild.add(event.entityId);
-          if (event.actionType === "complete_occurrence") {
+          if (["complete_occurrence", "update_occurrence"].includes(event.actionType)) {
             await tx.update(reminderDeliveries).set({ status: "pending", suppressedReason: null }).where(and(
               eq(reminderDeliveries.workspaceId, input.workspaceId),
               eq(reminderDeliveries.occurrenceId, event.entityId),
@@ -719,6 +868,22 @@ function taskMutableState(row: typeof tasks.$inferSelect) {
     habitTrigger: row.habitTrigger,
     habitOfferSentAt: row.habitOfferSentAt?.toISOString() ?? null,
     seriesRevision: row.seriesRevision,
+  };
+}
+
+function settingsMutableState(row: typeof userSettings.$inferSelect) {
+  return {
+    timezone: row.timezone, digestTimezone: row.digestTimezone, quietHoursTimezone: row.quietHoursTimezone,
+    pinnedLanguage: row.pinnedLanguage, quietHoursEnabled: row.quietHoursEnabled,
+    weekdayQuietStart: row.weekdayQuietStart, weekdayQuietEnd: row.weekdayQuietEnd,
+    weekendQuietStart: row.weekendQuietStart, weekendQuietEnd: row.weekendQuietEnd,
+    notificationsSnoozedUntil: row.notificationsSnoozedUntil?.toISOString() ?? null,
+    morningReferenceTime: row.morningReferenceTime, eveningReferenceTime: row.eveningReferenceTime,
+    morningDigestEnabled: row.morningDigestEnabled, eveningDigestEnabled: row.eveningDigestEnabled,
+    weeklyReviewEnabled: row.weeklyReviewEnabled, weeklyReviewWeekday: row.weeklyReviewWeekday, weeklyReviewTime: row.weeklyReviewTime,
+    eventReminderOffsetsMinutes: row.eventReminderOffsetsMinutes,
+    plannedTaskReminderOffsetMinutes: row.plannedTaskReminderOffsetMinutes, criticalPostDueMinutes: row.criticalPostDueMinutes,
+    seenNormalMinutes: row.seenNormalMinutes, seenRequiredMinutes: row.seenRequiredMinutes, seenCriticalMinutes: row.seenCriticalMinutes,
   };
 }
 

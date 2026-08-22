@@ -69,6 +69,8 @@ export const userSettings = pgTable("user_settings", {
   seenRequiredMinutes: integer("seen_required_minutes").notNull().default(30),
   seenCriticalMinutes: integer("seen_critical_minutes").notNull().default(15),
   pendingInput: jsonb("pending_input"),
+  version: integer("version").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const workspaces = pgTable("workspaces", {

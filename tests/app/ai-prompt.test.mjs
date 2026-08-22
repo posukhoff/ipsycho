@@ -25,3 +25,19 @@ test("AI prompt forbids system-data access and makes sensitive profile facts una
   assert.match(prompt, /Sensitive profile records are deliberately withheld/);
   assert.match(prompt, /return actions=\[\]/);
 });
+
+test("AI prompt exposes the full user settings surface without operator privileges", () => {
+  const prompt = buildSystemPrompt("Europe/Kyiv", new Date("2026-08-11T12:00:00.000Z"));
+  assert.match(prompt, /Use update_settings/);
+  assert.match(prompt, /morning\/evening digests/);
+  assert.match(prompt, /quiet hours/);
+  assert.match(prompt, /reminder defaults/);
+  assert.match(prompt, /Do not claim to change operator configuration/);
+});
+
+test("AI prompt exposes task-card lifecycle operations with series scope safety", () => {
+  const prompt = buildSystemPrompt("Europe/Kyiv", new Date("2026-08-11T12:00:00.000Z"));
+  assert.match(prompt, /Use update_occurrence/);
+  assert.match(prompt, /start, skip one recurring occurrence, cancel one occurrence, seen/);
+  assert.match(prompt, /unclear whether they mean this occurrence or the whole series/);
+});

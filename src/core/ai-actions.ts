@@ -7,7 +7,7 @@ export type SupportedActionType =
   | "create_goal" | "update_goal" | "save_memory" | "delete_memory" | "link_task_to_goal"
   | "create_goal_plan"
   | "update_memory"
-  | "change_reminder" | "change_series";
+  | "change_reminder" | "change_series" | "update_settings" | "update_occurrence";
 
 interface ActionBase { type: SupportedActionType; source: ActionSource; confidence: number; }
 
@@ -94,9 +94,39 @@ export interface ChangeSeriesDraft extends ActionBase {
     dueLocalDate: string | null;
   };
 }
+export interface UpdateSettingsDraft extends ActionBase {
+  type: "update_settings";
+  expectedVersion: number;
+  operation: "timezone" | "language" | "digest" | "weekly_review" | "quiet_hours" | "snooze" | "reminder_defaults";
+  timezone: string | null;
+  applyTimezoneTo: "profile_only" | "all" | null;
+  language: string | null;
+  digestKind: "morning" | "evening" | null;
+  enabled: boolean | null;
+  time: string | null;
+  weekday: number | null;
+  weekdayStart: string | null;
+  weekdayEnd: string | null;
+  weekendStart: string | null;
+  weekendEnd: string | null;
+  snoozeUntil: string | null;
+  eventOffsets: number[] | null;
+  plannedTaskOffsetMinutes: number | null;
+  criticalPostDueMinutes: number | null;
+  seenNormalMinutes: number | null;
+  seenRequiredMinutes: number | null;
+  seenCriticalMinutes: number | null;
+}
+export interface UpdateOccurrenceDraft extends ActionBase {
+  type: "update_occurrence";
+  occurrenceId: string;
+  expectedVersion: number;
+  operation: "start" | "skip" | "cancel" | "seen" | "record_blocker";
+  details: string | null;
+}
 
 export type ProposedActionDraft = CreateTaskDraft | UpdateTaskDraft | CompleteOccurrenceDraft | RescheduleOccurrenceDraft
-  | CreateGoalDraft | CreateGoalPlanDraft | UpdateGoalDraft | SaveMemoryDraft | DeleteMemoryDraft | UpdateMemoryDraft | LinkTaskToGoalDraft | ChangeReminderDraft | ChangeSeriesDraft;
+  | CreateGoalDraft | CreateGoalPlanDraft | UpdateGoalDraft | SaveMemoryDraft | DeleteMemoryDraft | UpdateMemoryDraft | LinkTaskToGoalDraft | ChangeReminderDraft | ChangeSeriesDraft | UpdateSettingsDraft | UpdateOccurrenceDraft;
 
 export type ActionDisposition = "apply" | "confirm";
 

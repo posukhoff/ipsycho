@@ -5,7 +5,10 @@ e2e_compose='docker compose -p ipsycho_e2e -f docker-compose.e2e.yml'
 e2e_url='postgres://ipsycho_e2e:ipsycho_e2e_only@127.0.0.1:5433/ipsycho_e2e'
 
 cleanup() {
-  $e2e_compose down --volumes --remove-orphans
+  status=$?
+  trap - EXIT INT TERM
+  $e2e_compose down --volumes --remove-orphans || true
+  exit "$status"
 }
 trap cleanup EXIT INT TERM
 
