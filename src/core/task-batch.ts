@@ -31,10 +31,14 @@ export function compileTaskBatchShape(batch: TaskBatchDraft): CompiledTaskBatch 
       if (step.target.kind === "created" && !created.has(step.target.stepId)) {
         throw new TaskBatchCompileError(step.stepId, `temporary task reference ${step.target.stepId} must point to an earlier create step`);
       }
-      summaries.push(step.operation === "update" ? "Изменить задачу" : "Связать задачу с целью");
+      summaries.push(step.operation === "update"
+        ? (step.patch.title !== null ? `Изменить задачу: название → «${step.patch.title}»` : "Изменить задачу")
+        : "Связать задачу с целью");
       continue;
     }
-    summaries.push("Перенести задачу");
+    const start = step.schedule.localSchedule?.startDate ?? step.schedule.localSchedule?.dueDate;
+    const time = step.schedule.localSchedule?.startTime ?? step.schedule.localSchedule?.dueTime;
+    summaries.push(start ? `Перенести задачу на ${start.split("-").slice(1).reverse().join(".")}${time ? ` ${time}` : ""}` : "Перенести задачу");
   }
   return { steps: [...batch.steps], createdStepIds: created, summaries };
 }

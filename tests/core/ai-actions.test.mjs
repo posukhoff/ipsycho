@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { actionDisposition, splitActionsByDisposition, validateActionBatchShape, validateMutationIntent } from "../../.core-dist/ai-actions.js";
+import { actionDisposition, isMixedTaskMutationRequest, splitActionsByDisposition, validateActionBatchShape, validateMutationIntent } from "../../.core-dist/ai-actions.js";
 
 const base = {
   type: "create_task",
@@ -236,7 +236,29 @@ test("informational questions cannot silently mutate settings or completion stat
   assert.match(validateMutationIntent([settings], "У меня включён еженедельный обзор?"), /informational question/);
   assert.match(validateMutationIntent([completion], "Эта задача уже выполнена?"), /informational question/);
   assert.equal(validateMutationIntent([settings], "Можешь включить еженедельный обзор?"), null);
-  assert.equal(validateMutationIntent([{ ...settings, source: "ai_inferred" }], "Как думаешь, стоит ли включить обзор?"), null);
+  assert.match(validateMutationIntent([{ ...settings, source: "ai_inferred" }], "Как думаешь, стоит ли включить обзор?"), /must remain advisory/);
+});
+
+test("AI-inferred planning stays advisory until the user explicitly requests or accepts mutations", () => {
+  const inferred = { ...base, source: "ai_inferred", title: "Подготовить короткий оффер" };
+  assert.match(
+    validateMutationIntent([inferred], "Продукт почти готов, но есть только четыре часа и мало энергии"),
+    /must remain advisory/,
+  );
+  assert.equal(validateMutationIntent([inferred], "Создай задачу подготовить короткий оффер"), null);
+  assert.equal(
+    validateMutationIntent([inferred], "да", "Если хочешь, могу превратить это в две маленькие задачи."),
+    null,
+  );
+  assert.match(validateMutationIntent([inferred], "да", "Продолжим обсуждение?"), /must remain advisory/);
+});
+
+test("mixed task-operation intent is detected without treating homogeneous creation as a disabled batch", () => {
+  assert.equal(isMixedTaskMutationRequest("Создай две задачи на понедельник"), false);
+  assert.equal(isMixedTaskMutationRequest("Сделай одним пакетом: создай задачу и перенеси встречу"), true);
+  assert.equal(isMixedTaskMutationRequest("Перенеси встречу, оставь повтор тренировок и привяжи оффер к цели"), true);
+  assert.equal(isMixedTaskMutationRequest("На следующую неделю поставь главным пилот. В понедельник после обеда подготовить короткий оффер, во вторник написать пяти клиентам, созвон перенеси на четверг в 16:00. Тренировки оставь по вторникам и субботам, ближайшую субботу пропусти. Добавь купить подарок, первые задачи привяжи к пилоту"), true);
+  assert.equal(isMixedTaskMutationRequest("Как лучше спланировать задачи и встречи?"), false);
 });
 
 test("high confidence inferred task-goal link applies, medium confidence confirms", () => {

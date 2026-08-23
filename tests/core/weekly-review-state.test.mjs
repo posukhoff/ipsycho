@@ -37,3 +37,15 @@ test("weekly evidence grounding recognizes remaining dimensions and final reques
   const grounded = groundWeeklyReviewProgress(all, "Есть 6 часов, риск — полировка вместо разговоров. Минимум — одна сессия, интервью в среду. Дай финальный план.");
   assert.ok(grounded?.capacityEnergy && grounded.risks && grounded.minimumSuccess && grounded.commitments && grounded.conclusionRequested);
 });
+
+test("one explicit Russian message grounds all five weekly dimensions", () => {
+  const empty = {
+    outcome: null, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: true,
+  };
+  const text = "Результат: отправил два письма, но оплаченных пилотов нет. Энергия 4 из 10, реально есть четыре часа. Риски: недосып и две встречи. Минимум успеха — ещё три письма и один созвон. Обязательства — встреча с Антоном и восстановление сна. Составь финальный план.";
+  const grounded = groundWeeklyReviewProgress(empty, text);
+  assert.ok(grounded?.outcome && grounded.capacityEnergy && grounded.risks && grounded.minimumSuccess && grounded.commitments);
+  assert.equal(grounded.conclusionRequested, true);
+  const state = mergeWeeklyReviewProgress(null, grounded);
+  assert.deepEqual(weeklyReviewLifecycle(state, 1), { complete: true, forced: true, assumptionsRequired: false });
+});

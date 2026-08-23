@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { defaultReminderTemplates } from "../core/reminder-defaults.js";
-import { defaultRuleSpecs, planReminders, type ReminderSettings } from "../core/reminder-planning.js";
+import { defaultRuleSpecs, planReminders, type ReminderRuleSpec, type ReminderSettings } from "../core/reminder-planning.js";
 import { buildOneTimeOccurrence, buildRecurringOccurrences, type OccurrenceProjection } from "../core/recurrence.js";
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
@@ -25,6 +25,8 @@ export interface CreateTaskInput {
   nextAction?: string;
   context?: string;
   checklist?: Array<{ text: string; done: boolean }>;
+  /** User-requested reminder; replaces the default user reminder, keeps follow-up/review rules. */
+  explicitReminder?: ReminderRuleSpec;
   now?: Date;
 }
 
@@ -128,7 +130,7 @@ export class TasksService {
       plannedTaskOffsetMinutes: settingsRow.plannedTaskReminderOffsetMinutes,
       criticalPostDueMinutes: settingsRow.criticalPostDueMinutes,
     });
-    const ruleSpecs = defaultRuleSpecs(definition, templates, settings);
+    const ruleSpecs = withExplicitReminder(defaultRuleSpecs(definition, templates, settings), input.explicitReminder);
     const ruleIds = ruleSpecs.map(() => randomUUID());
     const occurrenceIds = projections.map(() => randomUUID());
 
@@ -290,15 +292,20 @@ export class TasksService {
     // Filter by the requested day before applying the display limit. This keeps
     // every occurrence on that day discoverable even when other series have many
     // materialized future occurrences.
-    const rows = await this.repository.listActionableForTelegram(workspaceId);
-    return rows.filter(({ task, occurrence }) => {
+    const [actionable, fuzzy] = await Promise.all([
+      this.repository.listActionableForTelegram(workspaceId),
+      this.repository.listFuzzyReviewsForLocalDate(workspaceId, localDate, limit),
+    ]);
+    const rows = actionable.filter(({ task, occurrence }) => {
       if (occurrence.overdue) return true;
       if (occurrence.plannedLocalDate === localDate || occurrence.dueLocalDate === localDate) return true;
       if (occurrence.plannedStartAt && localDateAt(occurrence.plannedStartAt, occurrence.timezone) === localDate) return true;
       if (occurrence.dueAt && localDateAt(occurrence.dueAt, occurrence.timezone) === localDate) return true;
       if (task.timeMode === "window" && occurrence.plannedEndAt && localDateAt(occurrence.plannedEndAt, occurrence.timezone) === localDate) return true;
       return false;
-    }).slice(0, limit);
+    });
+    const reviews = fuzzy.map((task) => ({ task, occurrence: null }));
+    return [...rows, ...reviews].sort(compareTelegramTasks).slice(0, limit);
   }
 
   async listCompletedTodayForTelegram(workspaceId: string, localDate: string) {
@@ -461,6 +468,15 @@ export class TasksService {
     });
   }
 
+  /** Detail fields for a Telegram task card that are not on the task row itself. */
+  async getTaskCardExtras(workspaceId: string, taskId: string): Promise<{ checklist: Array<{ text: string; done: boolean }>; goalTitle: string | null }> {
+    const [checklist, goalTitle] = await Promise.all([
+      this.repository.listChecklistForTasks(workspaceId, [taskId]),
+      this.repository.findGoalTitleForTask(workspaceId, taskId),
+    ]);
+    return { checklist: checklist.map((item) => ({ text: item.text, done: item.done })), goalTitle };
+  }
+
   async getOccurrenceContext(workspaceId: string, occurrenceId: string) {
     const occurrence = await this.repository.findOccurrence(workspaceId, occurrenceId);
     if (!occurrence) return null;
@@ -487,4 +503,9 @@ function compareTelegramTasks(
 function telegramTaskTime(row: { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null }): number {
   const value = row.occurrence?.dueAt ?? row.occurrence?.plannedStartAt ?? row.task.reviewAt;
   return value ? new Date(value).getTime() : Number.POSITIVE_INFINITY;
+}
+
+export function withExplicitReminder(defaults: ReminderRuleSpec[], explicit?: ReminderRuleSpec): ReminderRuleSpec[] {
+  if (!explicit) return defaults;
+  return [...defaults.filter((rule) => rule.purpose !== "user_reminder"), explicit];
 }

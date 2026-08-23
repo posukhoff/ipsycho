@@ -35,10 +35,14 @@ Telegram long polling needs only outbound HTTPS access.
 
    ```sh
    cd /opt/ipsycho
-   docker compose up -d --build
+   APP_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
    docker compose ps
    docker compose logs --tail=100 app
    ```
+
+   `APP_COMMIT` is baked into the image and reported by `/status` in Telegram and
+   by `GET /health` (`commit` field), so the running build can be verified without
+   shell access. The deploy workflow passes the exact verified commit automatically.
 
    The app image applies database migrations before it starts. Do not run a
    separate migration while the app container owns the database lock.

@@ -4,6 +4,7 @@ import { localDateAt } from "../core/timezone.js";
 import { deadlineUrgency } from "../core/deadline-urgency.js";
 import { aggregateHistoricalGoalMovement, habitCompletionStats, WEEKLY_MOVEMENT_EVENT_TYPES, WEEKLY_REVIEW_GOAL_STATUSES } from "../core/weekly-review-policy.js";
 import { DatabaseService } from "../database/database.service.js";
+import { todayLine } from "../telegram/telegram-ui.js";
 import { briefingDeliveries, goals, taskEvents, taskGoals, taskOccurrences, tasks } from "../database/schema.js";
 
 const NONTERMINAL = ["scheduled", "open", "in_progress"] as const;
@@ -38,7 +39,7 @@ export class BriefingContentService {
       const lines = [`☀️ Сегодня · ${ordered.length} ${taskWord(ordered.length)}`];
       if (main) lines.push(`\nГлавное: ${main.task.title}`);
       lines.push("");
-      for (const row of ordered.slice(0, 6)) lines.push(compactTaskLine(row.task, row.occurrence));
+      for (const row of ordered.slice(0, 6)) lines.push(todayLine(row.task, row.occurrence, input.localDate, "ru", input.now ?? new Date()));
       if (ordered.length > 6) lines.push(`+ ещё ${ordered.length - 6}`);
       return { text: lines.join("\n"), hasContent: true, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[] };
     };
@@ -50,11 +51,11 @@ export class BriefingContentService {
       const lines = ["🌙 Вечер", `\nОсталось: ${decisions.length + normal.length}`];
       if (decisions.length) {
         lines.push("\nНужно решить:");
-        decisions.slice(0, 3).forEach((row, index) => lines.push(`${index + 1}. ${compactTaskLine(row.task, row.occurrence, false)}`));
+        decisions.slice(0, 3).forEach((row, index) => lines.push(`${index + 1}. ${todayLine(row.task, row.occurrence, input.localDate, "ru", input.now ?? new Date()).replace(/^\S+\s/u, "")}`));
       }
       if (normal.length) {
         lines.push("\nОстальное:");
-        for (const row of normal.slice(0, Math.max(0, 5 - decisions.length))) lines.push(compactTaskLine(row.task, row.occurrence));
+        for (const row of normal.slice(0, Math.max(0, 5 - decisions.length))) lines.push(todayLine(row.task, row.occurrence, input.localDate, "ru", input.now ?? new Date()));
       }
       if (decisions.length + normal.length > 6) lines.push(`+ ещё ${decisions.length + normal.length - 6}`);
       return { text: lines.join("\n"), hasContent: true, reviewKinds: ["evening"] as Array<"evening" | "weekly">, decisionOccurrenceIds: decisions.slice(0, 3).map((row) => row.occurrence.id) };
@@ -199,12 +200,6 @@ export class BriefingContentService {
   }
 }
 
-
-function compactTaskLine(task: typeof tasks.$inferSelect, occurrence: typeof taskOccurrences.$inferSelect, includeBullet = true): string {
-  const icon = task.importance === "critical" ? "🔴" : task.importance === "required" ? "🟡" : task.recurrenceRule ? "🔁" : "•";
-  const status = occurrence.overdue ? " · просрочено" : occurrence.status === "in_progress" ? " · в работе" : "";
-  return `${includeBullet ? icon : ""}${includeBullet ? " " : ""}${task.title}${status}`;
-}
 
 function importanceRank(value: typeof tasks.$inferSelect["importance"]): number {
   return value === "critical" ? 0 : value === "required" ? 1 : 2;

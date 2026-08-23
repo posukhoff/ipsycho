@@ -247,6 +247,23 @@ export class ReminderSchedulingService {
     return 0;
   }
 
+  /** Earliest pending user-facing reminder of one occurrence; what the user will actually receive next. */
+  async nextUserReminderAt(workspaceId: string, occurrenceId: string): Promise<Date | null> {
+    const [row] = await this.database.db
+      .select({ scheduledFor: reminderDeliveries.scheduledFor })
+      .from(reminderDeliveries)
+      .innerJoin(reminderRules, and(eq(reminderRules.workspaceId, reminderDeliveries.workspaceId), eq(reminderRules.id, reminderDeliveries.reminderRuleId)))
+      .where(and(
+        eq(reminderDeliveries.workspaceId, workspaceId),
+        eq(reminderDeliveries.occurrenceId, occurrenceId),
+        eq(reminderDeliveries.status, "pending"),
+        eq(reminderRules.purpose, "user_reminder"),
+      ))
+      .orderBy(reminderDeliveries.scheduledFor)
+      .limit(1);
+    return row?.scheduledFor ?? null;
+  }
+
   async rebuildOccurrence(workspaceId: string, occurrenceId: string, now = new Date()): Promise<number> {
     const [row] = await this.database.db
       .select({ task: tasks, occurrence: taskOccurrences, recipientUserId: workspaces.ownerUserId, settings: userSettings })

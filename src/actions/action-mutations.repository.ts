@@ -6,6 +6,7 @@ import { rescheduledDefinition, rescheduledOccurrenceStatus, type RescheduleFiel
 import { isRescheduleReasonRequired } from "../core/task-policy.js";
 import { localDateAt } from "../core/timezone.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
+import { taskFieldChanges, type TaskFieldChange } from "../core/applied-report.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
 import type { TaskDefinition } from "../core/types.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -36,6 +37,13 @@ export interface MutationAppliedResult {
   reminderRebuildTaskId?: string;
   recurrenceReconcileTaskId?: string;
   occurrenceSchedule?: OccurrenceScheduleView;
+  /** Previous title when an update_task changed it, so the reply can show old → new. */
+  renamedFrom?: string;
+  /** Field-level diff of an update_task, rendered verbatim in the applied report. */
+  changes?: TaskFieldChange[];
+  /** Schedule before a reschedule, so the report can show old → new. */
+  previousSchedule?: OccurrenceScheduleView;
+  scheduledReminderAt?: Date;
 }
 
 @Injectable()
@@ -230,7 +238,11 @@ export class ActionMutationsRepository {
         afterState: { ...taskMutableState(after), checklist: afterChecklist },
       });
       await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [after.title] };
+      return {
+        groupId: input.groupId, count: 1, titles: [after.title],
+        ...(before.title !== after.title ? { renamedFrom: before.title } : {}),
+        changes: taskFieldChanges({ ...taskMutableState(before), checklist: beforeChecklist }, { ...taskMutableState(after), checklist: afterChecklist }),
+      };
     });
   }
 
@@ -470,6 +482,14 @@ export class ActionMutationsRepository {
         count: 1,
         titles: [row.task.title],
         reminderRebuildOccurrenceId: input.occurrenceId,
+        previousSchedule: {
+          timezone: row.occurrence.timezone,
+          plannedStartAt: row.occurrence.plannedStartAt,
+          plannedEndAt: row.occurrence.plannedEndAt,
+          plannedLocalDate: row.occurrence.plannedLocalDate,
+          dueAt: row.occurrence.dueAt,
+          dueLocalDate: row.occurrence.dueLocalDate,
+        },
         occurrenceSchedule: {
           timezone: updatedOccurrence.timezone,
           plannedStartAt: updatedOccurrence.plannedStartAt,
@@ -554,6 +574,14 @@ export class ActionMutationsRepository {
         count: 1,
         titles: [row.task.title],
         reminderRebuildOccurrenceId: input.occurrenceId,
+        occurrenceSchedule: {
+          timezone: after.timezone,
+          plannedStartAt: after.plannedStartAt,
+          plannedEndAt: after.plannedEndAt,
+          plannedLocalDate: after.plannedLocalDate,
+          dueAt: after.dueAt,
+          dueLocalDate: after.dueLocalDate,
+        },
       };
     });
   }

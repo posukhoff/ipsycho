@@ -14,8 +14,19 @@ export interface TopicDirective {
  * valid task/goal mutation in the same AI turn.
  */
 export function canonicalizeTopicDirective<T extends TopicDirective>(directive: T): T {
-  if (directive.mode === "resolve" && directive.title !== null) return { ...directive, title: null };
-  return directive;
+  let result = directive;
+  // The model sometimes echoes a mode word ("none") or a title instead of a listed ID.
+  // Such a value can never match a stored topic, so treat it as absent instead of
+  // letting it reach a uuid-typed database query.
+  if (result.topicId !== null && !isTopicId(result.topicId)) result = { ...result, topicId: null };
+  if (result.mode === "resolve" && result.title !== null) return { ...result, title: null };
+  return result;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isTopicId(value: string | null | undefined): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value.trim());
 }
 
 export function validateTopicDirective(directive: TopicDirective): string | null {
@@ -31,6 +42,7 @@ export function validateTopicDirective(directive: TopicDirective): string | null
     return null;
   }
   if (!directive.topicId) return `${directive.mode} topic requires topicId`;
+  if (!isTopicId(directive.topicId)) return `${directive.mode} topic requires a listed topicId, not "${directive.topicId}"`;
   if (!summary) return `${directive.mode} topic requires summary`;
   if (directive.mode === "resolve" && title) return "resolve topic does not rename the topic";
   return null;

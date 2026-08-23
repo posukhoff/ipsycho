@@ -44,8 +44,8 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
             continue;
           }
           if (result.kind !== "ok") continue;
-          const suffix = actionSummary(result.appliedCount, result.pendingCount, result.warnings);
-          const text = suffix ? `${result.text}\n\n${suffix}` : result.text;
+          const suffix = actionSummary(result.pendingCount, result.pendingTitles ?? [], result.warnings);
+          const text = [result.text, result.report, suffix].filter((part) => part && part.trim()).join("\n\n");
           const telegramMessageId = await this.telegram.sendActionResult({
             telegramUserId: row.user.telegramUserId,
             text,
@@ -71,8 +71,8 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
   }
 }
 
-function actionSummary(_applied: number, pending: number, warnings: readonly string[]): string {
+function actionSummary(pending: number, pendingTitles: readonly string[], warnings: readonly string[]): string {
   const parts = [...warnings];
-  if (pending) parts.push(`Требуют подтверждения: ${pending}.`);
-  return parts.join(" ");
+  if (pending) parts.push([`⏳ Нужно подтвердить (${pending}):`, ...pendingTitles.slice(0, 8).map((title) => `• ${title}`)].join("\n"));
+  return parts.join("\n\n");
 }

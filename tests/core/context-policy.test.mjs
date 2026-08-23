@@ -22,7 +22,16 @@ test("topic directives reject invented or incomplete shapes", () => {
 });
 
 test("resolved topic ignores a carried-over title without weakening other validation", () => {
-  const directive = canonicalizeTopicDirective({ mode: "resolve", topicId: "topic", title: "Old title", summary: "Done" });
+  const directive = canonicalizeTopicDirective({ mode: "resolve", topicId: "3f2b9c1e-6d4a-4b8f-9a1c-2e5d7f8a9b0c", title: "Old title", summary: "Done" });
   assert.equal(directive.title, null);
   assert.equal(validateTopicDirective(directive), null);
+});
+
+test("a non-uuid topicId never reaches the database", () => {
+  // Production 2026-08-23: the model echoed the mode word as the ID and the uuid cast crashed the turn.
+  const directive = canonicalizeTopicDirective({ mode: "continue", topicId: "none", title: null, summary: "Summary" });
+  assert.equal(directive.topicId, null);
+  assert.match(validateTopicDirective(directive), /requires topicId/);
+  assert.match(validateTopicDirective({ mode: "switch", topicId: "Soulmate Scan", title: null, summary: "Summary" }), /listed topicId/);
+  assert.equal(canonicalizeTopicDirective({ mode: "none", topicId: "none", title: null, summary: null }).topicId, null);
 });

@@ -61,3 +61,10 @@
 - [x] 8.3 Run `npm run test:e2e` with migration, atomicity, workspace isolation, optimistic conflict, journaling, Undo, recurrence, and reminder assertions passing; record any environment limitation explicitly.
 - [x] 8.4 Rehearse migration and rollback sequencing on a production-like database with task batches disabled, then enable recurrence, weekly lifecycle, and task batches in stages; verify existing tasks remain schedulable and new bounded series stop correctly.
 - [ ] 8.5 Execute manual Telegram/provider QA on synthetic users, inspect sanitized production-like logs, Undo all mutations, and verify zero active test tasks/goals/reminders before release approval.
+
+## 9. Production QA remediation
+
+- [x] 9.1 Add a deterministic mutation-intent boundary that prevents AI-inferred task/goal mutations from creating pending action groups until the user explicitly requests or accepts the change; verify the exact low-energy pilot dialogue remains advisory.
+- [x] 9.2 Add a truthful deterministic response for mixed task-operation requests while task batches are disabled; verify it states that nothing changed and never reconfirms an already supplied time or timezone.
+- [x] 9.3 Ground all five weekly-review dimensions from one explicit long-form message and avoid an assumptions label when none are missing; verify the production Russian fixture records five provided dimensions.
+- [x] 9.4 Strengthen unclear-goal guidance to distinguish known facts and assumptions, offer at most three provisional steps, ask one high-value constraint question, and emit no action before explicit acceptance; run `npm run check` and `npm run test:e2e`.

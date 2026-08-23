@@ -13,9 +13,23 @@ export type SupportedActionType =
 
 interface ActionBase { type: SupportedActionType; source: ActionSource; confidence: number; }
 
+/** One user-facing reminder rule; shared by create_task.reminder and change_reminder.reminder. */
+export interface ReminderSpecDraft {
+  triggerKind: "exact" | "relative_timestamp" | "local_date";
+  exactAt: string | null;
+  anchor: "planned_start" | "planned_end" | "due_at" | null;
+  offsetMinutes: number | null;
+  daysOffset: number | null;
+  localTime: string | null;
+  quietPolicy: "respect" | "bypass";
+}
+
 export interface CreateTaskDraft extends ActionBase {
   type: "create_task"; criticalExplicit: boolean; habitModeExplicit: boolean; title: string; why: string | null; nextAction: string | null; context: string | null; checklist: Array<{ text: string; done: boolean }> | null;
   goalLink?: { goalId: string; expectedGoalVersion: number; confidence: number } | null;
+  /** An explicit user reminder that replaces the default user reminder of the new task. */
+  reminder?: ReminderSpecDraft | null;
+  quietBypassExplicit?: boolean;
   definition: {
     kind: TaskKind; importance: Importance; timeMode: TimeMode; timezone: string;
     plannedStartAt: string | null; plannedEndAt: string | null; plannedLocalDate: string | null;
@@ -71,15 +85,7 @@ export interface ChangeReminderDraft extends ActionBase {
   expectedVersion: number;
   mode: "add" | "replace" | "clear";
   quietBypassExplicit: boolean;
-  reminder: null | {
-    triggerKind: "exact" | "relative_timestamp" | "local_date";
-    exactAt: string | null;
-    anchor: "planned_start" | "planned_end" | "due_at" | null;
-    offsetMinutes: number | null;
-    daysOffset: number | null;
-    localTime: string | null;
-    quietPolicy: "respect" | "bypass";
-  };
+  reminder: ReminderSpecDraft | null;
 }
 
 export interface ChangeSeriesDraft extends ActionBase {
@@ -167,6 +173,7 @@ export function actionDisposition(action: ProposedActionDraft): ActionDispositio
     if (action.goalLink && goalLinkDisposition({ source: "ai_inferred", confidence: action.goalLink.confidence }) === "confirm") return "confirm";
     if (action.definition.importance === "critical" && !action.criticalExplicit) return "confirm";
     if (action.definition.habitMode && !action.habitModeExplicit) return "confirm";
+    if (action.reminder?.quietPolicy === "bypass" && !action.quietBypassExplicit) return "confirm";
   }
   if (action.type === "update_task") {
     if (action.patch.importance === "critical" && !action.criticalExplicit) return "confirm";
@@ -230,16 +237,38 @@ export function containsExplicitMutationRequest(text: string): boolean {
   return words.some((word) => EXPLICIT_MUTATION_WORDS.has(word)) || /(?:^|\s)turn\s+(?:on|off)(?=$|\s|[.,;:!?])/u.test(text);
 }
 
+export function isMixedTaskMutationRequest(text: string): boolean {
+  const normalized = text.trim().toLocaleLowerCase();
+  if (!containsExplicitMutationRequest(normalized)) return false;
+  if (!/(?:задач|встреч|созвон|тренир|повтор|цель|нагад|завдан|зустріч|task|meeting|goal|recurr)/u.test(normalized)) return false;
+  const operationFamilies = [
+    /(?:создай|создать|добавь|добавить|поставь|поставить|створи|створити|додай|додати|create|add|schedule)/u,
+    /(?:перенеси|перенести|reschedule|перенес|переплан|перенести|переміст)/u,
+    /(?:свяжи|связать|привяжи|привязать|зв'яжи|зв’язати|link)/u,
+    /(?:повтор|серии|серию|серію|кажд|щотиж|пропусти|пропустить|skip|recurr|series)/u,
+    /(?:измени|изменить|обнови|обновить|оставь|оставить|зміни|онови|залиш|update|change)/u,
+  ];
+  return operationFamilies.filter((pattern) => pattern.test(normalized)).length >= 2;
+}
+
 /**
  * The model cannot prove that a mutation was explicitly requested merely by
  * returning source=user_explicit. Questions and tentative suggestions require an
  * independently visible mutation request before any action may be applied.
  */
-export function validateMutationIntent(actions: readonly ProposedActionDraft[], latestUserText: string): string | null {
-  if (!actions.some((action) => action.source === "user_explicit")) return null;
+export function validateMutationIntent(actions: readonly ProposedActionDraft[], latestUserText: string, previousAssistantText?: string): string | null {
+  if (actions.length === 0) return null;
   const text = latestUserText.trim().toLocaleLowerCase();
+  const explicitRequest = containsExplicitMutationRequest(text);
   const isQuestion = /[?？]$/.test(text) || /^(?:как|что|когда|где|почему|зачем|можно\s+ли|будет\s+ли|як|що|коли|де|чому|навіщо|можна\s+чи|how|what|when|where|why|can\s+you|could\s+you)(?:\s|$)/u.test(text);
   const isTentative = /(?:^|[^\p{L}\p{N}_])(?:может\s+быть|наверное|возможно|стоит\s+ли|как\s+думаешь|можливо|мабуть|варто\s+чи|maybe|perhaps|should\s+i)(?=$|[^\p{L}\p{N}_])/u.test(text);
+  const acceptedOffer = Boolean(previousAssistantText)
+    && /^(?:да|давай|подтверждаю|согласен|согласна|так|гаразд|підтверджую|yes|ok|okay)[.!]?$/u.test(text)
+    && /(?:созд|добав|измен|перенес|сохран|задач|цель|створ|додат|змін|перенест|зберег|завдан|мет|create|add|change|reschedule|save|task|goal)/iu.test(previousAssistantText ?? "");
+  if (actions.some((action) => action.source === "ai_inferred") && ((!explicitRequest || isTentative) && !acceptedOffer)) {
+    return "an AI-inferred proposal without an explicit user request or acceptance must remain advisory and must not create a pending action group";
+  }
+  if (!actions.some((action) => action.source === "user_explicit")) return null;
   if (!isQuestion && !isTentative) return null;
-  return containsExplicitMutationRequest(text) ? null : "an informational question or tentative suggestion without an explicit mutation request must not change application state";
+  return explicitRequest ? null : "an informational question or tentative suggestion without an explicit mutation request must not change application state";
 }

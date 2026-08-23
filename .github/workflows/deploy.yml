@@ -39,4 +39,4 @@ jobs:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd /opt/ipsycho && git fetch --prune origin && git checkout --detach '$DEPLOY_SHA' && docker compose up -d --build --remove-orphans && docker image prune -f"
+            "cd /opt/ipsycho && git fetch --prune origin && git checkout --detach '$DEPLOY_SHA' && APP_COMMIT='$DEPLOY_SHA' docker compose up -d --build --remove-orphans && docker image prune -f"

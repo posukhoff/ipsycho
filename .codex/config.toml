@@ -1,0 +1,11 @@
+# Safe repository defaults. Project configuration loads only when this repo is trusted.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[shell_environment_policy]
+# Keep Codex's default filtering for KEY/SECRET/TOKEN-like variables.
+ignore_default_excludes = false
+
+[agents]
+# Three subagents plus the primary agent fit the intended four-thread ceiling.
+max_concurrent_threads_per_session = 3

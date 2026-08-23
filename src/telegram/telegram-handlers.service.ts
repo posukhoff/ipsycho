@@ -12,6 +12,8 @@ import { quickRescheduleSchedule, type QuickRescheduleChoice } from "../core/tel
 import type { RescheduleFields } from "../core/reschedule.js";
 import { formatIsoInstantInTimezone } from "../core/timezone.js";
 import { localDateAt } from "../core/timezone.js";
+import { renderAppliedReport } from "../core/applied-report.js";
+import { formatLocalDateTime } from "../core/time-presentation.js";
 import type { ProposedActionDraft } from "../core/ai-actions.js";
 import { ReminderSchedulingService } from "../reminders/reminder-scheduling.service.js";
 import { SettingsService, type PendingInput } from "../settings/settings.service.js";
@@ -20,6 +22,7 @@ import { TelegramChatReplyService } from "./telegram-chat-reply.service.js";
 import { TelegramService } from "./telegram.service.js";
 import { telegramLocale, type TelegramLocale } from "./telegram-locale.js";
 import {
+  deployedBuildLine,
   fuzzyTaskCardText,
   fuzzyTaskDetailKeyboard,
   goalsOverviewText,
@@ -125,9 +128,10 @@ export class TelegramHandlersService implements OnModuleInit {
       const ai = access.user.aiStatus === "enabled"
         ? this.chat.isAiConfigured() ? `настроен (${this.chat.providerName})` : "не настроен"
         : "приостановлен для аккаунта";
+      const build = deployedBuildLine(this.config.appCommit, locale);
       await ctx.reply(locale === "uk"
-        ? `✅ Сервер IPsycho доступний\n✅ PostgreSQL доступна\n✅ Telegram доставив цю відповідь\n🤖 AI: ${access.user.aiStatus === "enabled" ? this.chat.isAiConfigured() ? `налаштований (${this.chat.providerName})` : "не налаштований" : "призупинений для акаунта"}`
-        : `✅ Сервер IPsycho доступен\n✅ PostgreSQL доступна\n✅ Telegram доставил этот ответ\n🤖 AI: ${ai}`);
+        ? `✅ Сервер IPsycho доступний\n✅ PostgreSQL доступна\n✅ Telegram доставив цю відповідь\n🤖 AI: ${access.user.aiStatus === "enabled" ? this.chat.isAiConfigured() ? `налаштований (${this.chat.providerName})` : "не налаштований" : "призупинений для акаунта"}\n${build}`
+        : `✅ Сервер IPsycho доступен\n✅ PostgreSQL доступна\n✅ Telegram доставил этот ответ\n🤖 AI: ${ai}\n${build}`);
     });
 
     bot.command("clear", async (ctx) => {
@@ -621,6 +625,15 @@ export class TelegramHandlersService implements OnModuleInit {
     await this.presentScreen(ctx, guideText(section, locale), guideKeyboard(locale, section), true);
   }
 
+  /** Full task card: row fields plus checklist, goal and the next reminder that will actually fire. */
+  private async taskCard(workspaceId: string, context: NonNullable<Awaited<ReturnType<TasksService["getOccurrenceContext"]>>>): Promise<string> {
+    const [extras, nextReminderAt] = await Promise.all([
+      this.tasks.getTaskCardExtras(workspaceId, context.task.id).catch(() => ({ checklist: [], goalTitle: null })),
+      this.reminders.nextUserReminderAt(workspaceId, context.occurrence.id).catch(() => null),
+    ]);
+    return taskCardText({ ...context.task, ...extras, nextReminderAt }, context.occurrence);
+  }
+
   private async handleViewCallback(ctx: any): Promise<void> {
     const access = await this.access.resolveActiveUser(ctx.from.id);
     if (!access) return ctx.answerCallbackQuery({ text: "Нет доступа" });
@@ -632,13 +645,14 @@ export class TelegramHandlersService implements OnModuleInit {
       const context = await this.tasks.getOccurrenceContext(access.workspaceId, id);
       if (!context) return ctx.answerCallbackQuery({ text: "Задача уже недоступна" });
       await ctx.answerCallbackQuery();
-      await ctx.editMessageText(taskCardText(context.task, context.occurrence), { reply_markup: taskDetailKeyboard(id, context.occurrence.status) }).catch(() => undefined);
+      await ctx.editMessageText(await this.taskCard(access.workspaceId, context), { reply_markup: taskDetailKeyboard(id, context.occurrence.status) }).catch(() => undefined);
       return;
     }
     const task = await this.tasks.getTask(access.workspaceId, id);
     if (!task || task.status !== "active" || task.timeMode !== "fuzzy") return ctx.answerCallbackQuery({ text: "Задача уже недоступна" });
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText(fuzzyTaskCardText(task), { reply_markup: fuzzyTaskDetailKeyboard() }).catch(() => undefined);
+    const extras = await this.tasks.getTaskCardExtras(access.workspaceId, task.id).catch(() => ({ checklist: [], goalTitle: null }));
+    await ctx.editMessageText(fuzzyTaskCardText({ ...task, ...extras }), { reply_markup: fuzzyTaskDetailKeyboard() }).catch(() => undefined);
   }
 
   private async applyReschedule(
@@ -820,7 +834,10 @@ export class TelegramHandlersService implements OnModuleInit {
       if (action === "confirm") {
         const result = await this.actions.confirm(access.workspaceId, access.user.id, access.user.id, groupId);
         await ctx.answerCallbackQuery({ text: result.count === 1 ? "Подтверждено ✓" : `Подтверждено: ${result.count}` }).catch(() => undefined);
-        await ctx.editMessageReplyMarkup({ reply_markup: undoKeyboard(groupId) }).catch(() => undefined);
+        await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+        // The confirmation toast disappears; the persisted outcome deserves a message of its own, with Undo attached to it.
+        const report = result.items?.length ? renderAppliedReport(result.items, new Date()) : "";
+        await ctx.reply(report ? `Подтверждено.\n\n${report}` : "Подтверждено.", { reply_markup: undoKeyboard(groupId) }).catch(() => undefined);
         return;
       }
       if (action === "cancel") {
@@ -923,7 +940,7 @@ export class TelegramHandlersService implements OnModuleInit {
       await ctx.answerCallbackQuery({ text: action === "start" ? "Начато" : action === "done" ? "Готово ✓" : action === "skip" ? "Пропущено" : "Отменено" });
       if (action === "start") {
         const current = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
-        if (current) await ctx.editMessageText(taskCardText(current.task, current.occurrence), { reply_markup: startedTaskKeyboard(occurrenceId) }).catch(() => undefined);
+        if (current) await ctx.editMessageText(await this.taskCard(access.workspaceId, current), { reply_markup: startedTaskKeyboard(occurrenceId) }).catch(() => undefined);
         return;
       }
       await ctx.editMessageText(terminalTaskText(context.task, action === "done" ? "done" : action === "skip" ? "skipped" : "cancelled", now), {
@@ -970,7 +987,7 @@ export class TelegramHandlersService implements OnModuleInit {
     if (current) {
       const keyboard = current.occurrence.status === "in_progress" ? startedTaskKeyboard(occurrenceId) : taskKeyboard(occurrenceId, current.occurrence.status);
       if (result.applied) keyboard.row().text("↩️ Отменить перенос", `act:undo:${result.applied.groupId}`);
-      await ctx.editMessageText(taskCardText(current.task, current.occurrence), { reply_markup: keyboard }).catch(() => undefined);
+      await ctx.editMessageText(await this.taskCard(access.workspaceId, current), { reply_markup: keyboard }).catch(() => undefined);
     }
   }
 
@@ -1095,7 +1112,7 @@ export class TelegramHandlersService implements OnModuleInit {
         if (current) {
           const keyboard = taskKeyboard(pending.occurrenceId, current.occurrence.status);
           if (result.applied) keyboard.row().text("↩️ Отменить перенос", `act:undo:${result.applied.groupId}`);
-          await ctx.reply(taskCardText(current.task, current.occurrence), { reply_markup: keyboard });
+          await ctx.reply(await this.taskCard(access.workspaceId, current), { reply_markup: keyboard });
         } else {
           await ctx.reply("Перенесено.");
         }
@@ -1144,7 +1161,9 @@ export class TelegramHandlersService implements OnModuleInit {
       if (errors.length) throw new Error(errors.join("; "));
       const result = await this.actions.handleProposed([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
       const keyboard = result.applied ? undoKeyboard(result.applied.groupId) : undefined;
-      await ctx.reply(parsed.schedule.fuzzyHorizonText ? "Вернул задачу в нечёткое планирование." : "Перенесено.", keyboard ? { reply_markup: keyboard } : {});
+      const report = result.applied?.items?.length ? renderAppliedReport(result.applied.items, new Date()) : "";
+      const headline = parsed.schedule.fuzzyHorizonText ? "Вернул задачу в нечёткое планирование." : "Перенесено.";
+      await ctx.reply(report ? `${headline}\n\n${report}` : headline, keyboard ? { reply_markup: keyboard } : {});
       if (!parsed.schedule.fuzzyHorizonText) {
         const count = await this.tasks.countOccurrenceEvents(access.workspaceId, pending.occurrenceId, "occurrence:rescheduled");
         if (count >= 2) {
@@ -1278,7 +1297,7 @@ function aiHistoryClearedNotice(locale: TelegramLocale, count: number): string {
   return `AI-история очищена (${count})`;
 }
 function isUntilMorningPhrase(text: string): boolean { return /(?:замолчи|мовчи|не пиши(?: мне)?)\s+до\s+(?:утра|ранку)|до\s+(?:утра|ранку).*(?:замолчи|мовчи|не пиши)/iu.test(text.trim()); }
-function formatLocal(at: Date, timezone: string): string { return new Intl.DateTimeFormat("ru-RU", { timeZone: timezone, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(at); }
+function formatLocal(at: Date, timezone: string): string { return formatLocalDateTime(at, timezone, new Date()); }
 function reschedulePrompt(mode: string): string {
   if (mode === "window") return "Новое окно: YYYY-MM-DD HH:MM-HH:MM. Причину можно добавить после |";
   if (mode === "deadline") return "Новый срок: YYYY-MM-DD или YYYY-MM-DD HH:MM. Для разовой задачи можно вернуть нечёткий горизонт: примерно: <горизонт> @ YYYY-MM-DD HH:MM. Причину можно добавить после |";

@@ -16,7 +16,7 @@ This file contains only checks that cannot be proven by the local automated suit
 - [ ] On a phone, exercise Today, Tasks, task details, Reminders and Settings; verify callbacks edit the current card when possible, stale buttons fail briefly, and payloads remain within Telegram's 64-byte limit.
 - [ ] Verify a scheduled item does not print a separate reminder line when the reminder time is identical to the scheduled time.
 - [ ] Test quiet hours, snooze, morning/evening digests, weekly review, notification defaults and one real IANA timezone DST boundary.
-- [ ] With `TASK_BATCH_ENABLED=false`, verify ordinary single-task actions still work and a provider cannot apply `task_batch`; restart and verify any incompatible pending batch is cancelled with an audit event.
+- [ ] With `TASK_BATCH_ENABLED=false`, verify ordinary single-task actions still work, a provider cannot apply `task_batch`, and a mixed task-operation request receives a truthful “nothing changed” response without reconfirming supplied time/timezone; restart and verify any incompatible pending batch is cancelled with an audit event.
 - [ ] Apply migration `0022_complex_planning_foundations.sql`, then test bounded recurrence through its inclusive end date, every-second-week cadence, an excluded first occurrence and one real DST boundary.
 - [ ] With `TASK_BATCH_ENABLED=true`, ask for one four-step package mixing create, update, reschedule and goal link. Verify exactly one confirmation (when needed), no internal step IDs, one applied summary and one Undo control.
 - [ ] Make one batch target stale before confirmation and inject one failing middle step in a non-production rehearsal. Verify zero partial task/link/reminder changes and a precise whole-package rejection.

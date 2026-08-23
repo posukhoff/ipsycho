@@ -10,6 +10,8 @@ import { ActionMutationsRepository } from "../../dist/actions/action-mutations.r
 import { TaskBatchRepository } from "../../dist/actions/task-batch.repository.js";
 import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
+import { TasksRepository } from "../../dist/tasks/tasks.repository.js";
+import { TasksService } from "../../dist/tasks/tasks.service.js";
 import { actionEvents, actionGroups, conversationTopics, memoryItems, messages, taskEvents, taskOccurrences, userSettings } from "../../dist/database/schema.js";
 import { and, eq } from "drizzle-orm";
 
@@ -437,4 +439,25 @@ test("a user from another personal workspace cannot create an action group in it
       return true;
     },
   );
+});
+
+test("an explicit reminder on a new task is persisted instead of the default one", async () => {
+  // Production 2026-08-23: "напомни за полчаса" stored only the default planned_start reminder.
+  const { workspaceId, userId } = await fixture();
+  const enqueued = [];
+  const tasksService = new TasksService(new TasksRepository(database), { enqueue: async (id, at) => { enqueued.push({ id, at }); } }, {});
+  const now = new Date("2026-08-23T07:04:40Z");
+  const result = await tasksService.createTask({
+    workspaceId, actorUserId: userId, recipientUserId: userId, title: "Вакцинация", now,
+    definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-08-23T15:00:00Z"), habitMode: false },
+    explicitReminder: { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -1800, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" },
+  });
+  const rules = (await database.pool.query("select anchor, offset_seconds, purpose, origin from reminder_rules where task_id=$1 and active order by offset_seconds", [result.taskId])).rows;
+  assert.deepEqual(rules, [{ anchor: "planned_start", offset_seconds: -1800, purpose: "user_reminder", origin: "explicit" }]);
+  const deliveries = (await database.pool.query("select scheduled_for, status from reminder_deliveries where task_id=$1", [result.taskId])).rows;
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].status, "pending");
+  assert.equal(new Date(deliveries[0].scheduled_for).toISOString(), "2026-08-23T14:30:00.000Z");
+  assert.equal(result.reminderSchedules[0]?.scheduledFor.toISOString(), "2026-08-23T14:30:00.000Z");
+  assert.equal(enqueued.length, 1);
 });

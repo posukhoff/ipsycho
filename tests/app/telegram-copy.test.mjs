@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { canCreateRegistrationInvite, deterministicCopy, guideText, helpText, registrationTokenFromStart } from "../../dist/telegram/telegram-handlers.service.js";
 import { telegramLocale } from "../../dist/telegram/telegram-locale.js";
 import { TelegramService } from "../../dist/telegram/telegram.service.js";
-import { goalsOverviewText, settingsText, taskListKeyboard, tasksOverviewText, todayText } from "../../dist/telegram/telegram-ui.js";
+import { deployedBuildLine, goalsOverviewText, settingsText, taskListKeyboard, tasksOverviewText, todayText } from "../../dist/telegram/telegram-ui.js";
 
 const config = { aiVoiceMaxBytes: 20 * 1024 * 1024, aiVoiceMaxDurationSeconds: 300, aiMaxMessagesPerHour: 60, aiMaxCallsPerHour: 60 };
 
@@ -77,6 +77,23 @@ test("task-list keyboard opens each displayed occurrence and can reveal the rest
   assert.ok(callbacks.includes("nav:today_all"));
 });
 
+test("Today presents a same-day fuzzy review honestly instead of hiding it", () => {
+  const task = {
+    id: "soulmate-scan",
+    title: "Пройти Soulmate Scan",
+    importance: "normal",
+    recurrenceRule: null,
+    fuzzyHorizonText: "сегодня вечером",
+    reviewAt: "2026-08-23T15:00:00Z",
+    timezone: "Europe/Kyiv",
+  };
+
+  const text = todayText([{ task, occurrence: null }], "2026-08-23", "ru");
+
+  assert.match(text, /Пройти Soulmate Scan/);
+  assert.match(text, /пересмотреть в 18:00/);
+});
+
 test("registration deep links and invitation authority stay deterministic", async () => {
   const token = "A".repeat(43);
   assert.equal(registrationTokenFromStart(`/start join_${token}`), token);
@@ -101,4 +118,11 @@ test("guide pages explain reports and external AI processing without exposing se
   assert.match(ai, /requires consent/);
   assert.match(ai, /cannot access other users/);
   assert.match(guideText("goals", "uk"), /щотижневому огляді/);
+});
+
+test("status reports the deployed build so a deploy can be verified from Telegram", () => {
+  assert.equal(deployedBuildLine("ddaba510e6feb22f67f3130d16501a039284a73d", "ru"), "🏷 Сборка: ddaba51");
+  assert.equal(deployedBuildLine("ddaba510e6feb22f67f3130d16501a039284a73d", "uk"), "🏷 Збірка: ddaba51");
+  assert.equal(deployedBuildLine("ddaba510e6feb22f67f3130d16501a039284a73d", "en"), "🏷 Build: ddaba51");
+  assert.match(deployedBuildLine(undefined, "ru"), /неизвестна/);
 });

@@ -54,6 +54,16 @@ export const TaskDefinitionDraftSchema = z.object({
   habitTrigger: NullableString,
 });
 
+export const ReminderSpecSchema = z.object({
+  triggerKind: z.enum(["exact", "relative_timestamp", "local_date"]),
+  exactAt: NullableString,
+  anchor: z.enum(["planned_start", "planned_end", "due_at"]).nullable(),
+  offsetMinutes: z.number().int().nullable(),
+  daysOffset: z.number().int().nullable(),
+  localTime: NullableString,
+  quietPolicy: z.enum(["respect", "bypass"]),
+});
+
 export const CreateTaskActionSchema = z.object({
   type: z.literal("create_task"),
   source: ActionSourceSchema,
@@ -66,6 +76,9 @@ export const CreateTaskActionSchema = z.object({
   context: NullableString,
   checklist: z.array(z.object({ text: z.string().min(1).max(300), done: z.boolean() })).max(20).nullable(),
   goalLink: z.object({ goalId: z.string().uuid(), expectedGoalVersion: z.number().int().positive(), confidence: ConfidenceSchema }).nullable(),
+  /** Explicit user reminder for the new task; null keeps the default reminder from settings. */
+  reminder: ReminderSpecSchema.nullable().optional().default(null),
+  quietBypassExplicit: z.boolean().optional().default(false),
   definition: TaskDefinitionDraftSchema,
 });
 
@@ -228,15 +241,7 @@ export const ChangeReminderActionSchema = z.object({
   expectedVersion: z.number().int().positive(),
   mode: z.enum(["add", "replace", "clear"]),
   quietBypassExplicit: z.boolean(),
-  reminder: z.object({
-    triggerKind: z.enum(["exact", "relative_timestamp", "local_date"]),
-    exactAt: NullableString,
-    anchor: z.enum(["planned_start", "planned_end", "due_at"]).nullable(),
-    offsetMinutes: z.number().int().nullable(),
-    daysOffset: z.number().int().nullable(),
-    localTime: NullableString,
-    quietPolicy: z.enum(["respect", "bypass"]),
-  }).nullable(),
+  reminder: ReminderSpecSchema.nullable(),
 });
 
 export const ChangeSeriesActionSchema = z.object({

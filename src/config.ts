@@ -38,6 +38,8 @@ const schema = z.object({
   HOST: z.string().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().min(1),
+  /** Git commit the image was built from; injected by the Docker build, absent in local dev. */
+  APP_COMMIT: z.string().trim().optional(),
   TELEGRAM_BOT_TOKEN: optionalSecret,
   BOT_IDENTITY: z.string().min(1).max(64).default("ipsycho-main"),
   OWNER_TELEGRAM_USER_ID: optionalSafeInteger,
@@ -62,6 +64,7 @@ export interface AiModelPricing { inputUsdPerMillion?: number | undefined; outpu
 
 export interface AppConfig {
   nodeEnv: "development" | "test" | "production";
+  appCommit?: string;
   host: string;
   port: number;
   databaseUrl: string;
@@ -90,6 +93,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const value = schema.parse(env);
   return {
     nodeEnv: value.NODE_ENV,
+    ...(value.APP_COMMIT && value.APP_COMMIT !== "unknown" ? { appCommit: value.APP_COMMIT } : {}),
     host: value.HOST,
     port: value.PORT,
     databaseUrl: value.DATABASE_URL,

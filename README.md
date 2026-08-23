@@ -61,6 +61,8 @@ npm run dev
 
 `TASK_BATCH_ENABLED` defaults to `false`. Enable it only after migration `0022_complex_planning_foundations.sql` is applied and disabled-mode smoke tests pass. To roll back generation and application, set it back to `false` and restart the app; startup cancels incompatible pending batches and records an audit event. Already committed batches remain available for truthful Undo during their normal window.
 
+While the flag is disabled, a request that combines different task-operation types is rejected before provider execution: the assistant states that nothing changed and may offer to handle operations individually, without implying that the original package was atomic. Homogeneous task creation and ordinary single-task actions continue through their existing validation paths.
+
 ## Verification
 
 ```sh

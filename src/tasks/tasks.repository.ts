@@ -2,10 +2,12 @@ import { Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import {
+  goals,
   reminderDeliveries,
   reminderRules,
   taskChecklistItems,
   taskEvents,
+  taskGoals,
   taskOccurrences,
   taskRecurrenceExclusions,
   tasks,
@@ -68,6 +70,22 @@ export class TasksRepository {
       .limit(limit);
   }
 
+  async listFuzzyReviewsForLocalDate(workspaceId: string, localDate: string, limit = 20) {
+    return this.database.db.select().from(tasks)
+      .where(and(
+        eq(tasks.workspaceId, workspaceId),
+        eq(tasks.status, "active"),
+        eq(tasks.timeMode, "fuzzy"),
+        sql`(${tasks.reviewAt} AT TIME ZONE ${tasks.timezone})::date = ${localDate}::date`,
+      ))
+      .orderBy(
+        sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`,
+        asc(tasks.reviewAt),
+        desc(tasks.updatedAt),
+      )
+      .limit(limit);
+  }
+
   async listRecentlyCompletedForTelegram(workspaceId: string, limit = 100) {
     return this.database.db.select({ task: tasks, occurrence: taskOccurrences })
       .from(taskOccurrences)
@@ -79,6 +97,14 @@ export class TasksRepository {
       ))
       .orderBy(desc(taskOccurrences.completedAt))
       .limit(limit);
+  }
+
+  async findGoalTitleForTask(workspaceId: string, taskId: string): Promise<string | null> {
+    const [row] = await this.database.db.select({ title: goals.title }).from(taskGoals)
+      .innerJoin(goals, and(eq(goals.workspaceId, taskGoals.workspaceId), eq(goals.id, taskGoals.goalId)))
+      .where(and(eq(taskGoals.workspaceId, workspaceId), eq(taskGoals.taskId, taskId)))
+      .limit(1);
+    return row?.title ?? null;
   }
 
   async listChecklistForTasks(workspaceId: string, taskIds: readonly string[]) {

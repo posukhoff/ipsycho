@@ -51,7 +51,7 @@ export function groundWeeklyReviewProgress(progress: WeeklyReviewProgress | null
     ? value ?? { status: "provided" as const, summary: userText.trim().slice(0, 1000) }
     : null;
   return {
-    outcome: supported(/(?:хочу|ціль|цель|результат\w*\s+недел|отримат|получить|добить|achiev|outcome|goal|want)/u, progress.outcome),
+    outcome: supported(/(?:хочу|ціль|цель|(?:^|[^\p{L}\p{N}_])результат(?:$|[^\p{L}\p{N}_])|результат\w*\s+недел|підсум|итог|отримат|получить|добить|achiev|outcome|goal|want)/u, progress.outcome),
     capacityEnergy: supported(/(?:\b\d+(?:[.,]\d+)?\s*(?:час|годин)|врем|часу|энерг|енерг|утр|ранок|вечер|після\s+\d|после\s+\d|capacity|available|energy)/u, progress.capacityEnergy),
     risks: supported(/(?:риск|ризик|меша|завад|сорв|зірв|блок|вместо|замість|risk|blocker|instead)/u, progress.risks),
     minimumSuccess: supported(/(?:миним|мінім|достаточ|достатн|хотя\s+бы|хоча\s+б|minimum|at\s+least)/u, progress.minimumSuccess),

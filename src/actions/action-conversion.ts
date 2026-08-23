@@ -3,7 +3,7 @@ import { compileStructuredLocalSchedule } from "../core/local-schedule.js";
 import { compileStructuredRecurrence } from "../core/recurrence-input.js";
 import { recurrenceAnchorLocalDate } from "../core/recurrence.js";
 import { validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
-import type { ChangeSeriesDraft, ProposedActionDraft, RescheduleOccurrenceDraft, UpdateTaskDraft } from "../core/ai-actions.js";
+import type { ChangeSeriesDraft, ProposedActionDraft, ReminderSpecDraft, RescheduleOccurrenceDraft, UpdateTaskDraft } from "../core/ai-actions.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
 import type { RescheduleFields } from "../core/reschedule.js";
 import type { TaskDefinition } from "../core/types.js";
@@ -91,6 +91,7 @@ export function createTaskInputFromAction(action: Extract<ProposedActionDraft, {
   if (!validation.ok) throw new InvalidAiActionError(validation.errors.join("; "));
   const timingErrors = validateNewTaskTiming(definition, scope.now);
   if (timingErrors.length) throw new InvalidAiActionError(timingErrors.join("; "));
+  const explicitReminder = explicitReminderForNewTask(action, definition);
 
   return {
     workspaceId: scope.workspaceId,
@@ -103,8 +104,28 @@ export function createTaskInputFromAction(action: Extract<ProposedActionDraft, {
     ...(action.nextAction ? { nextAction: action.nextAction } : {}),
     ...(action.context ? { context: action.context } : {}),
     ...(action.checklist ? { checklist: action.checklist.map((item) => ({ text: item.text, done: item.done })) } : {}),
+    ...(explicitReminder ? { explicitReminder } : {}),
     now: scope.now,
   };
+}
+
+/**
+ * A reminder on a new task must be satisfiable by that task's own schedule:
+ * otherwise the model could "promise" a reminder that never fires.
+ */
+function explicitReminderForNewTask(action: Extract<ProposedActionDraft, { type: "create_task" }>, definition: TaskDefinition): ReminderRuleSpec | undefined {
+  if (!action.reminder) return undefined;
+  const rule = reminderRuleFromSpec(action.reminder, { source: action.source, quietBypassExplicit: action.quietBypassExplicit ?? false });
+  if (definition.timeMode === "fuzzy") throw new InvalidAiActionError("a fuzzy task cannot carry an explicit reminder; use reviewAt");
+  if (rule.triggerKind === "relative_timestamp") {
+    const anchorAt = rule.anchor === "planned_start" ? definition.plannedStartAt : rule.anchor === "planned_end" ? definition.plannedEndAt : rule.anchor === "due_at" ? definition.dueAt : undefined;
+    if (!anchorAt) throw new InvalidAiActionError(`reminder anchor ${rule.anchor} has no exact time on this task; use local_date for a date-only schedule`);
+  }
+  if (rule.triggerKind === "local_date") {
+    const anchorDate = rule.anchor === "due_at" ? (definition.dueLocalDate ?? definition.dueAt) : (definition.plannedLocalDate ?? definition.plannedStartAt);
+    if (!anchorDate) throw new InvalidAiActionError(`reminder anchor ${rule.anchor} has no date on this task`);
+  }
+  return rule;
 }
 
 export function validateUpdateTaskAction(action: UpdateTaskDraft): void {
@@ -280,28 +301,32 @@ function omitCompiledMode(value: ReturnType<typeof compileStructuredLocalSchedul
 export function reminderRuleFromAction(action: Extract<ProposedActionDraft, { type: "change_reminder" }>): ReminderRuleSpec | undefined {
   if (action.mode === "clear") { if (action.reminder !== null) throw new InvalidAiActionError("clear reminder requires reminder=null"); return undefined; }
   if (!action.reminder) throw new InvalidAiActionError("reminder is required");
-  if (action.reminder.quietPolicy === "bypass" && !action.quietBypassExplicit && action.source === "user_explicit") {
+  return reminderRuleFromSpec(action.reminder, action);
+}
+
+export function reminderRuleFromSpec(reminder: ReminderSpecDraft, action: { source: "user_explicit" | "ai_inferred"; quietBypassExplicit: boolean }): ReminderRuleSpec {
+  if (reminder.quietPolicy === "bypass" && !action.quietBypassExplicit && action.source === "user_explicit") {
     throw new InvalidAiActionError("quiet-hours bypass must be explicit");
   }
-  if (action.reminder.triggerKind === "exact") {
-    const exactAt = parseInstant(action.reminder.exactAt, "reminder.exactAt");
-    if (!exactAt || action.reminder.anchor !== null || action.reminder.offsetMinutes !== null || action.reminder.daysOffset !== null || action.reminder.localTime !== null) {
+  if (reminder.triggerKind === "exact") {
+    const exactAt = parseInstant(reminder.exactAt, "reminder.exactAt");
+    if (!exactAt || reminder.anchor !== null || reminder.offsetMinutes !== null || reminder.daysOffset !== null || reminder.localTime !== null) {
       throw new InvalidAiActionError("exact reminder requires only exactAt");
     }
-    return { triggerKind: "exact", exactAt, purpose: "user_reminder", quietPolicy: action.reminder.quietPolicy, origin: "explicit" };
+    return { triggerKind: "exact", exactAt, purpose: "user_reminder", quietPolicy: reminder.quietPolicy, origin: "explicit" };
   }
-  if (action.reminder.triggerKind === "relative_timestamp") {
-    if (!action.reminder.anchor || action.reminder.offsetMinutes === null || action.reminder.exactAt !== null || action.reminder.daysOffset !== null || action.reminder.localTime !== null) {
+  if (reminder.triggerKind === "relative_timestamp") {
+    if (!reminder.anchor || reminder.offsetMinutes === null || reminder.exactAt !== null || reminder.daysOffset !== null || reminder.localTime !== null) {
       throw new InvalidAiActionError("timestamp-relative reminder requires anchor and offsetMinutes");
     }
-    return { triggerKind: "relative_timestamp", anchor: action.reminder.anchor, offsetSeconds: action.reminder.offsetMinutes * 60, purpose: "user_reminder", quietPolicy: action.reminder.quietPolicy, origin: "explicit" };
+    return { triggerKind: "relative_timestamp", anchor: reminder.anchor, offsetSeconds: reminder.offsetMinutes * 60, purpose: "user_reminder", quietPolicy: reminder.quietPolicy, origin: "explicit" };
   }
-  if (!action.reminder.anchor || action.reminder.anchor === "planned_end" || action.reminder.daysOffset === null || !action.reminder.localTime || action.reminder.exactAt !== null || action.reminder.offsetMinutes !== null) {
+  if (!reminder.anchor || reminder.anchor === "planned_end" || reminder.daysOffset === null || !reminder.localTime || reminder.exactAt !== null || reminder.offsetMinutes !== null) {
     throw new InvalidAiActionError("date-relative reminder requires planned_start/due_at, daysOffset and localTime");
   }
-  parseLocalTime(action.reminder.localTime);
+  parseLocalTime(reminder.localTime);
   return {
-    triggerKind: "local_date", anchor: action.reminder.anchor, daysOffset: action.reminder.daysOffset, localTime: action.reminder.localTime,
-    purpose: "user_reminder", quietPolicy: action.reminder.quietPolicy, origin: "explicit",
+    triggerKind: "local_date", anchor: reminder.anchor, daysOffset: reminder.daysOffset, localTime: reminder.localTime,
+    purpose: "user_reminder", quietPolicy: reminder.quietPolicy, origin: "explicit",
   };
 }

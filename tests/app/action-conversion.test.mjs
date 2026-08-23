@@ -82,3 +82,35 @@ test("reschedule and series edit use the same local schedule compiler", () => {
   assert.equal(edited.recurrenceRule, "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU");
   assert.deepEqual(edited.recurrenceExcludedLocalDates, ["2026-09-15"]);
 });
+
+test("create_task carries an explicit reminder that replaces the default one", () => {
+  // Production 2026-08-23: "напомни за полчаса" produced a task with only the default 18:00 reminder.
+  const exact = { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-23", startTime: "18:00", endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null };
+  const reminder = { triggerKind: "relative_timestamp", exactAt: null, anchor: "planned_start", offsetMinutes: -30, daysOffset: null, localTime: null, quietPolicy: "respect" };
+  const result = createTaskInputFromAction({ ...action({ localSchedule: exact }), reminder }, scope);
+  assert.deepEqual(result.explicitReminder, { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -1800, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" });
+
+  assert.equal(createTaskInputFromAction({ ...action({ localSchedule: exact }), reminder: null }, scope).explicitReminder, undefined);
+  assert.equal(createTaskInputFromAction(action({ localSchedule: exact }), scope).explicitReminder, undefined);
+
+  const deadline = { ...exact, mode: "deadline", startDate: null, startTime: null, dueDate: "2026-08-30", dueTime: null };
+  assert.throws(
+    () => createTaskInputFromAction({ ...action({ timeMode: "deadline", localSchedule: deadline }), reminder: { ...reminder, anchor: "due_at" } }, scope),
+    (error) => error instanceof InvalidAiActionError && /has no exact time/.test(error.message),
+  );
+  assert.throws(
+    () => createTaskInputFromAction({ ...action({ localSchedule: exact }), reminder: { ...reminder, quietPolicy: "bypass" } }, scope),
+    (error) => error instanceof InvalidAiActionError && /bypass must be explicit/.test(error.message),
+  );
+  const parsed = AiTurnSchema.parse({
+    reply: "ok", question: null, topic: { mode: "none", topicId: null, title: null, summary: null }, topicModeSuggestion: null,
+    actions: [{ ...action({ localSchedule: exact }), reminder }],
+  });
+  assert.equal(parsed.actions[0].reminder.offsetMinutes, -30);
+  assert.equal(parsed.actions[0].quietBypassExplicit, false);
+  const stored = AiTurnSchema.parse({
+    reply: "ok", question: null, topic: { mode: "none", topicId: null, title: null, summary: null }, topicModeSuggestion: null,
+    actions: [action({ localSchedule: exact })],
+  });
+  assert.equal(stored.actions[0].reminder, null);
+});

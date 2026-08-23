@@ -3,7 +3,7 @@ import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { DatabaseService } from "../database/database.service.js";
-import { briefingDeliveries, reminderDeliveries, reminderRules, taskEvents, taskOccurrences, tasks, users, userSettings, workspaceMembers } from "../database/schema.js";
+import { briefingDeliveries, reminderDeliveries, reminderRules, taskChecklistItems, taskEvents, taskOccurrences, tasks, users, userSettings, workspaceMembers } from "../database/schema.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { reminderCardText } from "../telegram/telegram-ui.js";
 import { occurrenceProjectionFromRow, reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
@@ -191,8 +191,12 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
     if (!claimed) return;
 
     try {
+      const checklist = await this.database.db.select({ text: taskChecklistItems.text, done: taskChecklistItems.done }).from(taskChecklistItems)
+        .where(and(eq(taskChecklistItems.workspaceId, row.task.workspaceId), eq(taskChecklistItems.taskId, row.task.id)))
+        .orderBy(taskChecklistItems.sortOrder)
+        .catch(() => []);
       const text = reminderCardText({
-        task: row.task,
+        task: { ...row.task, checklist },
         occurrence: row.occurrence,
         purpose: row.rule.purpose,
         now,

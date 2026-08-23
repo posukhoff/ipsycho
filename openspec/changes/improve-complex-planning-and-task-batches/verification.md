@@ -13,3 +13,18 @@ Verified locally and against production on 2026-08-22/23:
 Not claimed as complete: transaction-client refactoring of the existing primitive repositories (4.1), explicit queue-failure injection coverage (4.5), and real Telegram UI/delivery QA (8.5). Telegram Web was not authenticated in the available browser session; provider, production database, logs, atomic apply/Undo, and cleanup were verified through the isolated production runner instead.
 
 The `openspec` CLI is not installed in this workspace, so artifact status was reviewed directly from `tasks.md`.
+
+## Post-production-QA remediation (local, not deployed)
+
+Implemented after the 2026-08-23 product QA:
+
+- AI-inferred task/goal actions without an explicit user mutation request or an affirmative reply to a concrete prior offer are rejected before `handleProposed`; one structured repair must return an advisory-only turn. The application contract verifies that the low-energy pilot fixture reaches `handleProposed([])` and creates no pending group.
+- Mixed task-operation intent is detected before provider execution while `TASK_BATCH_ENABLED=false`. The deterministic localized response states that nothing changed, does not reconfirm supplied time/timezone, and cannot create an action group.
+- The Russian all-in-one weekly fixture now grounds outcome, capacity/energy, risks, minimum success, and commitments as five provided dimensions and completes without an assumptions label.
+- Unclear-goal discovery guidance now requires known facts versus assumptions, no more than three provisional steps, one high-value constraint question, and `actions=[]` until explicit acceptance.
+
+Verification after remediation:
+
+- `npm run check`: 184 core tests and 55 application contract tests passed (239 total).
+- `npm run test:e2e`: all 17 PostgreSQL tests passed; the disposable container and network were removed.
+- The production deployment was not changed by this implementation session. Provider-backed and authenticated Telegram reruns remain release gates.

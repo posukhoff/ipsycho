@@ -24,10 +24,12 @@ export class TelegramChatReplyService {
       return;
     }
 
-    const suffix = actionSummary(result.pendingCount);
+    const suffix = actionSummary(result.pendingCount, result.pendingTitles);
     const warningText = result.warnings.length ? `\n\n${result.warnings.join("\n")}` : "";
+    // Only the model's prose is capped; the deterministic report must stay complete.
     const body = compactText(result.text, result.review ? 800 : 600);
-    const persistedText = `${body}${suffix ? `\n\n${suffix}` : ""}${warningText}`;
+    const reportText = result.report ? `\n\n${result.report}` : "";
+    const persistedText = compactText(`${body}${reportText}${suffix ? `\n\n${suffix}` : ""}${warningText}`, 3_900);
     const header = reviewHeader(result.review);
     const responseText = header ? `${header}\n\n${persistedText}` : persistedText;
     const keyboard = chatResultKeyboard(result.appliedGroupId, result.pendingGroupId, result.checkpointTopicId, result.topicId, result.review);
@@ -82,8 +84,11 @@ function reviewHeader(review?: { kind: "evening" | "weekly"; step?: number; tota
   return `💭 Вечерний разбор · ${review.step ?? 1}/${review.totalSteps ?? 3}`;
 }
 
-export function actionSummary(pendingCount: number): string {
-  const parts: string[] = [];
-  if (pendingCount) parts.push(pendingCount === 1 ? "Нужно подтверждение." : `Нужно подтвердить: ${pendingCount}.`);
-  return parts.join(" ");
+export function actionSummary(pendingCount: number, pendingTitles: readonly string[] = []): string {
+  if (!pendingCount) return "";
+  const titles = pendingTitles.filter((title) => title.trim()).slice(0, 8);
+  if (!titles.length) return pendingCount === 1 ? "⏳ Нужно подтверждение." : `⏳ Нужно подтвердить: ${pendingCount}.`;
+  const lines = [pendingCount === 1 ? "⏳ Нужно подтверждение:" : `⏳ Нужно подтвердить (${pendingCount}):`, ...titles.map((title) => `• ${title}`)];
+  if (pendingCount > titles.length) lines.push(`• … ещё ${pendingCount - titles.length}`);
+  return lines.join("\n");
 }

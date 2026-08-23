@@ -7,13 +7,15 @@ import { habitOfferEligible } from "../core/habit-policy.js";
 import { validateOneTimeTaskTiming } from "../core/task-policy.js";
 import { compileTaskBatchShape } from "../core/task-batch.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
+import type { StructuredLocalScheduleInput } from "../core/local-schedule.js";
+import type { AppliedReportItem } from "../core/applied-report.js";
 import {
   splitActionsByDisposition,
   validateActionBatchShape,
   type ProposedActionDraft,
 } from "../core/ai-actions.js";
 import { rescheduledDefinition } from "../core/reschedule.js";
-import { parseLocalDate } from "../core/timezone.js";
+import { localDateAndTimeToUtc, parseLocalDate } from "../core/timezone.js";
 import { normalizeLanguageTag } from "../core/language.js";
 import { ContextActionsRepository } from "../context/context-actions.repository.js";
 import { ContextService } from "../context/context.service.js";
@@ -52,6 +54,9 @@ export interface ProposedActionsResult {
     scheduledReminderAt?: Date;
     occurrenceSchedule?: OccurrenceScheduleView;
     linkedGoalTitles?: string[];
+    renamedFrom?: string;
+    /** Persisted facts for the user-facing applied report; empty when nothing was applied. */
+    items?: AppliedReportItem[];
   };
   pending?: { groupId: string; count: number; titles: string[] };
   warnings?: string[];
@@ -292,7 +297,7 @@ export class ActionsService implements OnApplicationBootstrap {
     }
   }
 
-  async confirm(workspaceId: string, actorUserId: string, recipientUserId: string, groupId: string, now = new Date()) {
+  async confirm(workspaceId: string, actorUserId: string, recipientUserId: string, groupId: string, now = new Date()): Promise<NonNullable<ProposedActionsResult["applied"]>> {
     const claimed = await this.repository.claimPendingGroup(workspaceId, actorUserId, groupId, now);
     if (!claimed) throw new Error("confirmation expired or already handled");
 
@@ -316,16 +321,9 @@ export class ActionsService implements OnApplicationBootstrap {
           sourceActionGroupId: groupId,
           now,
         }))); 
-        const linkedGoalTitles = await this.linkCreatedTaskGoals(workspaceId, groupId, createActions, created, now);
+        const linkedGoals = await this.linkCreatedTaskGoals(workspaceId, groupId, createActions, created, now);
         await this.finalizeCreatedTasks(workspaceId, groupId, createActions, created, now);
-        const scheduledReminderAt = created[0]?.reminderSchedules.find((item) => item.purpose === "user_reminder")?.scheduledFor;
-        const occurrenceSchedule = created[0]?.occurrenceSchedule;
-        return {
-          groupId, count: created.length, titles: createActions.map((action) => action.title),
-          ...(scheduledReminderAt ? { scheduledReminderAt } : {}),
-          ...(occurrenceSchedule ? { occurrenceSchedule } : {}),
-          ...(linkedGoalTitles.length ? { linkedGoalTitles } : {}),
-        };
+        return createdTasksResult(groupId, createActions, created, linkedGoals);
       }
       if (actions.every((action) => action.type === "save_memory")) {
         return this.applySaveMemories(actions as Array<Extract<ProposedActionDraft, { type: "save_memory" }>>, {
@@ -530,16 +528,9 @@ export class ActionsService implements OnApplicationBootstrap {
         await this.repository.markFailed(scope.workspaceId, groupId).catch(() => undefined);
         throw error;
       }
-      const linkedGoalTitles = await this.linkCreatedTaskGoals(scope.workspaceId, groupId, createActions, created, now);
+      const linkedGoals = await this.linkCreatedTaskGoals(scope.workspaceId, groupId, createActions, created, now);
       await this.finalizeCreatedTasks(scope.workspaceId, groupId, createActions, created, now);
-      const scheduledReminderAt = created[0]?.reminderSchedules.find((item) => item.purpose === "user_reminder")?.scheduledFor;
-      const occurrenceSchedule = created[0]?.occurrenceSchedule;
-      return {
-        groupId, count: created.length, titles: createActions.map((action) => action.title),
-        ...(scheduledReminderAt ? { scheduledReminderAt } : {}),
-        ...(occurrenceSchedule ? { occurrenceSchedule } : {}),
-        ...(linkedGoalTitles.length ? { linkedGoalTitles } : {}),
-      };
+      return createdTasksResult(groupId, createActions, created, linkedGoals);
     }
 
     if (actions.every((action) => action.type === "save_memory")) {
@@ -587,6 +578,15 @@ export class ActionsService implements OnApplicationBootstrap {
     scope: ActionScope & { now: Date },
     groupId: string,
   ) {
+    const result = await this.applyClaimedMutationRaw(action, scope, groupId);
+    return { ...result, items: result.items ?? mutationReportItems(action, result) };
+  }
+
+  private async applyClaimedMutationRaw(
+    action: Exclude<ProposedActionDraft, { type: "create_task" | "create_goal_plan" }>,
+    scope: ActionScope & { now: Date },
+    groupId: string,
+  ): Promise<Omit<import("./action-mutations.repository.js").MutationAppliedResult, "count"> & { count: number; linkedGoalTitles?: string[]; items?: AppliedReportItem[] }> {
     const undoExpiresAt = actionExpiry(scope.now, ACTION_UNDO_TTL_MS);
     if (action.type === "task_batch") return this.applyTaskBatch(action, scope, groupId, true);
     if (action.type === "update_task") {
@@ -706,9 +706,16 @@ export class ActionsService implements OnApplicationBootstrap {
         workspaceId: scope.workspaceId, groupId, actorUserId: scope.actorUserId, occurrenceId: action.occurrenceId, expectedVersion: action.expectedVersion,
         mode: action.mode, ...(rule ? { rule } : {}), undoExpiresAt,
       });
-      if (result.reminderRebuildOccurrenceId) await this.reminders.rebuildOccurrence(scope.workspaceId, result.reminderRebuildOccurrenceId).catch((error) => {
-        console.error("reminder rebuild deferred", { occurrenceId: result.reminderRebuildOccurrenceId, error: safeError(error) });
-      });
+      if (result.reminderRebuildOccurrenceId) {
+        const rebuilt = await this.reminders.rebuildOccurrence(scope.workspaceId, result.reminderRebuildOccurrenceId).then(() => true).catch((error) => {
+          console.error("reminder rebuild deferred", { occurrenceId: result.reminderRebuildOccurrenceId, error: safeError(error) });
+          return false;
+        });
+        if (rebuilt) {
+          const scheduledReminderAt = await this.reminders.nextUserReminderAt(scope.workspaceId, result.reminderRebuildOccurrenceId).catch(() => null);
+          if (scheduledReminderAt) result.scheduledReminderAt = scheduledReminderAt;
+        }
+      }
       return result;
     }
     if (action.type === "change_series") {
@@ -752,9 +759,14 @@ export class ActionsService implements OnApplicationBootstrap {
       undoExpiresAt,
     });
     if (result.reminderRebuildOccurrenceId) {
-      await this.reminders.rebuildOccurrence(scope.workspaceId, result.reminderRebuildOccurrenceId).catch((error) => {
+      const rebuilt = await this.reminders.rebuildOccurrence(scope.workspaceId, result.reminderRebuildOccurrenceId).then(() => true).catch((error) => {
         console.error("reminder rebuild deferred", { occurrenceId: result.reminderRebuildOccurrenceId, error: safeError(error) });
+        return false;
       });
+      if (rebuilt) {
+        const scheduledReminderAt = await this.reminders.nextUserReminderAt(scope.workspaceId, result.reminderRebuildOccurrenceId).catch(() => null);
+        if (scheduledReminderAt) result.scheduledReminderAt = scheduledReminderAt;
+      }
     }
     if (result.reminderRebuildTaskId) {
       await this.reminders.rebuildFuzzyTask(scope.workspaceId, scope.recipientUserId, result.reminderRebuildTaskId, scope.now).catch((error) => {
@@ -772,7 +784,10 @@ export class ActionsService implements OnApplicationBootstrap {
       const tasks = action.tasks.map((task) => ({ ...task, type: "create_task" as const, source: action.source, confidence: action.confidence, goalLink: null }));
       created = await this.tasks.createTasks(tasks.map((task) => createTaskInputFromAction(task, { workspaceId: scope.workspaceId, actorUserId: scope.actorUserId, recipientUserId: scope.recipientUserId, sourceActionGroupId: groupId, now: scope.now })));
       await this.contextActions.finalizeGoalPlan({ workspaceId: scope.workspaceId, groupId, goal, taskIds: created.map((item) => item.taskId), undoExpiresAt: actionExpiry(scope.now, ACTION_UNDO_TTL_MS) });
-      return { groupId, count: created.length + 1, titles: [goal.title, ...action.tasks.map((task) => task.title)], linkedGoalTitles: [goal.title] };
+      return {
+        groupId, count: created.length + 1, titles: [goal.title, ...action.tasks.map((task) => task.title)], linkedGoalTitles: [goal.title],
+        items: [{ kind: "goal_plan" as const, goalTitle: goal.title, tasks: tasks.map((task, index) => createdTaskItem(task, created[index], null)) }],
+      };
     } catch (error) {
       if (created.length) await this.tasks.undoCreatedTasks(scope.workspaceId, created.map((item) => ({ id: item.taskId, version: 1 }))).catch(() => undefined);
       if (goal) await this.contextActions.discardGoalPlanSeed(scope.workspaceId, goal.id).catch(() => undefined);
@@ -840,7 +855,25 @@ export class ActionsService implements OnApplicationBootstrap {
         console.error("batch reminder rebuild deferred", { occurrenceId, error: safeError(error) });
       });
     }
-    return { groupId: applied.groupId, count: applied.count, titles: applied.titles };
+    const items: AppliedReportItem[] = [];
+    for (const [index, step] of action.steps.entries()) {
+      const title = applied.titles[index] ?? "";
+      if (step.operation === "create") {
+        const built = builtByStep.get(step.stepId);
+        if (built) items.push(createdTaskItem(step, built.result, null));
+      } else if (step.operation === "update") {
+        const patch = step.patch as Record<string, unknown>;
+        const changes = (Object.keys(patch) as Array<import("../core/applied-report.js").TaskFieldChange["field"]>)
+          .filter((field) => patch[field] !== null && patch[field] !== undefined)
+          .map((field) => ({ field, before: null, after: field === "checklist" ? `${(patch[field] as unknown[]).length} пунктов` : field === "habitMode" ? (patch[field] ? "включён" : "выключен") : String(patch[field]) }));
+        items.push({ kind: "task_updated", title, changes });
+      } else if (step.operation === "reschedule") {
+        items.push({ kind: "task_rescheduled", title, before: null, after: null, reminderAt: null, reason: step.reason ?? null });
+      } else {
+        items.push({ kind: "generic", title });
+      }
+    }
+    return { groupId: applied.groupId, count: applied.count, titles: applied.titles, items };
   }
 
   private async storePending(actions: ProposedActionDraft[], scope: ActionScope) {
@@ -914,12 +947,12 @@ export class ActionsService implements OnApplicationBootstrap {
     actions: Array<Extract<ProposedActionDraft, { type: "create_task" }>>,
     created: Array<{ taskId: string }>,
     _now: Date,
-  ): Promise<string[]> {
-    const titles: string[] = [];
+  ): Promise<Array<string | null>> {
+    const titles: Array<string | null> = [];
     for (const [index, action] of actions.entries()) {
       const goalLink = action.goalLink;
       const task = created[index];
-      if (!goalLink || !task) continue;
+      if (!goalLink || !task) { titles.push(null); continue; }
       titles.push(await this.contextActions.linkCreatedTaskToGoal({
         workspaceId, groupId, taskId: task.taskId, expectedTaskVersion: 1,
         goalId: goalLink.goalId, expectedGoalVersion: goalLink.expectedGoalVersion, confidence: goalLink.confidence,
@@ -1009,23 +1042,52 @@ export class ActionsService implements OnApplicationBootstrap {
   }
 }
 
-function describeAction(action: ProposedActionDraft): string {
+/** Pending-confirmation wording: what will happen if the user taps Confirm, with the values the action carries. */
+export function describeAction(action: ProposedActionDraft): string {
   if (action.type === "task_batch") return `Пакет из ${action.steps.length} действий`;
-  if (action.type === "create_task") return action.title;
-  if (action.type === "update_task") return "Изменить задачу";
-  if (action.type === "complete_occurrence") return "Отметить выполнение";
-  if (action.type === "reschedule_occurrence") return "Перенести выполнение";
-  if (action.type === "create_goal") return action.title;
-  if (action.type === "create_goal_plan") return action.goal.title;
-  if (action.type === "update_goal") return "Изменить цель";
-  if (action.type === "save_memory") return "Сохранить в память";
-  if (action.type === "delete_memory") return "Удалить из памяти";
-  if (action.type === "update_memory") return "Изменить память";
-  if (action.type === "change_reminder") return "Изменить напоминание";
-  if (action.type === "change_series") return "Изменить повторяющуюся серию";
-  if (action.type === "update_settings") return "Изменить настройки";
-  if (action.type === "update_occurrence") return "Изменить состояние задачи";
+  if (action.type === "create_task") return `Создать «${action.title}»${describeLocalSchedule(action.definition.localSchedule)}`;
+  if (action.type === "update_task") {
+    const parts: string[] = [];
+    if (action.patch.title !== null) parts.push(`название → «${action.patch.title}»`);
+    if (action.patch.importance !== null) parts.push(`важность → ${action.patch.importance === "critical" ? "критическая" : action.patch.importance === "required" ? "обязательная" : "обычная"}`);
+    if (action.patch.habitMode !== null) parts.push(action.patch.habitMode ? "включить режим привычки" : "выключить режим привычки");
+    if (action.patch.checklist !== null) parts.push(`чеклист (${action.patch.checklist.length})`);
+    if (action.patch.why !== null) parts.push("зачем");
+    if (action.patch.nextAction !== null) parts.push("следующий шаг");
+    if (action.patch.context !== null) parts.push("контекст");
+    return parts.length ? `Изменить задачу: ${parts.join(", ")}` : "Изменить задачу";
+  }
+  if (action.type === "complete_occurrence") return "Отметить выполненной";
+  if (action.type === "reschedule_occurrence") return `Перенести${describeLocalSchedule(action.schedule.localSchedule)}${action.reason ? ` (${action.reason})` : ""}`;
+  if (action.type === "create_goal") return `Создать цель «${action.title}»`;
+  if (action.type === "create_goal_plan") return `Создать цель «${action.goal.title}» и ${action.tasks.length} задач`;
+  if (action.type === "update_goal") return action.patch.status ? `Цель → ${action.patch.status === "completed" ? "завершена" : action.patch.status === "paused" ? "на паузе" : action.patch.status === "cancelled" ? "отменена" : "активна"}` : "Изменить цель";
+  if (action.type === "save_memory") return `Запомнить${action.sensitive ? " (чувствительное)" : ""}: «${action.content.trim().slice(0, 120)}»`;
+  if (action.type === "delete_memory") return "Удалить запись из памяти";
+  if (action.type === "update_memory") return action.patch.content ? `Изменить запись в памяти: «${action.patch.content.trim().slice(0, 120)}»` : "Изменить запись в памяти";
+  if (action.type === "change_reminder") {
+    if (action.mode === "clear") return "Убрать напоминания";
+    const reminder = action.reminder;
+    const when = reminder?.triggerKind === "relative_timestamp" && reminder.offsetMinutes !== null
+      ? ` ${reminder.offsetMinutes < 0 ? `за ${Math.abs(reminder.offsetMinutes)} мин до` : reminder.offsetMinutes > 0 ? `через ${reminder.offsetMinutes} мин после` : "в момент"} ${reminder.anchor === "due_at" ? "срока" : reminder.anchor === "planned_end" ? "конца" : "начала"}`
+      : reminder?.triggerKind === "local_date" && reminder.localTime ? ` в ${reminder.localTime}${reminder.daysOffset ? ` (${reminder.daysOffset > 0 ? "+" : ""}${reminder.daysOffset} дн)` : ""}`
+      : reminder?.exactAt ? ` ${reminder.exactAt}` : "";
+    return `${action.mode === "add" ? "Добавить напоминание" : "Заменить напоминание"}${when}${reminder?.quietPolicy === "bypass" ? " — игнорируя тихие часы" : ""}`;
+  }
+  if (action.type === "change_series") return `Серия: ${action.operation === "pause" ? "поставить на паузу" : action.operation === "resume" ? "возобновить" : action.operation === "stop" ? "остановить" : action.operation === "cancel" ? "отменить" : "изменить расписание"}`;
+  if (action.type === "update_settings") return `Изменить настройки: ${action.operation === "timezone" ? `часовой пояс → ${action.timezone}` : action.operation === "language" ? "язык" : action.operation === "digest" ? "дайджест" : action.operation === "weekly_review" ? "недельный обзор" : action.operation === "quiet_hours" ? "тихие часы" : action.operation === "snooze" ? "пауза уведомлений" : "напоминания по умолчанию"}`;
+  if (action.type === "update_occurrence") return action.operation === "start" ? "Начать" : action.operation === "skip" ? "Пропустить" : action.operation === "cancel" ? "Отменить" : action.operation === "seen" ? "Отметить увиденной" : `Записать блокер: «${(action.details ?? "").trim().slice(0, 120)}»`;
   return "Связать задачу с целью";
+}
+
+function describeLocalSchedule(schedule: StructuredLocalScheduleInput | null | undefined): string {
+  if (!schedule) return "";
+  const date = (value: string | null) => value ? value.split("-").slice(1).reverse().join(".") : "";
+  if (schedule.mode === "fuzzy") return schedule.fuzzyHorizonText ? ` — ${schedule.fuzzyHorizonText}` : "";
+  if (schedule.mode === "deadline") return schedule.dueDate ? ` — до ${date(schedule.dueDate)}${schedule.dueTime ? ` ${schedule.dueTime}` : ""}` : "";
+  if (!schedule.startDate) return "";
+  const end = schedule.mode === "window" ? (schedule.endTime ? `–${schedule.endTime}` : schedule.durationMinutes ? ` (${schedule.durationMinutes} мин)` : "") : "";
+  return ` — ${date(schedule.startDate)}${schedule.startTime ? ` ${schedule.startTime}` : ""}${end}`;
 }
 
 function normalizeEligibleTaskBatch(actions: readonly ProposedActionDraft[]): readonly ProposedActionDraft[] {
@@ -1054,3 +1116,94 @@ function taskBatchFailureCode(error: unknown): string {
 
 
 export { InvalidAiActionError };
+
+function createdTaskItem(
+  action: Pick<Extract<ProposedActionDraft, { type: "create_task" }>, "title" | "definition">,
+  created: { occurrenceSchedule?: OccurrenceScheduleView; reminderSchedules: Array<{ scheduledFor: Date; purpose: string }> } | undefined,
+  goalTitle: string | null,
+): Extract<AppliedReportItem, { kind: "task_created" }> {
+  const reminderAt = created?.reminderSchedules
+    .filter((item) => item.purpose === "user_reminder")
+    .map((item) => item.scheduledFor)
+    .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+  return {
+    kind: "task_created",
+    title: action.title,
+    timezone: action.definition.timezone,
+    importance: action.definition.importance,
+    recurring: Boolean(action.definition.recurrence || action.definition.recurrenceRule),
+    schedule: created?.occurrenceSchedule ?? null,
+    fuzzyHorizonText: action.definition.localSchedule?.fuzzyHorizonText ?? action.definition.fuzzyHorizonText ?? null,
+    reviewAt: action.definition.reviewAt ? new Date(action.definition.reviewAt) : reviewAtFromLocalSchedule(action.definition),
+    reminderAt,
+    goalTitle,
+  };
+}
+
+function reviewAtFromLocalSchedule(definition: Extract<ProposedActionDraft, { type: "create_task" }>["definition"]): Date | null {
+  const schedule = definition.localSchedule;
+  if (!schedule?.reviewDate || !schedule.reviewTime) return null;
+  try {
+    return localDateAndTimeToUtc(schedule.reviewDate, schedule.reviewTime, schedule.timezone).date;
+  } catch {
+    return null;
+  }
+}
+
+function createdTasksResult(
+  groupId: string,
+  actions: Array<Extract<ProposedActionDraft, { type: "create_task" }>>,
+  created: Awaited<ReturnType<TasksService["createTasks"]>>,
+  linkedGoals: ReadonlyArray<string | null>,
+): NonNullable<ProposedActionsResult["applied"]> {
+  const linkedGoalTitles = linkedGoals.filter((title): title is string => Boolean(title));
+  const scheduledReminderAt = created[0]?.reminderSchedules.find((item) => item.purpose === "user_reminder")?.scheduledFor;
+  const occurrenceSchedule = created[0]?.occurrenceSchedule;
+  return {
+    groupId, count: created.length, titles: actions.map((action) => action.title),
+    ...(scheduledReminderAt ? { scheduledReminderAt } : {}),
+    ...(occurrenceSchedule ? { occurrenceSchedule } : {}),
+    ...(linkedGoalTitles.length ? { linkedGoalTitles } : {}),
+    items: actions.map((action, index) => createdTaskItem(action, created[index], linkedGoals[index] ?? null)),
+  };
+}
+
+/** Report items for a single mutation, from the action that was applied plus what the repository returned. */
+export function mutationReportItems(
+  action: Exclude<ProposedActionDraft, { type: "create_task" | "create_goal_plan" }>,
+  result: Omit<import("./action-mutations.repository.js").MutationAppliedResult, "count"> & { count: number },
+): AppliedReportItem[] {
+  const title = result.titles[0] ?? "";
+  switch (action.type) {
+    case "update_task":
+      return [{ kind: "task_updated", title, changes: result.changes ?? [] }];
+    case "reschedule_occurrence":
+      return [{ kind: "task_rescheduled", title, before: result.previousSchedule ?? null, after: result.occurrenceSchedule ?? null, reminderAt: result.scheduledReminderAt ?? null, reason: action.reason ?? null }];
+    case "complete_occurrence":
+      return [{ kind: "occurrence", title, operation: "done" }];
+    case "update_occurrence":
+      return [{ kind: "occurrence", title, operation: action.operation, details: action.details ?? null }];
+    case "change_reminder":
+      return [{ kind: "reminder", title, mode: action.mode, schedule: result.occurrenceSchedule ?? null, reminderAt: result.scheduledReminderAt ?? null }];
+    case "change_series":
+      return [{ kind: "series", title, operation: action.operation }];
+    case "create_goal":
+      return [{ kind: "goal_created", title }];
+    case "update_goal":
+      return [{ kind: "goal_updated", title }];
+    case "save_memory":
+      return [{ kind: "memory", operation: "saved", content: action.content }];
+    case "update_memory":
+      return [{ kind: "memory", operation: "updated", content: action.patch.content ?? title }];
+    case "delete_memory":
+      return [{ kind: "memory", operation: "deleted", content: title }];
+    case "link_task_to_goal": {
+      const match = title.match(/^Связать «(.+)» с целью «(.+)»$/u);
+      return match ? [{ kind: "goal_linked", taskTitle: match[1]!, goalTitle: match[2]! }] : [{ kind: "generic", title }];
+    }
+    case "update_settings":
+      return [{ kind: "settings", operation: action.operation }];
+    default:
+      return result.titles.map((item) => ({ kind: "generic", title: item }));
+  }
+}

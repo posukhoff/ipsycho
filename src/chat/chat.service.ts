@@ -7,14 +7,15 @@ import { aiBurstAllowed } from "../core/ai-usage-policy.js";
 import { reviewClarificationDecision, reviewCorrection, reviewPresentation, reviewQuestionLimit, type ReviewKind } from "../core/review-policy.js";
 import { localDateAt } from "../core/timezone.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
-import { formatOccurrenceSchedule, reminderAddsTimingInformation } from "../core/time-presentation.js";
+import { formatLocalDateTime, formatOccurrenceSchedule, reminderAddsTimingInformation } from "../core/time-presentation.js";
+import { renderAppliedReport } from "../core/applied-report.js";
 import { detectConversationControl, isClearConversationRequest } from "../core/conversation-control.js";
 import { canonicalizeTopicDirective } from "../core/context-policy.js";
 import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
 import { TasksService } from "../tasks/tasks.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
-import { containsExplicitMutationRequest, validateMutationIntent, type ProposedActionDraft, type TaskBatchStepDraft } from "../core/ai-actions.js";
+import { containsExplicitMutationRequest, isMixedTaskMutationRequest, validateMutationIntent, type ProposedActionDraft, type TaskBatchStepDraft } from "../core/ai-actions.js";
 import { emptyWeeklyReviewState, groundWeeklyReviewProgress, questionForMissingWeeklyDimension, weeklyReviewLifecycle, type WeeklyReviewState } from "../core/weekly-review-state.js";
 
 export type ChatProcessResult =
@@ -27,10 +28,14 @@ export type ChatProcessResult =
   | {
       kind: "ok";
       text: string;
+      /** Deterministic report of persisted changes; rendered after the model text and never truncated with it. */
+      report?: string;
       appliedGroupId?: string;
       pendingGroupId?: string;
       appliedCount: number;
       pendingCount: number;
+      /** Human descriptions of the actions waiting for confirmation, in order. */
+      pendingTitles?: string[];
       warnings: string[];
       topicId?: string;
       checkpointTopicId?: string;
@@ -389,11 +394,13 @@ export class ChatService {
       if (decision.resolveAfterTurn) await this.context.resolveTopic(input.workspaceId, input.userId, input.topicId, now).catch(() => undefined);
     }
 
+    const reviewReport = appliedReportText(turn.actions, actionResult.applied, now);
     return {
       kind: "ok",
       text: renderTurn(turn.reply, turn.question),
+      ...(reviewReport ? { report: reviewReport } : {}),
       ...(actionResult.applied ? { appliedGroupId: actionResult.applied.groupId } : {}),
-      ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId } : {}),
+      ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId, pendingTitles: actionResult.pending.titles } : {}),
       appliedCount: actionResult.applied?.count ?? 0,
       pendingCount: actionResult.pending?.count ?? 0,
       warnings: actionResult.warnings ?? [],
@@ -412,6 +419,10 @@ export class ChatService {
       const initialGate = await this.currentAiGate(input.workspaceId, input.userId, input.inbound.id);
       if (initialGate) return initialGate;
       const turnNow = new Date();
+      if (!this.actions.isTaskBatchEnabled() && isMixedTaskMutationRequest(input.inbound.content)) {
+        await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed");
+        return { kind: "ok", text: disabledTaskBatchReply(input.language, input.inbound.content), appliedCount: 0, pendingCount: 0, warnings: [] };
+      }
       const [taskContext, conversationContext] = await Promise.all([
         this.tasks.getAiContext(input.workspaceId),
         this.context.buildAiContext({ workspaceId: input.workspaceId, userId: input.userId, query: input.inbound.content, now: turnNow }),
@@ -468,7 +479,8 @@ export class ChatService {
       let validationErrors = await this.actions.validate(turn.actions, scope);
       const goalFocusError = validateGoalFocusTurn(turn, conversationContext);
       if (goalFocusError) validationErrors.push(goalFocusError);
-      const mutationIntentError = validateMutationIntent(turn.actions, input.inbound.content);
+      const previousAssistantText = [...history].reverse().find((message) => message.role === "assistant")?.content;
+      const mutationIntentError = validateMutationIntent(turn.actions, input.inbound.content, previousAssistantText);
       if (mutationIntentError) validationErrors.push(mutationIntentError);
       const topicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
       if (topicError) validationErrors.push(`topic: ${topicError}`);
@@ -495,7 +507,7 @@ export class ChatService {
         validationErrors = await this.actions.validate(turn.actions, scope);
         const repairedGoalFocusError = validateGoalFocusTurn(turn, conversationContext);
         if (repairedGoalFocusError) validationErrors.push(repairedGoalFocusError);
-        const repairedMutationIntentError = validateMutationIntent(turn.actions, input.inbound.content);
+        const repairedMutationIntentError = validateMutationIntent(turn.actions, input.inbound.content, previousAssistantText);
         if (repairedMutationIntentError) validationErrors.push(repairedMutationIntentError);
         const repairedTopicError = control === "no_persist" ? null : await this.context.validateTopicDirective({ workspaceId: input.workspaceId, userId: input.userId, directive: turn.topic });
         if (repairedTopicError) validationErrors.push(`topic: ${repairedTopicError}`);
@@ -584,15 +596,13 @@ export class ChatService {
           await this.context.resetClarificationCount(input.workspaceId, input.userId, topicId, scope.now).catch(() => undefined);
         }
       }
+      const report = appliedReportText(turn.actions, actionResult.applied, scope.now);
       return {
         kind: "ok",
-        text: appendAppliedTiming(
-          renderTurn(turn.reply, turn.question),
-          turn.actions,
-          actionResult.applied,
-        ),
+        text: renderTurn(turn.reply, turn.question),
+        ...(report ? { report } : {}),
         ...(actionResult.applied && actionResult.applied.undoable !== false ? { appliedGroupId: actionResult.applied.groupId } : {}),
-        ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId } : {}),
+        ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId, pendingTitles: actionResult.pending.titles } : {}),
         appliedCount: actionResult.applied?.count ?? 0,
         pendingCount: actionResult.pending?.count ?? 0,
         warnings: actionResult.warnings ?? [],
@@ -679,7 +689,7 @@ function sanitizedValidationReason(error: string): string {
   if (/task_batch rollout is disabled/i.test(error)) return "task_batch_disabled";
   if (/^topic:/i.test(error)) return "invalid_topic_directive";
   if (/goalAnalysisFocus|goal analysis/i.test(error)) return "invalid_goal_focus";
-  if (/informational question|mutation request/i.test(error)) return "mutation_intent_mismatch";
+  if (/informational question|mutation request|AI-inferred proposal|explicit user request or acceptance/i.test(error)) return "mutation_intent_mismatch";
   if (/missing or stale|version|stale/i.test(error)) return "stale_reference";
   if (/duplicate|already linked|unique/i.test(error)) return "duplicate_reference";
   if (/past|before today|future/i.test(error)) return "invalid_time";
@@ -687,37 +697,42 @@ function sanitizedValidationReason(error: string): string {
   return "invalid_action";
 }
 
-function appendAppliedTiming(
+/**
+ * Deterministic confirmation built from persisted results, not from the model's prose.
+ * The model may promise "напомню в 17:30" or say "Готово" about the wrong task; this block
+ * shows what was actually stored so the user can catch a mismatch immediately.
+ */
+export function appendAppliedTiming(
   text: string,
   actions: readonly ProposedActionDraft[],
   applied?: NonNullable<import("../actions/actions.service.js").ProposedActionsResult["applied"]>,
+  now: Date = new Date(),
 ): string {
-  if (!applied) return text;
+  const report = appliedReportText(actions, applied, now);
+  return report ? `${text}\n\n${report}` : text;
+}
+
+export function appliedReportText(
+  actions: readonly ProposedActionDraft[],
+  applied?: NonNullable<import("../actions/actions.service.js").ProposedActionsResult["applied"]>,
+  now: Date = new Date(),
+): string | undefined {
+  if (!applied) return undefined;
+  if (applied.items?.length) return renderAppliedReport(applied.items, now) || undefined;
+  // Legacy results without report items (e.g. memory batches): keep the minimal timing facts.
   const details: string[] = [];
   for (const title of applied.linkedGoalTitles ?? []) details.push(`🎯 Связано с целью: ${title}`);
   const occurrence = applied.occurrenceSchedule;
   if (occurrence) {
-    const detail = formatOccurrenceSchedule(occurrence);
+    const detail = formatOccurrenceSchedule(occurrence, "ru-RU", now);
     if (detail) details.push(detail);
   }
-  if (!applied.scheduledReminderAt || (occurrence && !reminderAddsTimingInformation(occurrence, applied.scheduledReminderAt))) {
-    return details.length ? `${text}\n\n${details.join("\n")}` : text;
+  if (applied.scheduledReminderAt && (!occurrence || reminderAddsTimingInformation(occurrence, applied.scheduledReminderAt))) {
+    const timezone = actions.find((action): action is Extract<ProposedActionDraft, { type: "create_task" }> => action.type === "create_task")?.definition.timezone ?? occurrence?.timezone;
+    if (timezone) details.push(`🔔 Напоминание: ${formatLocalDateTime(applied.scheduledReminderAt, timezone, now)} (${timezone})`);
   }
-  const reminders = actions.flatMap((action) => {
-    if (action.type !== "create_task") return [];
-    const time = new Intl.DateTimeFormat("ru-RU", {
-      timeZone: action.definition.timezone,
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(applied.scheduledReminderAt);
-    return [`🔔 Напоминание: ${time} (${action.definition.timezone})`];
-  });
-  details.push(...reminders);
-  return details.length ? `${text}\n\n${details.join("\n")}` : text;
+  return details.length ? details.join("\n") : undefined;
 }
-
 
 export function normalizeReviewTurn<T extends { actions: readonly import("../core/ai-actions.js").ProposedActionDraft[]; question: string | null }>(turn: T, review?: ReviewKind, forceConclusion = false): T {
   let normalized = turn;
@@ -785,6 +800,18 @@ function ensureAssumptionsLabel(reply: string): string {
 
 export function removeDanglingContinuation(reply: string): string {
   return reply.replace(/(?:\s|\n)*(?:если хочешь|if you want|якщо хочеш)[\s\S]*$/iu, "").trim();
+}
+
+export function disabledTaskBatchReply(language: string | null | undefined, latestUserText: string): string {
+  const locale = language?.toLocaleLowerCase() ?? "";
+  const ukrainian = locale.startsWith("uk") || /(?:\b(?:будь\s+ласка|завдання|зустріч|перенеси|додай|прив'яжи|прив’яжи)\b|[іїєґ])/iu.test(latestUserText);
+  if (locale.startsWith("en")) {
+    return "This request combines several related task changes. Atomic task packages are currently disabled, so I made no changes. I can handle the operations one at a time, starting with the main priority, but they will not be one atomic change.";
+  }
+  if (ukrainian) {
+    return "У цьому запиті поєднано кілька пов’язаних змін завдань. Атомарні пакети зараз вимкнені, тому я нічого не змінив. Можу виконати операції по одній, починаючи з головного пріоритету, але це не буде однією атомарною зміною.";
+  }
+  return "В этом запросе несколько связанных изменений задач. Атомарные пакеты сейчас выключены, поэтому я ничего не изменил. Могу выполнить операции по одной, начиная с главного приоритета, но это не будет одним атомарным изменением.";
 }
 
 export function shouldRetryActionlessTaskBatch(actions: readonly ProposedActionDraft[], latestUserText: string, taskBatchEnabled: boolean): boolean {

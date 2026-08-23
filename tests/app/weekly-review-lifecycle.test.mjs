@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation, shouldRetryActionlessTaskBatch } from "../../dist/chat/chat.service.js";
+import { disabledTaskBatchReply, normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation, shouldRetryActionlessTaskBatch } from "../../dist/chat/chat.service.js";
 
 test("weekly prose-only continuation question is promoted to the structured field", () => {
   const turn = normalizeReviewTurn({ reply: "Цель понятна.\nСколько времени реально есть на неделе?", question: null, actions: [] }, "weekly", false);
@@ -21,6 +21,14 @@ test("an actionless explicit grouped task request gets one structured repair", (
   assert.equal(shouldRetryActionlessTaskBatch([], "Сделай одним пакетом: создай задачу и перенеси встречу", true), true);
   assert.equal(shouldRetryActionlessTaskBatch([], "Как лучше объединить эти задачи?", true), false);
   assert.equal(shouldRetryActionlessTaskBatch([], "Сделай одним пакетом: создай задачу", false), false);
+});
+
+test("disabled mixed-operation reply is truthful and does not reconfirm supplied time", () => {
+  const reply = disabledTaskBatchReply("ru", "Перенеси созвон на четверг в 16:00 и добавь задачу");
+  assert.match(reply, /пакеты сейчас выключены/);
+  assert.match(reply, /ничего не изменил/);
+  assert.doesNotMatch(reply, /16:00|верно|подтверд/);
+  assert.match(disabledTaskBatchReply("en", "create a task and reschedule a meeting"), /made no changes/);
 });
 
 test("final weekly copy drops dangling optional continuation", () => {
