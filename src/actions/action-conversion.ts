@@ -1,4 +1,4 @@
-import { parseLocalDate, parseLocalTime } from "../core/timezone.js";
+import { localDateAt, parseLocalDate, parseLocalTime } from "../core/timezone.js";
 import { compileStructuredLocalSchedule } from "../core/local-schedule.js";
 import { compileStructuredRecurrence } from "../core/recurrence-input.js";
 import { recurrenceAnchorLocalDate, recurrenceAnchorLocalTime } from "../core/recurrence.js";
@@ -296,7 +296,16 @@ function assertLegacyScheduleCompatible(
   const compatible = Object.entries(legacyFields).every(([key, legacyValue]) => {
     const structuredValue = structuredFields[key as keyof typeof structuredFields];
     if (legacyValue instanceof Date && structuredValue instanceof Date) return legacyValue.getTime() === structuredValue.getTime();
-    return legacyValue === structuredValue;
+    if (legacyValue === structuredValue) return true;
+    // A date-only legacy field naming the same local day as the structured exact time is a
+    // coarser restatement of it, not a contradiction: the exact time stays authoritative.
+    if (key === "plannedLocalDate" && typeof legacyValue === "string" && structured.plannedStartAt) {
+      return legacyValue === localDateAt(structured.plannedStartAt, structured.timezone);
+    }
+    if (key === "dueLocalDate" && typeof legacyValue === "string" && structured.dueAt) {
+      return legacyValue === localDateAt(structured.dueAt, structured.timezone);
+    }
+    return false;
   });
   if (!compatible) throw new InvalidAiActionError(errorMessage);
 }

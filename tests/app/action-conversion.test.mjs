@@ -114,3 +114,30 @@ test("create_task carries an explicit reminder that replaces the default one", (
   });
   assert.equal(stored.actions[0].reminder, null);
 });
+
+test("weekly recurrence accepts the time its own schedule anchor carries, and a coarser legacy echo of that date", () => {
+  const result = createTaskInputFromAction(action({
+    recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over",
+    plannedLocalDate: "2026-08-30",
+    localSchedule: { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-30", startTime: "14:00", endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null },
+    recurrence: { frequency: "weekly", interval: 1, startsOn: "2026-08-30", endsOn: null, weekdays: ["SU"], monthDays: null, localTimes: ["14:00"], excludedLocalDates: null },
+  }), scope);
+  assert.equal(result.definition.recurrenceRule, "FREQ=WEEKLY;INTERVAL=1;BYDAY=SU");
+  assert.equal(result.definition.plannedStartAt.toISOString(), "2026-08-30T11:00:00.000Z");
+  assert.equal(result.definition.plannedLocalDate, undefined);
+});
+
+test("a legacy date naming a different day than the structured schedule still conflicts", () => {
+  assert.throws(() => createTaskInputFromAction(action({
+    plannedLocalDate: "2026-08-31",
+    localSchedule: { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-30", startTime: "14:00", endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null },
+  }), scope), InvalidAiActionError);
+});
+
+test("a weekly recurrence time that contradicts its schedule start is rejected", () => {
+  assert.throws(() => createTaskInputFromAction(action({
+    recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over",
+    localSchedule: { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-30", startTime: "14:00", endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null },
+    recurrence: { frequency: "weekly", interval: 1, startsOn: "2026-08-30", endsOn: null, weekdays: ["SU"], monthDays: null, localTimes: ["09:00"], excludedLocalDates: null },
+  }), scope), /contradicts the schedule start time 14:00/);
+});
