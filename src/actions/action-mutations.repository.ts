@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Injectable } from "@nestjs/common";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { rescheduledDefinition, rescheduledOccurrenceStatus, type RescheduleFields } from "../core/reschedule.js";
 import { isRescheduleReasonRequired } from "../core/task-policy.js";
@@ -265,84 +265,74 @@ export class ActionMutationsRepository {
           eq(taskOccurrences.version, input.expectedVersion),
         )).limit(1);
       if (!row) throw new Error("occurrence is stale or missing");
+      return completeOccurrenceInTransaction(tx, input, row);
+    });
+  }
 
-      const transition = validateOccurrenceTransition(row.occurrence.status, "done", {
-        kind: row.task.kind,
-        recurring: Boolean(row.task.recurrenceRule),
-        now: input.now,
-        ...(row.occurrence.plannedStartAt ? { plannedStartAt: row.occurrence.plannedStartAt } : {}),
-        ...(row.occurrence.plannedEndAt ? { plannedEndAt: row.occurrence.plannedEndAt } : {}),
-        eventElapseGraceMinutes: 15,
-        explicitUserAction: true,
-        systemExpire: false,
-      });
-      if (!transition.ok) throw new Error(transition.reason);
+  /**
+   * Completion is addressed by task. A task with a live occurrence closes through that
+   * occurrence; a task with no exact time has no occurrence at all and closes directly,
+   * which is the only way "I already did it" can work for an undated task.
+   */
+  async applyCompleteTask(input: {
+    workspaceId: string;
+    groupId: string;
+    actorUserId: string;
+    taskId: string;
+    expectedVersion: number;
+    now: Date;
+    undoExpiresAt: Date;
+  }): Promise<MutationAppliedResult> {
+    return this.database.db.transaction(async (tx) => {
+      const [task] = await tx.select().from(tasks).where(and(
+        eq(tasks.workspaceId, input.workspaceId),
+        eq(tasks.id, input.taskId),
+        eq(tasks.version, input.expectedVersion),
+      )).limit(1);
+      if (!task) throw new Error("task is stale or missing");
+      if (task.status !== "active") throw new Error("only an active task can be completed");
 
-      const [updatedOccurrence] = await tx.update(taskOccurrences).set({
-        status: "done",
-        completedAt: input.now,
-        completedLate: row.occurrence.status === "elapsed",
-        version: sql`${taskOccurrences.version} + 1`,
+      const [occurrence] = await tx.select().from(taskOccurrences).where(and(
+        eq(taskOccurrences.workspaceId, input.workspaceId),
+        eq(taskOccurrences.taskId, task.id),
+        inArray(taskOccurrences.status, ["scheduled", "open", "in_progress", "elapsed"]),
+      )).orderBy(asc(taskOccurrences.plannedStartAt)).limit(1);
+      if (occurrence) {
+        return completeOccurrenceInTransaction(tx, {
+          workspaceId: input.workspaceId, groupId: input.groupId, actorUserId: input.actorUserId,
+          occurrenceId: occurrence.id, expectedVersion: occurrence.version,
+          now: input.now, undoExpiresAt: input.undoExpiresAt,
+        }, { task, occurrence });
+      }
+
+      const [updatedTask] = await tx.update(tasks).set({
+        status: "closed",
+        version: sql`${tasks.version} + 1`,
         updatedAt: input.now,
       }).where(and(
-        eq(taskOccurrences.workspaceId, input.workspaceId),
-        eq(taskOccurrences.id, input.occurrenceId),
-        eq(taskOccurrences.version, input.expectedVersion),
+        eq(tasks.workspaceId, input.workspaceId),
+        eq(tasks.id, task.id),
+        eq(tasks.version, task.version),
       )).returning();
-      if (!updatedOccurrence) throw new Error("occurrence is stale or missing");
-
-      await tx.update(reminderDeliveries).set({
-        status: "suppressed",
-        suppressedReason: "no_longer_applicable",
-      }).where(and(
-        eq(reminderDeliveries.workspaceId, input.workspaceId),
-        eq(reminderDeliveries.occurrenceId, input.occurrenceId),
-        inArray(reminderDeliveries.status, ["pending", "processing"]),
-      ));
-
+      if (!updatedTask) throw new Error("task changed while completing it");
       await tx.insert(actionEvents).values({
         workspaceId: input.workspaceId,
         groupId: input.groupId,
-        actionType: "complete_occurrence",
-        entityType: "occurrence",
-        entityId: input.occurrenceId,
-        postVersion: updatedOccurrence.version,
-        beforeState: occurrenceMutableState(row.occurrence),
-        afterState: occurrenceMutableState(updatedOccurrence),
+        actionType: "complete_task",
+        entityType: "task",
+        entityId: task.id,
+        postVersion: updatedTask.version,
+        beforeState: taskMutableState(task),
+        afterState: taskMutableState(updatedTask),
       });
-
-      if (!row.task.recurrenceRule) {
-        const [updatedTask] = await tx.update(tasks).set({
-          status: "closed",
-          version: sql`${tasks.version} + 1`,
-          updatedAt: input.now,
-        }).where(and(
-          eq(tasks.workspaceId, input.workspaceId),
-          eq(tasks.id, row.task.id),
-          eq(tasks.version, row.task.version),
-        )).returning();
-        if (!updatedTask) throw new Error("task changed while completing occurrence");
-        await tx.insert(actionEvents).values({
-          workspaceId: input.workspaceId,
-          groupId: input.groupId,
-          actionType: "complete_occurrence",
-          entityType: "task",
-          entityId: row.task.id,
-          postVersion: updatedTask.version,
-          beforeState: taskMutableState(row.task),
-          afterState: taskMutableState(updatedTask),
-        });
-      }
-
       await tx.insert(taskEvents).values({
         workspaceId: input.workspaceId,
-        taskId: row.task.id,
-        occurrenceId: input.occurrenceId,
+        taskId: task.id,
         actorUserId: input.actorUserId,
-        eventType: "occurrence:done",
+        eventType: "task:closed",
       });
       await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [row.task.title] };
+      return { groupId: input.groupId, count: 1, titles: [task.title] };
     });
   }
 
@@ -984,4 +974,91 @@ function restoredFutureStatus(occurrence: typeof taskOccurrences.$inferSelect, t
 
 function parseJsonDate(value: string | null): Date | null {
   return value ? new Date(value) : null;
+}
+
+
+/** The shared body both completion entry points run once their target occurrence is known. */
+async function completeOccurrenceInTransaction(
+  tx: DbTransaction,
+  input: { workspaceId: string; groupId: string; actorUserId: string; occurrenceId: string; expectedVersion: number; now: Date; undoExpiresAt: Date },
+  row: { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect },
+): Promise<MutationAppliedResult> {
+
+    const transition = validateOccurrenceTransition(row.occurrence.status, "done", {
+      kind: row.task.kind,
+      recurring: Boolean(row.task.recurrenceRule),
+      now: input.now,
+      ...(row.occurrence.plannedStartAt ? { plannedStartAt: row.occurrence.plannedStartAt } : {}),
+      ...(row.occurrence.plannedEndAt ? { plannedEndAt: row.occurrence.plannedEndAt } : {}),
+      eventElapseGraceMinutes: 15,
+      explicitUserAction: true,
+      systemExpire: false,
+    });
+    if (!transition.ok) throw new Error(transition.reason);
+
+    const [updatedOccurrence] = await tx.update(taskOccurrences).set({
+      status: "done",
+      completedAt: input.now,
+      completedLate: row.occurrence.status === "elapsed",
+      version: sql`${taskOccurrences.version} + 1`,
+      updatedAt: input.now,
+    }).where(and(
+      eq(taskOccurrences.workspaceId, input.workspaceId),
+      eq(taskOccurrences.id, input.occurrenceId),
+      eq(taskOccurrences.version, input.expectedVersion),
+    )).returning();
+    if (!updatedOccurrence) throw new Error("occurrence is stale or missing");
+
+    await tx.update(reminderDeliveries).set({
+      status: "suppressed",
+      suppressedReason: "no_longer_applicable",
+    }).where(and(
+      eq(reminderDeliveries.workspaceId, input.workspaceId),
+      eq(reminderDeliveries.occurrenceId, input.occurrenceId),
+      inArray(reminderDeliveries.status, ["pending", "processing"]),
+    ));
+
+    await tx.insert(actionEvents).values({
+      workspaceId: input.workspaceId,
+      groupId: input.groupId,
+      actionType: "complete_occurrence",
+      entityType: "occurrence",
+      entityId: input.occurrenceId,
+      postVersion: updatedOccurrence.version,
+      beforeState: occurrenceMutableState(row.occurrence),
+      afterState: occurrenceMutableState(updatedOccurrence),
+    });
+
+    if (!row.task.recurrenceRule) {
+      const [updatedTask] = await tx.update(tasks).set({
+        status: "closed",
+        version: sql`${tasks.version} + 1`,
+        updatedAt: input.now,
+      }).where(and(
+        eq(tasks.workspaceId, input.workspaceId),
+        eq(tasks.id, row.task.id),
+        eq(tasks.version, row.task.version),
+      )).returning();
+      if (!updatedTask) throw new Error("task changed while completing occurrence");
+      await tx.insert(actionEvents).values({
+        workspaceId: input.workspaceId,
+        groupId: input.groupId,
+        actionType: "complete_occurrence",
+        entityType: "task",
+        entityId: row.task.id,
+        postVersion: updatedTask.version,
+        beforeState: taskMutableState(row.task),
+        afterState: taskMutableState(updatedTask),
+      });
+    }
+
+    await tx.insert(taskEvents).values({
+      workspaceId: input.workspaceId,
+      taskId: row.task.id,
+      occurrenceId: input.occurrenceId,
+      actorUserId: input.actorUserId,
+      eventType: "occurrence:done",
+    });
+    await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
+    return { groupId: input.groupId, count: 1, titles: [row.task.title] };
 }

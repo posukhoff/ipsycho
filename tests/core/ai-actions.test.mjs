@@ -136,10 +136,21 @@ test("explicit update applies immediately unless critical was inferred", () => {
   assert.equal(actionDisposition({ ...update, patch: { ...update.patch, importance: "critical" } }), "confirm");
 });
 
+test("destructive operations wait for confirmation even when the user asked for them", () => {
+  const cancelOccurrence = {
+    type: "update_occurrence", source: "user_explicit", confidence: 1,
+    occurrenceId: "00000000-0000-4000-8000-000000000004", expectedVersion: 1,
+    operation: "cancel", details: null,
+  };
+  assert.equal(actionDisposition(cancelOccurrence), "confirm");
+  assert.equal(actionDisposition({ ...cancelOccurrence, operation: "skip" }), "confirm");
+  assert.equal(actionDisposition({ ...cancelOccurrence, operation: "start" }), "apply");
+});
+
 test("explicit completion and reschedule apply immediately", () => {
   assert.equal(actionDisposition({
-    type: "complete_occurrence", source: "user_explicit", confidence: 1,
-    occurrenceId: "00000000-0000-4000-8000-000000000002", expectedVersion: 1,
+    type: "complete_task", source: "user_explicit", confidence: 1,
+    taskId: "00000000-0000-4000-8000-000000000002", expectedVersion: 1,
   }), "apply");
   assert.equal(actionDisposition({
     type: "reschedule_occurrence", source: "user_explicit", confidence: 1,
@@ -230,8 +241,8 @@ test("informational questions cannot silently mutate settings or completion stat
     criticalPostDueMinutes: null, seenNormalMinutes: null, seenRequiredMinutes: null, seenCriticalMinutes: null,
   };
   const completion = {
-    type: "complete_occurrence", source: "user_explicit", confidence: 1,
-    occurrenceId: "00000000-0000-4000-8000-000000000002", expectedVersion: 1,
+    type: "complete_task", source: "user_explicit", confidence: 1,
+    taskId: "00000000-0000-4000-8000-000000000002", expectedVersion: 1,
   };
   assert.match(validateMutationIntent([settings], "У меня включён еженедельный обзор?"), /informational question/);
   assert.match(validateMutationIntent([completion], "Эта задача уже выполнена?"), /informational question/);

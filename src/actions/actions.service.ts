@@ -244,9 +244,14 @@ export class ActionsService implements OnApplicationBootstrap {
           });
           continue;
         }
+        if (action.type === "complete_task") {
+          const task = await this.tasks.getTask(scope.workspaceId, action.taskId);
+          if (!task || task.version !== action.expectedVersion) throw new Error("target task is missing or stale");
+          if (task.status !== "active") throw new Error("only an active task can be marked done");
+          continue;
+        }
         const occurrenceContext = await this.tasks.getOccurrenceContext(scope.workspaceId, action.occurrenceId);
         if (!occurrenceContext || occurrenceContext.occurrence.version !== action.expectedVersion) throw new Error("target occurrence is missing or stale");
-        if (action.type === "complete_occurrence") continue;
 
         const schedule = rescheduleFieldsFromAction(action);
         if (action.schedule.timezone !== occurrenceContext.occurrence.timezone) throw new Error("reschedule timezone does not match target occurrence");
@@ -295,6 +300,11 @@ export class ActionsService implements OnApplicationBootstrap {
       }
       throw error;
     }
+  }
+
+  /** The proposal a typed "да"/"нет" refers to, so an affirmative never re-derives its own target. */
+  async latestPendingGroup(workspaceId: string, actorUserId: string, now = new Date()): Promise<{ groupId: string; createdAt: Date } | null> {
+    return this.repository.findLatestPendingGroup(workspaceId, actorUserId, now);
   }
 
   async confirm(workspaceId: string, actorUserId: string, recipientUserId: string, groupId: string, now = new Date()): Promise<NonNullable<ProposedActionsResult["applied"]>> {
@@ -733,12 +743,12 @@ export class ActionsService implements OnApplicationBootstrap {
       });
       return result;
     }
-    if (action.type === "complete_occurrence") {
-      return this.mutations.applyCompleteOccurrence({
+    if (action.type === "complete_task") {
+      return this.mutations.applyCompleteTask({
         workspaceId: scope.workspaceId,
         groupId,
         actorUserId: scope.actorUserId,
-        occurrenceId: action.occurrenceId,
+        taskId: action.taskId,
         expectedVersion: action.expectedVersion,
         now: scope.now,
         undoExpiresAt,
@@ -1057,7 +1067,7 @@ export function describeAction(action: ProposedActionDraft): string {
     if (action.patch.context !== null) parts.push("контекст");
     return parts.length ? `Изменить задачу: ${parts.join(", ")}` : "Изменить задачу";
   }
-  if (action.type === "complete_occurrence") return "Отметить выполненной";
+  if (action.type === "complete_task") return "Отметить выполненной";
   if (action.type === "reschedule_occurrence") return `Перенести${describeLocalSchedule(action.schedule.localSchedule)}${action.reason ? ` (${action.reason})` : ""}`;
   if (action.type === "create_goal") return `Создать цель «${action.title}»`;
   if (action.type === "create_goal_plan") return `Создать цель «${action.goal.title}» и ${action.tasks.length} задач`;
@@ -1179,7 +1189,7 @@ export function mutationReportItems(
       return [{ kind: "task_updated", title, changes: result.changes ?? [] }];
     case "reschedule_occurrence":
       return [{ kind: "task_rescheduled", title, before: result.previousSchedule ?? null, after: result.occurrenceSchedule ?? null, reminderAt: result.scheduledReminderAt ?? null, reason: action.reason ?? null }];
-    case "complete_occurrence":
+    case "complete_task":
       return [{ kind: "occurrence", title, operation: "done" }];
     case "update_occurrence":
       return [{ kind: "occurrence", title, operation: action.operation, details: action.details ?? null }];

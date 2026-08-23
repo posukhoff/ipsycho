@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { disabledTaskBatchReply, rejectedActionReply, normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation, shouldRetryActionlessTaskBatch } from "../../dist/chat/chat.service.js";
+import { bareConfirmationDecision, disabledTaskBatchReply, rejectedActionReply, normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation, shouldRetryActionlessTaskBatch } from "../../dist/chat/chat.service.js";
 
 test("weekly prose-only continuation question is promoted to the structured field", () => {
   const turn = normalizeReviewTurn({ reply: "Цель понятна.\nСколько времени реально есть на неделе?", question: null, actions: [] }, "weekly", false);
@@ -64,4 +64,16 @@ test("a rejected action names the failed rule and a concrete fix instead of a ge
   assert.match(unmapped, /some brand new rule failed/);
 
   assert.match(rejectedActionReply(["target task is missing or stale"], "en"), /changed after I read it/);
+});
+
+test("only a bare yes or no resolves a pending proposal", () => {
+  assert.equal(bareConfirmationDecision("Да"), "confirm");
+  assert.equal(bareConfirmationDecision("да!"), "confirm");
+  assert.equal(bareConfirmationDecision("ок"), "confirm");
+  assert.equal(bareConfirmationDecision("Нет"), "cancel");
+  assert.equal(bareConfirmationDecision("отмена"), "cancel");
+  // Anything carrying its own instruction must reach the model, not the pending group.
+  assert.equal(bareConfirmationDecision("Да, но перенеси на завтра"), null);
+  assert.equal(bareConfirmationDecision("Отмени задачу про вакцинацию"), null);
+  assert.equal(bareConfirmationDecision(""), null);
 });

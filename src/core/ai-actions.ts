@@ -5,7 +5,7 @@ import type { StructuredRecurrenceInput } from "./recurrence-input.js";
 
 export type ActionSource = "user_explicit" | "ai_inferred";
 export type SupportedActionType =
-  | "create_task" | "update_task" | "complete_occurrence" | "reschedule_occurrence"
+  | "create_task" | "update_task" | "complete_task" | "reschedule_occurrence"
   | "create_goal" | "update_goal" | "save_memory" | "delete_memory" | "link_task_to_goal"
   | "create_goal_plan"
   | "update_memory"
@@ -50,7 +50,7 @@ export interface UpdateTaskDraft extends ActionBase {
   };
 }
 
-export interface CompleteOccurrenceDraft extends ActionBase { type: "complete_occurrence"; occurrenceId: string; expectedVersion: number; }
+export interface CompleteTaskDraft extends ActionBase { type: "complete_task"; taskId: string; expectedVersion: number; }
 
 export interface RescheduleOccurrenceDraft extends ActionBase {
   type: "reschedule_occurrence"; occurrenceId: string; expectedVersion: number; reason: string | null;
@@ -153,7 +153,7 @@ export interface TaskBatchDraft extends ActionBase {
   steps: TaskBatchStepDraft[];
 }
 
-export type ProposedActionDraft = CreateTaskDraft | UpdateTaskDraft | CompleteOccurrenceDraft | RescheduleOccurrenceDraft
+export type ProposedActionDraft = CreateTaskDraft | UpdateTaskDraft | CompleteTaskDraft | RescheduleOccurrenceDraft
   | CreateGoalDraft | CreateGoalPlanDraft | UpdateGoalDraft | SaveMemoryDraft | DeleteMemoryDraft | UpdateMemoryDraft | LinkTaskToGoalDraft | ChangeReminderDraft | ChangeSeriesDraft | UpdateSettingsDraft | UpdateOccurrenceDraft | TaskBatchDraft;
 
 export type ActionDisposition = "apply" | "confirm";
@@ -180,6 +180,11 @@ export function actionDisposition(action: ProposedActionDraft): ActionDispositio
     if (action.patch.habitMode === true && !action.habitModeExplicit) return "confirm";
   }
   if (action.type === "change_reminder" && action.reminder?.quietPolicy === "bypass" && !action.quietBypassExplicit) return "confirm";
+  // Destructive changes always wait for a confirmation whose target the user can see.
+  // Applying them straight from the model is how a bare "да" once cancelled the wrong task.
+  if (action.type === "update_occurrence" && (action.operation === "cancel" || action.operation === "skip")) return "confirm";
+  if (action.type === "change_series" && (action.operation === "stop" || action.operation === "cancel")) return "confirm";
+  if (action.type === "update_goal" && action.patch.status === "cancelled") return "confirm";
   return "apply";
 }
 
@@ -227,6 +232,7 @@ const EXPLICIT_MUTATION_WORDS = new Set([
   "перейменуй", "перейменувати", "увімкни", "увімкнути", "вимкни", "вимкнути",
   "налаштуй", "налаштувати", "познач", "позначити", "завершити", "закрий", "закрити",
   "почни", "почати", "пропустити", "скасуй", "скасувати", "видали", "видалити",
+  "убери", "убрать", "прибери", "прибрати", "remove",
   "збережи", "зберегти", "зв'яжи", "зв’яжи", "зв'язати", "зв’язати", "remind", "set", "schedule", "create", "add",
   "reschedule", "change", "update", "rename", "enable", "disable", "mark", "complete", "close",
   "start", "skip", "cancel", "delete", "save", "link",

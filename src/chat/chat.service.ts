@@ -419,6 +419,8 @@ export class ChatService {
       const initialGate = await this.currentAiGate(input.workspaceId, input.userId, input.inbound.id);
       if (initialGate) return initialGate;
       const turnNow = new Date();
+      const pendingReply = await this.resolvePendingConfirmation(input, turnNow);
+      if (pendingReply) return pendingReply;
       if (!this.actions.isTaskBatchEnabled() && isMixedTaskMutationRequest(input.inbound.content)) {
         await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed");
         return { kind: "ok", text: disabledTaskBatchReply(input.language, input.inbound.content), appliedCount: 0, pendingCount: 0, warnings: [] };
@@ -623,6 +625,43 @@ export class ChatService {
     }
   }
 
+  /**
+   * A bare "да" must confirm the proposal the user just saw, not start a new model turn.
+   * Re-deriving the target from prose is how an affirmative once landed on another task.
+   */
+  private async resolvePendingConfirmation(
+    input: { workspaceId: string; userId: string; language?: string | null; inbound: { id: string; content: string } },
+    now: Date,
+  ): Promise<ChatProcessResult | null> {
+    const decision = bareConfirmationDecision(input.inbound.content);
+    if (!decision) return null;
+    const pending = await this.actions.latestPendingGroup(input.workspaceId, input.userId, now).catch(() => null);
+    // A proposal stays confirmable by its button for a day, but a bare "да" only means the
+    // one the user is still looking at. Older groups fall through to the model.
+    if (!pending || now.getTime() - pending.createdAt.getTime() > TYPED_CONFIRMATION_WINDOW_MS) return null;
+    await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed").catch(() => undefined);
+    if (decision === "cancel") {
+      await this.actions.cancel(input.workspaceId, input.userId, pending.groupId).catch(() => false);
+      return { kind: "ok", text: confirmationCopy(input.language).declined, appliedCount: 0, pendingCount: 0, warnings: [] };
+    }
+    try {
+      const applied = await this.actions.confirm(input.workspaceId, input.userId, input.userId, pending.groupId, now);
+      const report = applied.items?.length ? renderAppliedReport(applied.items, now) : "";
+      return {
+        kind: "ok",
+        text: confirmationCopy(input.language).confirmed,
+        ...(report ? { report } : {}),
+        ...(applied.undoable !== false ? { appliedGroupId: applied.groupId } : {}),
+        appliedCount: applied.count,
+        pendingCount: 0,
+        warnings: [],
+      };
+    } catch (error) {
+      console.warn("typed confirmation failed", { groupId: pending.groupId, error: safeError(error) });
+      return { kind: "ok", text: confirmationCopy(input.language).expired, appliedCount: 0, pendingCount: 0, warnings: [] };
+    }
+  }
+
   private async currentAiAccessGate(userId: string): Promise<ChatProcessResult | null> {
     if (!this.ai.isConfigured()) return { kind: "ai_unavailable" };
     if (!await this.messages.isAiProcessingAllowed(userId)) return { kind: "ai_suspended" };
@@ -636,6 +675,40 @@ export class ChatService {
     await this.messages.setStatus(workspaceId, messageId, gate.kind === "consent_required" ? "blocked_consent" : "waiting_ai");
     return gate;
   }
+}
+
+const TYPED_CONFIRMATION_WINDOW_MS = 30 * 60 * 1000;
+
+/** Only a message that is nothing but yes or no may resolve a pending proposal. */
+export function bareConfirmationDecision(text: string): "confirm" | "cancel" | null {
+  const normalized = text.trim().toLocaleLowerCase().replace(/[!.…]+$/u, "").trim();
+  if (!normalized || normalized.length > 24) return null;
+  if (/^(?:да|ага|давай|давайте|подтверждаю|согласен|согласна|верно|ок|окей|так|гаразд|підтверджую|yes|yep|ok|okay|confirm)$/u.test(normalized)) return "confirm";
+  if (/^(?:нет|не надо|не нужно|отмена|отмени|стоп|ні|не треба|скасуй|no|nope|cancel|stop)$/u.test(normalized)) return "cancel";
+  return null;
+}
+
+function confirmationCopy(language: string | null | undefined): { confirmed: string; declined: string; expired: string } {
+  const locale = language?.toLocaleLowerCase() ?? "";
+  if (locale.startsWith("uk")) {
+    return {
+      confirmed: "Підтверджено.",
+      declined: "Скасував пропозицію, нічого не змінив.",
+      expired: "Підтвердження вже не діє — пропозиція застаріла. Напиши, що саме зробити.",
+    };
+  }
+  if (locale.startsWith("en")) {
+    return {
+      confirmed: "Confirmed.",
+      declined: "Dropped the proposal, nothing changed.",
+      expired: "That confirmation no longer applies — the proposal expired. Tell me what to do.",
+    };
+  }
+  return {
+    confirmed: "Подтверждено.",
+    declined: "Снял предложение, ничего не изменил.",
+    expired: "Подтверждение уже не действует — предложение устарело. Напиши, что именно сделать.",
+  };
 }
 
 function aiHistoryClearedText(language: string | null | undefined, count: number): string {

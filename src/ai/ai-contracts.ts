@@ -110,11 +110,16 @@ export const UpdateTaskActionSchema = z.object({
   }),
 });
 
-export const CompleteOccurrenceActionSchema = z.object({
-  type: z.literal("complete_occurrence"),
+/**
+ * Completion addresses the task, never an occurrence: a task without an exact time has
+ * no occurrence at all, and picking an occurrence id was how the model used to answer
+ * "I already did it" by touching whichever unrelated occurrence sat in its context.
+ */
+export const CompleteTaskActionSchema = z.object({
+  type: z.literal("complete_task"),
   source: ActionSourceSchema,
   confidence: ConfidenceSchema,
-  occurrenceId: z.string().uuid(),
+  taskId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
 });
 
@@ -297,7 +302,7 @@ export const UpdateOccurrenceActionSchema = z.object({
 export const ProposedActionSchema = z.discriminatedUnion("type", [
   CreateTaskActionSchema,
   UpdateTaskActionSchema,
-  CompleteOccurrenceActionSchema,
+  CompleteTaskActionSchema,
   RescheduleOccurrenceActionSchema,
   CreateGoalActionSchema,
   CreateGoalPlanActionSchema,

@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { and, eq, gt, inArray, isNotNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, lte, or } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { actionEvents, actionGroups, pendingActions } from "../database/schema.js";
 
@@ -50,6 +50,26 @@ export class ActionsRepository {
         expiresAt: input.expiresAt,
       })));
     });
+  }
+
+  /** The one proposal a bare "да"/"нет" can be about: the newest unexpired pending group. */
+  async findLatestPendingGroup(workspaceId: string, actorUserId: string, now: Date): Promise<{ groupId: string; createdAt: Date } | null> {
+    const [group] = await this.database.db.select({ id: actionGroups.id, createdAt: actionGroups.createdAt })
+      .from(actionGroups)
+      .where(and(
+        eq(actionGroups.workspaceId, workspaceId),
+        eq(actionGroups.actorUserId, actorUserId),
+        eq(actionGroups.status, "pending"),
+      ))
+      .orderBy(desc(actionGroups.createdAt))
+      .limit(1);
+    if (!group) return null;
+    const [action] = await this.database.db.select({ expiresAt: pendingActions.expiresAt })
+      .from(pendingActions)
+      .where(and(eq(pendingActions.workspaceId, workspaceId), eq(pendingActions.groupId, group.id)))
+      .limit(1);
+    if (!action || action.expiresAt <= now) return null;
+    return { groupId: group.id, createdAt: group.createdAt };
   }
 
   async claimPendingGroup(workspaceId: string, actorUserId: string, groupId: string, now: Date) {
