@@ -241,13 +241,18 @@ export function isMixedTaskMutationRequest(text: string): boolean {
   const normalized = text.trim().toLocaleLowerCase();
   if (!containsExplicitMutationRequest(normalized)) return false;
   if (!/(?:задач|встреч|созвон|тренир|повтор|цель|нагад|завдан|зустріч|task|meeting|goal|recurr)/u.test(normalized)) return false;
+  // Every family must match at a word start: \b is ASCII-only, so without this guard
+  // "поставь" also matches the "оставь" family and a single request counts twice.
+  const wordStart = "(?<![\\p{L}\\p{N}_])";
   const operationFamilies = [
-    /(?:создай|создать|добавь|добавить|поставь|поставить|створи|створити|додай|додати|create|add|schedule)/u,
-    /(?:перенеси|перенести|reschedule|перенес|переплан|перенести|переміст)/u,
-    /(?:свяжи|связать|привяжи|привязать|зв'яжи|зв’язати|link)/u,
-    /(?:повтор|серии|серию|серію|кажд|щотиж|пропусти|пропустить|skip|recurr|series)/u,
-    /(?:измени|изменить|обнови|обновить|оставь|оставить|зміни|онови|залиш|update|change)/u,
-  ];
+    "(?:создай|создать|добавь|добавить|поставь|поставить|створи|створити|додай|додати|create|add|schedule)",
+    "(?:перенеси|перенести|reschedule|перенес|переплан|переміст)",
+    "(?:свяжи|связать|привяжи|привязать|зв'яжи|зв’язати|link)",
+    // Only occurrence-level operations count here. Words that merely describe a
+    // repeating schedule ("каждое воскресенье") belong to one task, not to a batch.
+    "(?:пропусти|пропустить|пропустимо|skip|возобнови|возобновить|віднови|відновити|останови\\s+сери|зупини\\s+сері)",
+    "(?:измени|изменить|обнови|обновить|оставь|оставить|зміни|онови|залиш|update|change)",
+  ].map((family) => new RegExp(`${wordStart}${family}`, "u"));
   return operationFamilies.filter((pattern) => pattern.test(normalized)).length >= 2;
 }
 

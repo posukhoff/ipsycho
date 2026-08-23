@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { disabledTaskBatchReply, normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation, shouldRetryActionlessTaskBatch } from "../../dist/chat/chat.service.js";
+import { disabledTaskBatchReply, rejectedActionReply, normalizeReviewTurn, normalizeWeeklyReviewActions, removeDanglingContinuation, shouldRetryActionlessTaskBatch } from "../../dist/chat/chat.service.js";
 
 test("weekly prose-only continuation question is promoted to the structured field", () => {
   const turn = normalizeReviewTurn({ reply: "Цель понятна.\nСколько времени реально есть на неделе?", question: null, actions: [] }, "weekly", false);
@@ -50,4 +50,18 @@ test("weekly advice cannot create pending work, while explicit task changes beco
     normalizeWeeklyReviewActions([{ ...create, source: "user_explicit" }], "Создай эту задачу", false),
     [{ ...create, source: "user_explicit" }],
   );
+});
+
+test("a rejected action names the failed rule and a concrete fix instead of a generic apology", () => {
+  const recurrence = rejectedActionReply(["action 1: localTimes 09:00 contradicts the schedule start time 14:00"], "ru");
+  assert.match(recurrence, /время повтора и время старта/i);
+  assert.doesNotMatch(recurrence, /не смог безопасно определить/i);
+
+  const stale = rejectedActionReply(["target task is missing or stale"], "ru");
+  assert.match(stale, /изменились после того, как я прочитал/i);
+
+  const unmapped = rejectedActionReply(["action 1: some brand new rule failed"], "ru");
+  assert.match(unmapped, /some brand new rule failed/);
+
+  assert.match(rejectedActionReply(["target task is missing or stale"], "en"), /changed after I read it/);
 });

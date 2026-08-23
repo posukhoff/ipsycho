@@ -525,9 +525,12 @@ export class ChatService {
             timeContext: aiTimeContext(scope.now, input.timezone),
             firstAttempt,
             repairedAttempt: describeRejectedTurn(turn, validationErrors.map(sanitizedValidationReason)),
+            // Rule texts are authored in code and carry no user prose; without them a
+            // rejection reads as "invalid_action" and cannot be diagnosed from logs.
+            ruleFailures: validationErrors.map((error) => error.replace(/\s+/gu, " ").slice(0, 200)),
           }, null, 2));
           await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed");
-          return { kind: "ok", text: renderTurn(rejectedActionReply(validationErrors), null), appliedCount: 0, pendingCount: 0, warnings: [] };
+          return { kind: "ok", text: renderTurn(rejectedActionReply(validationErrors, input.language), null), appliedCount: 0, pendingCount: 0, warnings: [] };
         }
         console.info("AI structured repair completed", { outcome: "accepted", reasonCodes: firstAttempt.errors });
       }
@@ -675,14 +678,93 @@ function safeContextMetadata(context: unknown): { kind: string; keys?: string[];
   return { kind: typeof context };
 }
 
-function rejectedActionReply(errors: readonly string[]): string {
-  if (errors.some((error) => /must not be in the past|must not be before today|reminder must be in the future/.test(error))) {
-    return "Выбранная точка даёт время в прошлом, поэтому я ничего не изменил. Скажи, считать от текущего момента или укажи новую дату и время.";
+/**
+ * A rejected turn must name the concrete rule that failed and the one thing the user
+ * can change. The generic "не смог определить действие" hid real bugs for days, so the
+ * unmatched case still carries the raw rule text instead of pretending to be a policy.
+ */
+const REJECTION_EXPLANATIONS: ReadonlyArray<{ test: RegExp; ru: string; uk: string; en: string }> = [
+  {
+    test: /must not be in the past|must not be before today|reminder must be in the future/,
+    ru: "Не сохранил: получившееся время уже в прошлом. Назови новую дату и время или скажи «считай от сейчас».",
+    uk: "Не зберіг: отриманий час уже в минулому. Назви нову дату й час або скажи «рахуй від зараз».",
+    en: "Not saved: the resulting time is already in the past. Give a new date and time, or say to count from now.",
+  },
+  {
+    test: /localTimes|times per occurrence|time from the schedule start/i,
+    ru: "Не сохранил: время повтора и время старта задачи разошлись. Назови одно время — я поставлю его и в старт, и в повтор.",
+    uk: "Не зберіг: час повтору й час старту завдання розійшлися. Назви один час — поставлю його і в старт, і в повтор.",
+    en: "Not saved: the recurrence time and the schedule start time disagree. Give one time and I will use it for both.",
+  },
+  {
+    test: /recurring item cannot use fuzzy time|fuzzy recurrence/i,
+    ru: "Не сохранил: повторяющаяся задача не может быть с расплывчатым временем — нужен конкретный час. Назови точное время, и я заведу серию.",
+    uk: "Не зберіг: повторюване завдання не може мати розпливчастий час — потрібна конкретна година. Назви точний час, і я заведу серію.",
+    en: "Not saved: a recurring task needs an exact time, not a fuzzy horizon. Give an exact time and I will create the series.",
+  },
+  {
+    test: /startsOn must match|recurrence end must not be before start|excluded recurrence date/i,
+    ru: "Не сохранил: дата начала повтора не сходится с датой первой задачи. Назови, с какого числа начинать серию.",
+    uk: "Не зберіг: дата початку повтору не збігається з датою першого завдання. Назви, з якого числа починати серію.",
+    en: "Not saved: the recurrence start date does not match the first occurrence. Tell me which date the series starts on.",
+  },
+  {
+    test: /missing or stale|stale or missing|changed while applying|expectedVersion|version/i,
+    ru: "Не сохранил: задача или цель изменились после того, как я прочитал их. Повтори команду — перечитаю актуальную версию.",
+    uk: "Не зберіг: завдання або ціль змінилися після того, як я їх прочитав. Повтори команду — перечитаю актуальну версію.",
+    en: "Not saved: the task or goal changed after I read it. Repeat the command and I will re-read the current version.",
+  },
+  {
+    test: /already linked|duplicate|unique/i,
+    ru: "Не сохранил: такая связь уже есть, повторно заводить нечего. Скажи, если нужно наоборот убрать её.",
+    uk: "Не зберіг: такий зв’язок уже існує, заводити повторно нічого. Скажи, якщо треба навпаки прибрати його.",
+    en: "Not saved: that link already exists, so there is nothing to add. Tell me if you want it removed instead.",
+  },
+  {
+    test: /informational question|mutation request|AI-inferred proposal|explicit user request or acceptance/i,
+    ru: "Ничего не менял: это прозвучало как вопрос или предположение, а не как поручение. Скажи прямо — «создай…», «перенеси…», «свяжи…».",
+    uk: "Нічого не змінював: це прозвучало як питання або припущення, а не як доручення. Скажи прямо — «створи…», «перенеси…», «зв’яжи…».",
+    en: "Nothing changed: that read as a question or a suggestion, not an instruction. Say it directly — \"create…\", \"reschedule…\", \"link…\".",
+  },
+  {
+    test: /task_batch rollout is disabled/i,
+    ru: "Не сохранил: атомарные пакеты задач сейчас выключены. Давай по одной операции за сообщение — начнём с главной.",
+    uk: "Не зберіг: атомарні пакети завдань зараз вимкнені. Давай по одній операції на повідомлення — почнімо з головної.",
+    en: "Not saved: atomic task packages are currently disabled. Send one operation per message, starting with the main one.",
+  },
+  {
+    test: /task_batch|batch step|step \d+|step [a-z_]/i,
+    ru: "Пакет не применён целиком, поэтому не применён вообще: один из шагов устарел или оказался неоднозначным. Пришли спорный шаг отдельным сообщением.",
+    uk: "Пакет не застосовано цілком, тому не застосовано взагалі: один із кроків застарів або виявився неоднозначним. Надішли спірний крок окремим повідомленням.",
+    en: "The package was not applied in full, so nothing was applied: one step was stale or ambiguous. Send that step as its own message.",
+  },
+];
+
+function rejectionLocale(language: string | null | undefined): "ru" | "uk" | "en" {
+  const locale = language?.toLocaleLowerCase() ?? "";
+  if (locale.startsWith("uk")) return "uk";
+  if (locale.startsWith("en")) return "en";
+  return "ru";
+}
+
+/** The raw rule keeps an unmapped failure debuggable instead of silently generic. */
+function technicalRejectionHint(errors: readonly string[]): string {
+  const raw = errors.find((error) => error.trim())?.replace(/\s+/gu, " ").trim() ?? "";
+  return raw.length > 160 ? `${raw.slice(0, 157)}…` : raw;
+}
+
+export function rejectedActionReply(errors: readonly string[], language?: string | null): string {
+  const locale = rejectionLocale(language);
+  const explanation = REJECTION_EXPLANATIONS.find((entry) => errors.some((error) => entry.test.test(error)));
+  if (explanation) return explanation[locale];
+  const hint = technicalRejectionHint(errors);
+  if (locale === "uk") {
+    return `Не зберіг: зібрана дія не пройшла перевірку правил${hint ? ` (${hint})` : ""}. Сформулюй завдання й час одним реченням — або скажи, що саме зробити, і я спробую іншим шляхом.`;
   }
-  if (errors.some((error) => /task_batch|batch step|step \d+/i.test(error))) {
-    return "Пакет задач не применён: один из шагов оказался неоднозначным или устарел. Ничего из пакета не изменено — уточни спорный шаг одним сообщением.";
+  if (locale === "en") {
+    return `Not saved: the action I assembled failed a domain rule${hint ? ` (${hint})` : ""}. Restate the task and its time in one sentence, or tell me exactly what to do and I will try another route.`;
   }
-  return "Я понял сообщение, но не смог безопасно определить действие. Уточни задачу или время одним сообщением.";
+  return `Не сохранил: собранное действие не прошло проверку правил${hint ? ` (${hint})` : ""}. Сформулируй задачу и время одной фразой — или скажи, что именно сделать, и я зайду другим путём.`;
 }
 
 function sanitizedValidationReason(error: string): string {
@@ -694,6 +776,8 @@ function sanitizedValidationReason(error: string): string {
   if (/duplicate|already linked|unique/i.test(error)) return "duplicate_reference";
   if (/past|before today|future/i.test(error)) return "invalid_time";
   if (/task_batch|batch step|step /i.test(error)) return "invalid_batch_step";
+  if (/localTimes|times per occurrence|time from the schedule start|startsOn must match|recurring item cannot use fuzzy/i.test(error)) return "invalid_recurrence";
+  if (/time mode|requires plannedStartAt|requires exactly one|window requires|deadline requires|fuzzy task requires/i.test(error)) return "invalid_schedule_shape";
   return "invalid_action";
 }
 

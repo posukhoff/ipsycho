@@ -1,7 +1,7 @@
 import { parseLocalDate, parseLocalTime } from "../core/timezone.js";
 import { compileStructuredLocalSchedule } from "../core/local-schedule.js";
 import { compileStructuredRecurrence } from "../core/recurrence-input.js";
-import { recurrenceAnchorLocalDate } from "../core/recurrence.js";
+import { recurrenceAnchorLocalDate, recurrenceAnchorLocalTime } from "../core/recurrence.js";
 import { validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
 import type { ChangeSeriesDraft, ProposedActionDraft, ReminderSpecDraft, RescheduleOccurrenceDraft, UpdateTaskDraft } from "../core/ai-actions.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
@@ -62,7 +62,11 @@ export function createTaskInputFromAction(action: Extract<ProposedActionDraft, {
     throw new InvalidAiActionError("localSchedule mode and timezone must match the task definition");
   }
   const timing = structuredTiming ?? legacyTiming;
-  const structuredRecurrence = action.definition.recurrence ? compileStructuredRecurrence(action.definition.recurrence) : undefined;
+  const structuredRecurrence = action.definition.recurrence
+    ? compileStructuredRecurrence(action.definition.recurrence, {
+      anchorLocalTime: recurrenceAnchorLocalTime({ ...timing, timeMode: action.definition.timeMode, timezone: action.definition.timezone } as TaskDefinition, action.definition.timezone),
+    })
+    : undefined;
   if (structuredRecurrence && action.definition.recurrenceRule) throw new InvalidAiActionError("recurrence cannot be combined with recurrenceRule");
 
   const definition: TaskDefinition = {
@@ -215,7 +219,11 @@ export function seriesDefinitionFromAction(
   assertTimestampTimezone(edit.plannedEndAt, plannedEndAt, edit.timezone, "series.plannedEndAt");
   assertTimestampTimezone(edit.dueAt, dueAt, edit.timezone, "series.dueAt");
 
-  const structuredRecurrence = edit.recurrence ? compileStructuredRecurrence(edit.recurrence) : undefined;
+  const structuredRecurrence = edit.recurrence
+    ? compileStructuredRecurrence(edit.recurrence, {
+      anchorLocalTime: recurrenceAnchorLocalTime({ plannedStartAt, plannedEndAt, dueAt, timeMode: current.timeMode, timezone: edit.timezone } as TaskDefinition, edit.recurrenceTimezone),
+    })
+    : undefined;
   if (structuredRecurrence && edit.recurrenceRule) throw new InvalidAiActionError("series recurrence cannot be combined with recurrenceRule");
   const next: TaskDefinition = {
     kind: current.kind,

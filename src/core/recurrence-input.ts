@@ -14,6 +14,11 @@ export interface StructuredRecurrenceInput {
   excludedLocalDates?: readonly string[] | null;
 }
 
+export interface RecurrenceCompileContext {
+  /** Clock time the schedule anchor already carries, e.g. "14:00". */
+  anchorLocalTime?: string | undefined;
+}
+
 export interface CompiledRecurrenceInput {
   recurrenceRule: string;
   recurrenceStartLocalDate: string;
@@ -23,7 +28,7 @@ export interface CompiledRecurrenceInput {
 
 const WEEKDAYS = new Set<StructuredRecurrenceWeekday>(["MO", "TU", "WE", "TH", "FR", "SA", "SU"]);
 
-export function compileStructuredRecurrence(input: StructuredRecurrenceInput): CompiledRecurrenceInput {
+export function compileStructuredRecurrence(input: StructuredRecurrenceInput, context: RecurrenceCompileContext = {}): CompiledRecurrenceInput {
   parseLocalDate(input.startsOn);
   if (!Number.isInteger(input.interval) || input.interval < 1 || input.interval > 365) {
     throw new Error("recurrence interval must be a positive integer <= 365");
@@ -31,7 +36,7 @@ export function compileStructuredRecurrence(input: StructuredRecurrenceInput): C
 
   const weekdays = distinct(input.weekdays ?? []);
   const monthDays = distinct(input.monthDays ?? []);
-  const localTimes = distinct(input.localTimes ?? []).sort();
+  let localTimes = distinct(input.localTimes ?? []).sort();
   const excludedLocalDates = distinct(input.excludedLocalDates ?? []).sort();
 
   if (weekdays.some((day) => !WEEKDAYS.has(day))) throw new Error("invalid recurrence weekday");
@@ -43,7 +48,19 @@ export function compileStructuredRecurrence(input: StructuredRecurrenceInput): C
 
   if (input.frequency !== "weekly" && weekdays.length) throw new Error("weekdays are supported only for weekly recurrence");
   if (input.frequency !== "monthly" && monthDays.length) throw new Error("month days are supported only for monthly recurrence");
-  if (input.frequency !== "daily" && localTimes.length) throw new Error("multiple local times are supported only for daily recurrence");
+  // Weekly and monthly occurrences take their clock time from the schedule anchor.
+  // A single localTimes entry that repeats that same time is redundant, not a conflict.
+  if (input.frequency !== "daily" && localTimes.length) {
+    if (localTimes.length > 1) throw new Error("several times per occurrence are supported only for daily recurrence");
+    const [only] = localTimes;
+    if (!context.anchorLocalTime) {
+      throw new Error("weekly and monthly recurrence take their time from the schedule start; set an exact start time instead of localTimes");
+    }
+    if (only !== context.anchorLocalTime) {
+      throw new Error(`localTimes ${only} contradicts the schedule start time ${context.anchorLocalTime}; weekly and monthly recurrence use the schedule start`);
+    }
+    localTimes = [];
+  }
 
   let recurrenceEndLocalDate: string | undefined;
   if (input.endsOn) {

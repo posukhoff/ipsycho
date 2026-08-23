@@ -146,6 +146,13 @@ export function recurrenceAnchorLocalDate(task: TaskDefinition, timezone: string
   throw new Error("recurring task has no materializable anchor");
 }
 
+/** The clock time a recurring task inherits from its own schedule anchor. */
+export function recurrenceAnchorLocalTime(task: TaskDefinition, timezone: string): string | undefined {
+  if (task.timeMode === "point" || task.timeMode === "window") return task.plannedStartAt ? localTimeString(task.plannedStartAt, timezone) : undefined;
+  if (task.timeMode === "deadline") return task.dueAt ? localTimeString(task.dueAt, timezone) : undefined;
+  return undefined;
+}
+
 function localTimeString(date: Date, timezone: string): string {
   const parts = localDateTimeAt(date, timezone);
   return `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;

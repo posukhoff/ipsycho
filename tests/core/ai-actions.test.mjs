@@ -259,6 +259,9 @@ test("mixed task-operation intent is detected without treating homogeneous creat
   assert.equal(isMixedTaskMutationRequest("Перенеси встречу, оставь повтор тренировок и привяжи оффер к цели"), true);
   assert.equal(isMixedTaskMutationRequest("На следующую неделю поставь главным пилот. В понедельник после обеда подготовить короткий оффер, во вторник написать пяти клиентам, созвон перенеси на четверг в 16:00. Тренировки оставь по вторникам и субботам, ближайшую субботу пропусти. Добавь купить подарок, первые задачи привяжи к пилоту"), true);
   assert.equal(isMixedTaskMutationRequest("Как лучше спланировать задачи и встречи?"), false);
+  // A repeating schedule describes one task; it is not a second operation.
+  assert.equal(isMixedTaskMutationRequest("Поставь задачу каждое воскресенье в 2 часа дня колоть мунджаро"), false);
+  assert.equal(isMixedTaskMutationRequest("Добавь задачу с повтором по будням"), false);
 });
 
 test("high confidence inferred task-goal link applies, medium confidence confirms", () => {
