@@ -85,3 +85,15 @@ test("AI prompt binds the reply to the returned actions and supports reminders o
   assert.match(prompt, /against the same listed task you proposed it for/);
   assert.match(prompt, /for example yearly/);
 });
+
+test("AI prompt makes every stored task field earn its line and keeps the reply from echoing the report", () => {
+  const prompt = buildSystemPrompt("Europe/Kyiv", new Date("2026-08-11T12:00:00.000Z"));
+  assert.match(prompt, /every stored field must add information the others do not already carry/);
+  assert.match(prompt, /why: only a reason the user actually gave/);
+  assert.match(prompt, /null for a single-step task such as a call, purchase, meeting/);
+  assert.match(prompt, /null when a checklist exists/);
+  assert.match(prompt, /never a planning or app chore/);
+  assert.match(prompt, /appends its own verified summary/);
+  assert.match(prompt, /Do not restate those facts/);
+  assert.doesNotMatch(prompt, /Improve wording silently/);
+});

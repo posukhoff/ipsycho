@@ -3,6 +3,7 @@ import { compactText } from "../core/telegram-ux.js";
 import { localDateAt } from "../core/timezone.js";
 import { formatLocalDateTime } from "../core/time-presentation.js";
 import { recurrenceLabel } from "../core/recurrence-label.js";
+import { selectCardDetails } from "../core/card-details.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 
 export type TelegramImportance = "normal" | "required" | "critical";
@@ -85,8 +86,9 @@ export function reminderCardText(input: {
   const recurrence = recurrenceLabel(input.task.recurrenceRule, input.task.recurrenceEndLocalDate);
   if (recurrence) lines.push(`🔁 ${recurrence}`);
   // At the moment of the reminder the next concrete step matters more than the rationale.
-  if (input.task.nextAction?.trim()) lines.push(`➡️ ${input.task.nextAction.trim()}`);
-  if (input.task.context?.trim()) lines.push(`📝 ${compactText(input.task.context, 200)}`);
+  const details = selectCardDetails(input.task);
+  if (details.nextAction) lines.push(`➡️ ${compactText(details.nextAction, 300)}`);
+  if (details.context) lines.push(`📝 ${compactText(details.context, 200)}`);
   const checklist = checklistLines(input.task.checklist, 3);
   if (checklist.length) lines.push(...checklist);
   if (prompt) lines.push("", prompt);
@@ -133,11 +135,13 @@ function overdueFor(occurrence: TelegramOccurrenceCard, now: Date): string {
   return ` на ${Math.round(minutes / (24 * 60))} дн`;
 }
 
+/** Detail lines in reading order; fields that only repeat the title, goal or checklist are dropped (see selectCardDetails). */
 function detailLines(task: TelegramTaskCard): string[] {
   const lines: string[] = [];
-  if (task.why?.trim()) lines.push(`💡 Зачем: ${compactText(task.why, 300)}`);
-  if (task.nextAction?.trim()) lines.push(`➡️ Следующий шаг: ${compactText(task.nextAction, 300)}`);
-  if (task.context?.trim()) lines.push(`📝 ${compactText(task.context, 400)}`);
+  const details = selectCardDetails(task);
+  if (details.why) lines.push(`💡 Зачем: ${compactText(details.why, 300)}`);
+  if (details.nextAction) lines.push(`➡️ Следующий шаг: ${compactText(details.nextAction, 300)}`);
+  if (details.context) lines.push(`📝 ${compactText(details.context, 400)}`);
   lines.push(...checklistLines(task.checklist, 12));
   if (task.goalTitle?.trim()) lines.push(`🎯 Цель: «${task.goalTitle.trim()}»`);
   return lines;
@@ -393,7 +397,8 @@ export function goalsOverviewText(rows: Array<{
       lines.push(`${index + 1}. ${row.goal.title}${status}${deadline}`);
       if (row.goal.why) lines.push(`   Why: ${row.goal.why}`);
       for (const task of row.tasks.slice(0, 4)) {
-        const detailValue = task.nextAction ?? task.context ?? (task.dueLocalDate ? `by ${task.dueLocalDate}` : null);
+        const goalDetails = selectCardDetails(task);
+        const detailValue = goalDetails.nextAction ?? goalDetails.context ?? (task.dueLocalDate ? `by ${task.dueLocalDate}` : null);
         lines.push(`   • ${task.title}${detailValue ? ` — ${detailValue}` : ""}`);
       }
       if (!row.tasks.length) lines.push("   • No linked active tasks.");
@@ -415,7 +420,8 @@ export function goalsOverviewText(rows: Array<{
     if (row.goal.why) lines.push(`   ${uk ? "Навіщо" : "Зачем"}: ${row.goal.why}`);
     if (row.tasks.length) {
       for (const task of row.tasks.slice(0, 4)) {
-        const detailValue = task.nextAction ?? task.context ?? (task.dueLocalDate ? `до ${task.dueLocalDate}` : null);
+        const goalDetails = selectCardDetails(task);
+        const detailValue = goalDetails.nextAction ?? goalDetails.context ?? (task.dueLocalDate ? `до ${task.dueLocalDate}` : null);
         const detail = detailValue ? ` — ${detailValue}` : "";
         lines.push(`   • ${task.title}${detail}`);
       }

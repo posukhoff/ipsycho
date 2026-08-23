@@ -12,13 +12,12 @@ const task = {
 };
 const occurrence = { id: "o", status: "open", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-08-23T15:00:00Z"), plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null };
 
-test("task card shows time, real next reminder, rationale, next step, context, checklist and goal", () => {
+test("task card shows time, real next reminder, rationale, context, checklist and goal; the checklist replaces the next step", () => {
   assert.equal(taskCardText(task, occurrence, now), [
     "🟡 Прийти на вакцинацию собаки",
     "📅 23.08, 18:00 (Europe/Kyiv) · 🔔 17:30",
     "",
     "💡 Зачем: Плановая прививка Морти.",
-    "➡️ Следующий шаг: Взять паспорт собаки и карту прививок",
     "📝 Клиника на Лесной, врач Иванова.",
     "☑️ Чеклист 1/2",
     "✅ Паспорт собаки",
@@ -47,17 +46,18 @@ test("fuzzy card keeps the horizon and review date and still shows details", () 
     "Разобрать гараж\n🫧 на этой неделе\n🗓 Вернуться: 28.08, 09:00 (Europe/Kyiv)\n\n➡️ Следующий шаг: Вынести старые коробки");
 });
 
-test("reminder card leads with the next step and says how soon", () => {
+test("reminder card leads with what to do now and says how soon", () => {
   const text = reminderCardText({ task, occurrence, purpose: "user_reminder", now: new Date("2026-08-23T14:30:00Z") });
   assert.equal(text, [
     "🔔 🟡 Прийти на вакцинацию собаки",
     "📅 23.08, 18:00 (Europe/Kyiv) · 🔔 17:30 · через 30 мин",
-    "➡️ Взять паспорт собаки и карту прививок",
     "📝 Клиника на Лесной, врач Иванова.",
     "☑️ Чеклист 1/2",
     "✅ Паспорт собаки",
     "◻️ Карта прививок",
   ].join("\n"));
+  const withStep = reminderCardText({ task: { title: "Подготовить квартальный отчёт", importance: "normal", timezone: "Europe/Kyiv", nextAction: "Выгрузить продажи за июль из CRM" }, occurrence, purpose: "user_reminder", now: new Date("2026-08-23T14:30:00Z") });
+  assert.equal(withStep, "🔔 Подготовить квартальный отчёт\n📅 23.08, 18:00 (Europe/Kyiv) · через 30 мин\n➡️ Выгрузить продажи за июль из CRM");
   const followUp = reminderCardText({ task: { title: "Созвон", importance: "normal", timezone: "Europe/Kyiv" }, occurrence: { ...occurrence, status: "in_progress" }, purpose: "follow_up", now: new Date("2026-08-23T15:20:00Z") });
   assert.equal(followUp, "↩️ Созвон\n📅 23.08, 18:00 (Europe/Kyiv) · ⚠️ просрочено на 20 мин\n\nКак идёт?");
 });
@@ -107,4 +107,16 @@ test("settings show the quiet-hours window instead of hiding it", () => {
   assert.match(settingsText(row, now, 12, "ru"), /🔕 Тихие часы: 23:00–08:00 \(будни\), 23:00–10:00 \(выходные\)/);
   assert.match(settingsText({ ...row, weekendQuietStart: "23:00", weekendQuietEnd: "08:00" }, now, 12, "ru"), /🔕 Тихие часы: 23:00–08:00\n/);
   assert.match(settingsText({ ...row, quietHoursEnabled: false }, now, 12, "en"), /🔕 Quiet hours: off/);
+});
+
+test("cards drop fields that only restate the title, the goal or the checklist", () => {
+  const stored = {
+    title: "Контрольное напоминание о вакцинации", importance: "normal", timezone: "Europe/Kyiv",
+    why: "Чтобы напомнить о вакцинации через год.", nextAction: "Напомнить о вакцинации", context: "Контрольное напоминание ровно через год в 10:00.",
+  };
+  const nextYear = { ...occurrence, plannedStartAt: new Date("2027-08-23T07:00:00Z") };
+  assert.equal(taskCardText(stored, nextYear, now), "Контрольное напоминание о вакцинации\n📅 23.08.2027, 10:00 (Europe/Kyiv)");
+  const chore = { title: "Позвонить маме", importance: "normal", timezone: "Europe/Kyiv", nextAction: "Поставить напоминание позвонить маме", context: "Мама просила позвонить до 21:00, не позже" };
+  assert.equal(reminderCardText({ task: chore, occurrence, purpose: "user_reminder", now: new Date("2026-08-23T14:30:00Z") }),
+    "🔔 Позвонить маме\n📅 23.08, 18:00 (Europe/Kyiv) · через 30 мин\n📝 Мама просила позвонить до 21:00, не позже");
 });

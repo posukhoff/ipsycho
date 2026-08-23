@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { and, eq, gte, inArray } from "drizzle-orm";
 import { localDateAt } from "../core/timezone.js";
 import { deadlineUrgency } from "../core/deadline-urgency.js";
+import { selectCardDetails } from "../core/card-details.js";
 import { aggregateHistoricalGoalMovement, habitCompletionStats, WEEKLY_MOVEMENT_EVENT_TYPES, WEEKLY_REVIEW_GOAL_STATUSES } from "../core/weekly-review-policy.js";
 import { DatabaseService } from "../database/database.service.js";
 import { todayLine } from "../telegram/telegram-ui.js";
@@ -105,7 +106,7 @@ export class BriefingContentService {
         const goalTasks = linkedTasks.filter((task) => goalTaskIds.includes(task.id));
         const activeTasks = goalTasks.filter((task) => task.status === "active");
         const doneCount = recentEvents.filter((event) => goalTaskIds.includes(event.taskId) && event.eventType === "occurrence:done").length;
-        const next = activeTasks.find((task) => task.nextAction)?.nextAction ?? activeTasks[0]?.title ?? null;
+        const next = activeTasks.map((task) => selectCardDetails(task).nextAction).find(Boolean) ?? activeTasks[0]?.title ?? null;
         const blocked = recentEvents.filter((event) => goalTaskIds.includes(event.taskId) && ["occurrence:rescheduled", "occurrence:cant_start"].includes(event.eventType)).length;
         return { goal, doneCount, activeCount: activeTasks.length, next, blocked, needsHelp: doneCount === 0 || !next };
       });
@@ -122,7 +123,8 @@ export class BriefingContentService {
         lines.push("\n🗓 Планирование ближайшей недели");
         for (const row of planning.slice(0, 5)) {
           const label = row.urgency === "urgent" ? "срочно" : row.urgency === "high" ? "на этой неделе" : row.urgency === "watch" ? "скоро" : "просрочено";
-          lines.push(`• ${row.task.title} — ${label}${row.task.nextAction ? `; следующий шаг: ${row.task.nextAction}` : ""}${row.task.context ? `; контекст: ${row.task.context}` : ""}.`);
+          const details = selectCardDetails(row.task);
+          lines.push(`• ${row.task.title} — ${label}${details.nextAction ? `; следующий шаг: ${details.nextAction}` : ""}${details.context ? `; контекст: ${details.context}` : ""}.`);
         }
       }
 
