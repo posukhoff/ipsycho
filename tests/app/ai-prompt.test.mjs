@@ -86,6 +86,15 @@ test("AI prompt binds the reply to the returned actions and supports reminders o
   assert.match(prompt, /for example yearly/);
 });
 
+test("AI prompt maps the user's names for the weekly review to the setting, not to a recurring task", () => {
+  // Production 2026-08-22: «поставить еженедельный отчёт на вечер пятницы» became a recurring task «Еженедельный отчёт».
+  const prompt = buildSystemPrompt("Europe/Kyiv", new Date("2026-08-11T12:00:00.000Z"));
+  assert.match(prompt, /‘еженедельный\/недельный отчёт’, ‘обзор недели’, ‘итоги недели’/);
+  assert.match(prompt, /update_settings with operation=weekly_review, never create_task and never a recurring task/);
+  assert.match(prompt, /weekday 1=Monday…7=Sunday/);
+  assert.match(prompt, /if it is unclear whether they mean the built-in review or their own task, ask one question/);
+});
+
 test("AI prompt makes every stored task field earn its line and keeps the reply from echoing the report", () => {
   const prompt = buildSystemPrompt("Europe/Kyiv", new Date("2026-08-11T12:00:00.000Z"));
   assert.match(prompt, /every stored field must add information the others do not already carry/);

@@ -65,18 +65,31 @@ test("date-only required deadline uses evening/morning reference times", () => {
   ]);
 });
 
-test("quiet hours defer task reminder", () => {
+test("quiet hours defer a task reminder, but never past the task itself", () => {
   const task = {
     kind: "task",
     importance: "normal",
     timeMode: "point",
     timezone: "Europe/Kyiv",
-    plannedStartAt: new Date("2026-08-10T20:30:00Z"), // Monday 23:30
+    plannedStartAt: new Date("2026-08-10T20:30:00Z"), // Monday 23:30, inside quiet hours
   };
   const occurrence = buildOneTimeOccurrence(task, new Date("2026-08-09T10:00:00Z"));
-  const rules = [{ triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: 0, purpose: "user_reminder", quietPolicy: "respect" }];
-  const [plan] = planReminders({ task, occurrence, rules, settings, now: new Date("2026-08-09T10:00:00Z") });
-  assert.equal(plan.scheduledFor.toISOString(), "2026-08-11T05:00:00.000Z");
+  const atStart = [{ triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: 0, purpose: "user_reminder", quietPolicy: "respect" }];
+  const [plan] = planReminders({ task, occurrence, rules: atStart, settings, now: new Date("2026-08-09T10:00:00Z") });
+  // Production 2026-08-22: a 23:00 task got its reminder the next morning at 09:00. The user chose 23:30, so it fires then.
+  assert.equal(plan.scheduledFor.toISOString(), "2026-08-10T20:30:00.000Z");
+  assert.equal(plan.suppressedReason, undefined);
+
+  const before = [{ triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -30 * 60, purpose: "user_reminder", quietPolicy: "respect" }];
+  const [early] = planReminders({ task, occurrence, rules: before, settings, now: new Date("2026-08-09T10:00:00Z") });
+  assert.equal(early.scheduledFor.toISOString(), "2026-08-10T20:30:00.000Z");
+
+  // A reminder the evening before a morning task still waits for quiet hours to end: that is before the task.
+  const morningTask = { ...task, plannedStartAt: new Date("2026-08-11T07:00:00Z") }; // Tuesday 10:00
+  const morningOccurrence = buildOneTimeOccurrence(morningTask, new Date("2026-08-09T10:00:00Z"));
+  const eveningBefore = [{ triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -11 * 60 * 60, purpose: "user_reminder", quietPolicy: "respect" }]; // 23:00 Monday
+  const [deferred] = planReminders({ task: morningTask, occurrence: morningOccurrence, rules: eveningBefore, settings, now: new Date("2026-08-09T10:00:00Z") });
+  assert.equal(deferred.scheduledFor.toISOString(), "2026-08-11T05:00:00.000Z");
 });
 
 test("event reminder deferred beyond event becomes quiet_stale", () => {

@@ -117,6 +117,12 @@ function isAtEventStart(task: TaskDefinition, occurrence: OccurrenceProjection |
   return Boolean(start && intendedFor.getTime() === start.getTime());
 }
 
+/** The moment a plain task becomes actionable: its start, otherwise its deadline. Events keep their own stale rule. */
+function taskBoundary(task: TaskDefinition, occurrence: OccurrenceProjection | null): Date | undefined {
+  if (task.kind === "event") return undefined;
+  return occurrence?.plannedStartAt ?? task.plannedStartAt ?? occurrence?.dueAt ?? task.dueAt;
+}
+
 function staleForEvent(task: TaskDefinition, occurrence: OccurrenceProjection | null, at: Date): boolean {
   const boundary = eventBoundary(task, occurrence);
   return Boolean(boundary && at.getTime() > boundary.getTime());
@@ -153,7 +159,11 @@ export function applyNotificationPolicy(input: {
   }
 
   if (input.rule.quietPolicy === "respect" && isQuietAt(scheduledFor, input.settings.notificationTimezone, input.settings.quietHours)) {
-    scheduledFor = nextNonQuietMinute(scheduledFor, input.settings.notificationTimezone, input.settings.quietHours);
+    const deferred = nextNonQuietMinute(scheduledFor, input.settings.notificationTimezone, input.settings.quietHours);
+    const boundary = taskBoundary(input.task, input.occurrence);
+    // Quiet hours may delay a task reminder but never move it past the task itself: a reminder
+    // the morning after a 23:00 task is noise. The user chose that moment, so it fires then.
+    scheduledFor = boundary && scheduledFor <= boundary && deferred > boundary ? boundary : deferred;
     if (staleForEvent(input.task, input.occurrence, scheduledFor)) return { scheduledFor, suppressedReason: "quiet_stale" };
   }
 
