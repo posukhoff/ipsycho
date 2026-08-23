@@ -24,7 +24,7 @@ export class TelegramChatReplyService {
       return;
     }
 
-    const suffix = actionSummary(result.pendingCount, result.pendingTitles);
+    const suffix = actionSummary(result.pendingCount, result.pendingTitles, result.appliedCount);
     const warningText = result.warnings.length ? `\n\n${result.warnings.join("\n")}` : "";
     // Only the model's prose is capped; the deterministic report must stay complete.
     const body = compactText(result.text, result.review ? 800 : 600);
@@ -84,11 +84,16 @@ function reviewHeader(review?: { kind: "evening" | "weekly"; step?: number; tota
   return `💭 Вечерний разбор · ${review.step ?? 1}/${review.totalSteps ?? 3}`;
 }
 
-export function actionSummary(pendingCount: number, pendingTitles: readonly string[] = []): string {
+export function actionSummary(pendingCount: number, pendingTitles: readonly string[] = [], appliedCount = 0): string {
   if (!pendingCount) return "";
+  // The model often narrates a proposal in the past tense ("Отменил."). When nothing was
+  // actually stored, the summary has to say so plainly, in the same message.
+  const nothingApplied = appliedCount === 0;
   const titles = pendingTitles.filter((title) => title.trim()).slice(0, 8);
-  if (!titles.length) return pendingCount === 1 ? "⏳ Нужно подтверждение." : `⏳ Нужно подтвердить: ${pendingCount}.`;
-  const lines = [pendingCount === 1 ? "⏳ Нужно подтверждение:" : `⏳ Нужно подтвердить (${pendingCount}):`, ...titles.map((title) => `• ${title}`)];
+  const headerOne = nothingApplied ? "⏳ Пока ничего не изменил — нужно подтверждение" : "⏳ Нужно подтверждение";
+  const headerMany = nothingApplied ? `⏳ Пока ничего не изменил — нужно подтвердить (${pendingCount})` : `⏳ Нужно подтвердить (${pendingCount})`;
+  if (!titles.length) return `${pendingCount === 1 ? headerOne : headerMany}.`;
+  const lines = [`${pendingCount === 1 ? headerOne : headerMany}:`, ...titles.map((title) => `• ${title}`)];
   if (pendingCount > titles.length) lines.push(`• … ещё ${pendingCount - titles.length}`);
   return lines.join("\n");
 }
