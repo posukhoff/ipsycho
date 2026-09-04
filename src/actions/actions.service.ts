@@ -1,15 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { Injectable, type OnApplicationBootstrap } from "@nestjs/common";
 import { ResolvedActionSchema, type AiAction, type ResolvedAction, type ResolvedActionOf, type TaskTarget } from "../core/ai-contract.js";
 import { AI_ACTION_TYPES } from "../core/ai-contract.js";
 import { ACTION_CONFIRMATION_TTL_MS, ACTION_UNDO_TTL_MS, actionExpiry } from "../core/action-lifecycle.js";
 import { groupDisposition, isUndoable, type ActionIssue } from "../core/ai-actions.js";
 import type { RefMap } from "../core/ai-refs.js";
-import { habitOfferEligible } from "../core/habit-policy.js";
-import { validateOneTimeTaskTiming } from "../core/task-policy.js";
 import { rescheduledDefinition, rescheduledOccurrenceStatus } from "../core/reschedule.js";
-import { normalizeLanguageTag } from "../core/language.js";
 import { localDateAndTimeToUtc } from "../core/timezone.js";
 import type { AppliedReportItem } from "../core/applied-report.js";
 import { ContextService } from "../context/context.service.js";
@@ -24,10 +20,11 @@ import {
   reminderRuleFromReminder,
   rescheduleFieldsFromWhen,
   seriesDefinitionFromReschedule,
-  validateUpdateTaskPatch,
   type ScheduleContext,
 } from "./action-conversion.js";
 import { describeAction, settingsPatchForAction, type ActionNames } from "./action-describe.js";
+import { validateResolvedAction, type ValidationDeps } from "./action-validation.js";
+import { buildAppliedReport, type ReportDeps } from "./applied-report.builder.js";
 import { resolveActions } from "./action-resolver.js";
 import { ActionGroupRepository, type ActionGroupStep, type ActionGroupStepResult } from "./action-group.repository.js";
 import { ActionsRepository } from "./actions.repository.js";
@@ -139,11 +136,20 @@ export class ActionsService implements OnApplicationBootstrap {
     return this.validate(actions, { ...scope, now: scope.now ?? new Date() });
   }
 
+  /** The narrow read-only views the validation and report modules are given. */
+  private validationDeps(): ValidationDeps {
+    return { tasks: this.tasks, context: this.context, reminders: this.reminders, settings: this.settings };
+  }
+
+  private reportDeps(): ReportDeps {
+    return { tasks: this.tasks, reminders: this.reminders };
+  }
+
   /** Domain rules that need the current stored state; one issue per action index. */
   async validate(actions: readonly ResolvedAction[], scope: Omit<ActionScope, "sourceMessageId">): Promise<ActionIssue[]> {
     const now = scope.now ?? new Date();
     // Validation only reads; the actions of one package are checked concurrently.
-    const results = await Promise.allSettled(actions.map((action) => this.validateOne(action, { ...scope, now })));
+    const results = await Promise.allSettled(actions.map((action) => validateResolvedAction(action, { ...scope, now }, this.validationDeps())));
     const issues: ActionIssue[] = [];
     results.forEach((result, index) => {
       if (result.status === "fulfilled") return;
@@ -153,123 +159,6 @@ export class ActionsService implements OnApplicationBootstrap {
       issues.push({ kind: /stale|missing/i.test(message) ? "reference" : "domain", index, code, message });
     });
     return issues;
-  }
-
-  private async validateOne(action: ResolvedAction, scope: Required<Pick<ActionScope, "now">> & Omit<ActionScope, "sourceMessageId" | "now">): Promise<void> {
-    const ctx = scheduleContext(action);
-    switch (action.type) {
-      case "create_task":
-        createTaskInputFromBody(action.body, { ...scope, recipientUserId: scope.recipientUserId, now: scope.now }, ctx);
-        return;
-      case "plan":
-        if (!action.tasks.length) throw new InvalidAiActionError("goal plan requires at least one task", "plan_empty");
-        for (const task of action.tasks) createTaskInputFromBody(task, { ...scope, recipientUserId: scope.recipientUserId, now: scope.now }, ctx);
-        return;
-      case "update_task": {
-        validateUpdateTaskPatch(action.patch);
-        const task = await this.tasks.getTask(scope.workspaceId, action.taskId);
-        if (!task || task.version !== action.taskVersion) throw new InvalidAiActionError("target task is missing or stale", "stale");
-        const enablesHabit = action.patch.habit !== null && "minimumAction" in action.patch.habit;
-        if (enablesHabit) {
-          if (!task.recurrenceRule) throw new InvalidAiActionError("habit mode requires a recurring task", "habit_not_eligible");
-          if (task.habitMode) throw new InvalidAiActionError("task is already a habit", "habit_not_eligible");
-          if (
-            action.intent === "inferred" &&
-            !habitOfferEligible({ recurring: true, kind: task.kind, alreadyHabit: task.habitMode, offeredBefore: Boolean(task.habitOfferSentAt), behavioral: true })
-          ) {
-            throw new InvalidAiActionError("habit mode is not eligible or was already offered for this task", "habit_not_eligible");
-          }
-        }
-        return;
-      }
-      case "set_task_state": {
-        if (action.target.kind === "occurrence") {
-          const context = await this.tasks.getOccurrenceContext(scope.workspaceId, action.target.occurrenceId);
-          if (!context || context.occurrence.version !== action.target.occurrenceVersion) throw new InvalidAiActionError("target occurrence is missing or stale", "stale");
-          if (action.state !== "done" && isTerminalOccurrenceStatus(context.occurrence.status)) {
-            throw new InvalidAiActionError("terminal occurrence cannot be changed", "terminal_occurrence");
-          }
-        }
-        if (action.state === "seen" && action.note !== null && !action.note.trim()) throw new InvalidAiActionError("blocker details are required", "blank_field");
-        if (action.state !== "seen" && action.note !== null) throw new InvalidAiActionError("details are only valid when recording a blocker", "note_not_allowed");
-        const task = await this.tasks.getTask(scope.workspaceId, action.target.taskId);
-        if (!task || task.version !== action.target.taskVersion) throw new InvalidAiActionError("target task is missing or stale", "stale");
-        if (action.state === "done" && task.status !== "active") throw new InvalidAiActionError("only an active task can be marked done", "task_not_active");
-        return;
-      }
-      case "reschedule": {
-        const { fields, timeMode } = rescheduleFieldsFromWhen(action.when, ctx);
-        if (action.target.kind === "series") {
-          const task = await this.tasks.getTask(scope.workspaceId, action.target.taskId);
-          if (!task || task.version !== action.target.taskVersion) throw new InvalidAiActionError("series task is missing or stale", "stale");
-          if (!task.recurrenceRule) throw new InvalidAiActionError("task is not a recurring series", "not_recurring");
-          seriesDefinitionFromReschedule(action, taskDefinitionFromRow(task));
-          return;
-        }
-        const task = await this.tasks.getTask(scope.workspaceId, action.target.taskId);
-        if (!task || task.version !== action.target.taskVersion) throw new InvalidAiActionError("target task is missing or stale", "stale");
-        const next = rescheduledDefinition(taskDefinitionFromRow(task), fields, timeMode);
-        const timingErrors = validateOneTimeTaskTiming(next, scope.now, "rescheduling a one-time task");
-        if (timingErrors.length) throw new InvalidAiActionError(timingErrors.join("; "), "time_past");
-        if (action.target.kind === "occurrence") {
-          const context = await this.tasks.getOccurrenceContext(scope.workspaceId, action.target.occurrenceId);
-          if (!context || context.occurrence.version !== action.target.occurrenceVersion) throw new InvalidAiActionError("target occurrence is missing or stale", "stale");
-          if (["done", "skipped", "cancelled"].includes(context.occurrence.status))
-            throw new InvalidAiActionError("terminal occurrence cannot be rescheduled", "terminal_occurrence");
-          if ((await this.tasks.isRescheduleReasonRequired(scope.workspaceId, action.target.occurrenceId)) && !action.reason?.trim()) {
-            throw new InvalidAiActionError("reschedule reason is required", "reason_required");
-          }
-        } else {
-          rescheduledOccurrenceStatus(next, scope.now);
-        }
-        return;
-      }
-      case "set_reminder": {
-        if (action.target.kind !== "occurrence") throw new InvalidAiActionError("a task without a date cannot carry a reminder", "fuzzy_reminder");
-        const context = await this.tasks.getOccurrenceContext(scope.workspaceId, action.target.occurrenceId);
-        if (!context || context.occurrence.version !== action.target.occurrenceVersion) throw new InvalidAiActionError("target occurrence is missing or stale", "stale");
-        const rule = action.reminder ? reminderRuleFromReminder(action.reminder, action.target.timezone) : undefined;
-        if (rule?.exactAt && rule.exactAt <= scope.now) throw new InvalidAiActionError("reminder must be in the future", "time_past");
-        await this.reminders.validateExplicitReminderChange({
-          workspaceId: scope.workspaceId,
-          userId: scope.recipientUserId,
-          occurrenceId: action.target.occurrenceId,
-          mode: action.mode,
-          ...(rule ? { rule } : {}),
-          now: scope.now,
-        });
-        return;
-      }
-      case "goal": {
-        if (action.op === "create") {
-          if (!action.title?.trim()) throw new InvalidAiActionError("goal title is required", "goal_title");
-          return;
-        }
-        const goal = await this.context.findGoal(scope.workspaceId, action.goalId!);
-        if (!goal || goal.version !== action.goalVersion) throw new InvalidAiActionError("target goal is missing or stale", "stale");
-        if (action.op === "update") {
-          if (action.title !== null && !action.title.trim()) throw new InvalidAiActionError("goal title cannot be blank", "blank_field");
-          if (action.why !== null && !action.why.trim()) throw new InvalidAiActionError("goal why cannot be blank", "blank_field");
-          return;
-        }
-        if (goal.status !== "active" && action.op === "link") throw new InvalidAiActionError("target goal is missing or stale", "stale");
-        const task = await this.tasks.getTask(scope.workspaceId, action.taskId!);
-        if (!task || task.version !== action.taskVersion) throw new InvalidAiActionError("target task is missing or stale", "stale");
-        return;
-      }
-      case "memory": {
-        if (action.op === "save") {
-          if (!action.content?.trim()) throw new InvalidAiActionError("memory content is required", "memory_shape");
-          return;
-        }
-        const memory = await this.context.findMemory(scope.workspaceId, scope.actorUserId, action.memoryId!);
-        if (!memory || memory.version !== action.memoryVersion) throw new InvalidAiActionError("memory is missing or stale", "stale");
-        return;
-      }
-      case "settings":
-        await this.validateSettingsAction(action, scope.actorUserId, scope.now);
-        return;
-    }
   }
 
   /** One message is one package: a single applied group or a single confirmation card. */
@@ -311,7 +200,7 @@ export class ActionsService implements OnApplicationBootstrap {
       throw error;
     }
     await this.afterCommit(result, actions, scope, now);
-    const items = await this.reportItems(result.steps, scope, actions);
+    const items = await buildAppliedReport(result.steps, scope, actions, this.reportDeps());
     return {
       groupId,
       count: actions.length,
@@ -336,7 +225,7 @@ export class ActionsService implements OnApplicationBootstrap {
     });
     for (const id of result.reconcileTaskIds)
       await this.tasks.reconcileRecurringTask(scope.workspaceId, id, now).catch((error) => logger.error("series reconciliation deferred", { taskId: id, error: safeError(error) }));
-    const items = await this.reportItems(result.steps, scope, []);
+    const items = await buildAppliedReport(result.steps, scope, [], this.reportDeps());
     return { applied: { groupId, count: 1, titles: result.steps.map(stepTitle).filter((title): title is string => Boolean(title)), items } };
   }
 
@@ -707,192 +596,6 @@ export class ActionsService implements OnApplicationBootstrap {
         ),
     );
     void actions;
-  }
-
-  /** The user-facing report is built from what the repositories stored, never from the model. */
-  private async reportItems(steps: readonly ActionGroupStepResult[], scope: ActionScope, actions: readonly ResolvedAction[]): Promise<AppliedReportItem[]> {
-    // Two queries for the whole package instead of two to four per created task.
-    const createdTaskIds = steps.flatMap((step) => (step.kind === "create_task" ? [step.taskId] : step.kind === "goal_plan" ? step.taskIds : []));
-    const occurrences = await this.tasks.findCurrentOccurrences(scope.workspaceId, createdTaskIds).catch(() => new Map<string, never>());
-    const occurrenceIds = new Set<string>([...occurrences.values()].map((occurrence) => occurrence.id));
-    for (const step of steps) {
-      if (step.kind === "reschedule_occurrence" || step.kind === "concretise_task" || step.kind === "change_reminder") occurrenceIds.add(step.occurrenceId);
-    }
-    const reminders = await this.reminders.nextUserReminderAtMany(scope.workspaceId, [...occurrenceIds]).catch(() => new Map<string, Date>());
-    const scheduleForTask = (taskId: string) => {
-      const occurrence = occurrences.get(taskId);
-      if (!occurrence) return null;
-      return {
-        timezone: occurrence.timezone,
-        plannedStartAt: occurrence.plannedStartAt ?? null,
-        plannedEndAt: occurrence.plannedEndAt ?? null,
-        plannedLocalDate: occurrence.plannedLocalDate ?? null,
-        dueAt: occurrence.dueAt ?? null,
-        dueLocalDate: occurrence.dueLocalDate ?? null,
-      };
-    };
-    const reminderForTask = (taskId: string) => {
-      const occurrence = occurrences.get(taskId);
-      return occurrence ? (reminders.get(occurrence.id) ?? null) : null;
-    };
-    const reminderForOccurrence = (occurrenceId: string) => reminders.get(occurrenceId) ?? null;
-    const items: AppliedReportItem[] = [];
-    for (const step of steps) {
-      switch (step.kind) {
-        case "create_task": {
-          const created = actions.find((action): action is ResolvedActionOf<"create_task"> => action.type === "create_task" && action.body.title.trim() === step.title);
-          items.push({
-            kind: "task_created",
-            title: step.title,
-            timezone: created?.timezone ?? "UTC",
-            ...(created ? { importance: created.body.importance, recurring: Boolean(created.body.recurrence) } : {}),
-            schedule: scheduleForTask(step.taskId),
-            fuzzyHorizonText: created?.body.when.mode === "fuzzy" ? created.body.when.horizonText : null,
-            reminderAt: reminderForTask(step.taskId),
-            goalTitle: step.goalTitle,
-          });
-          break;
-        }
-        case "goal_plan":
-          items.push({
-            kind: "goal_plan",
-            goalTitle: step.goalTitle,
-            tasks: step.taskIds.map((taskId, index) => ({
-              kind: "task_created" as const,
-              title: step.taskTitles[index] ?? "",
-              timezone: actions.find((action) => action.type === "plan")?.timezone ?? "UTC",
-              schedule: scheduleForTask(taskId),
-              reminderAt: reminderForTask(taskId),
-            })),
-          });
-          break;
-        case "update_task":
-          items.push({ kind: "task_updated", title: step.title, changes: step.changes });
-          break;
-        case "update_occurrence":
-          items.push({ kind: "occurrence", title: step.title, operation: step.operation });
-          break;
-        case "occurrence_interaction":
-          items.push({ kind: "occurrence", title: step.title, operation: step.operation === "seen" ? "seen" : "record_blocker", details: step.details });
-          break;
-        case "complete_task":
-          items.push({ kind: "occurrence", title: step.title, operation: "done" });
-          break;
-        case "cancel_task":
-          items.push({ kind: "occurrence", title: step.title, operation: "cancel" });
-          break;
-        case "reschedule_occurrence":
-          items.push({
-            kind: "task_rescheduled",
-            title: step.title,
-            before: step.previousSchedule,
-            after: step.occurrenceSchedule,
-            reminderAt: reminderForOccurrence(step.occurrenceId),
-            reason: step.reason,
-          });
-          break;
-        case "concretise_task":
-          items.push({
-            kind: "task_rescheduled",
-            title: step.title,
-            before: null,
-            after: step.occurrenceSchedule,
-            reminderAt: reminderForOccurrence(step.occurrenceId),
-            reason: step.reason,
-            fromFuzzy: step.previousFuzzyHorizonText,
-          });
-          break;
-        case "change_reminder":
-          items.push({
-            kind: "reminder",
-            title: step.title,
-            mode: step.mode,
-            schedule: step.occurrenceSchedule,
-            reminderAt: reminderForOccurrence(step.occurrenceId),
-          });
-          break;
-        case "change_series":
-          items.push({ kind: "series", title: step.title, operation: step.operation });
-          break;
-        case "create_goal":
-          items.push({ kind: "goal_created", title: step.title });
-          break;
-        case "update_goal":
-          items.push({ kind: "goal_updated", title: step.title });
-          break;
-        case "link_task_to_goal":
-          items.push({ kind: "goal_linked", taskTitle: step.taskTitle, goalTitle: step.goalTitle });
-          break;
-        case "unlink_task_to_goal":
-          items.push({ kind: "goal_unlinked", taskTitle: step.taskTitle, goalTitle: step.goalTitle });
-          break;
-        case "save_memory":
-          items.push({ kind: "memory", operation: "saved", content: step.content });
-          break;
-        case "update_memory":
-          items.push({ kind: "memory", operation: "updated", content: step.content });
-          break;
-        case "delete_memory":
-          items.push({ kind: "memory", operation: "deleted", content: step.content });
-          break;
-        case "update_settings":
-          if (step.operation) items.push({ kind: "settings", operation: step.operation });
-          break;
-      }
-    }
-    return items;
-  }
-
-  private async validateSettingsAction(action: ResolvedActionOf<"settings">, userId: string, now: Date): Promise<void> {
-    const current = await this.settings.get(userId);
-    if (!current || current.version !== action.expectedVersion) throw new InvalidAiActionError("settings are stale or missing", "settings_stale");
-    if (action.operation === "timezone") {
-      if (!action.timezone) throw new InvalidAiActionError("timezone is required", "settings_shape");
-      if (action.applyTimezoneTo === null) throw new InvalidAiActionError("timezone scope is required", "settings_shape");
-      new Intl.DateTimeFormat("en", { timeZone: action.timezone }).format(now);
-      return;
-    }
-    if (action.operation === "language") {
-      if (action.language !== null && !action.language.trim()) throw new InvalidAiActionError("language cannot be blank", "settings_shape");
-      if (action.language !== null) normalizeLanguageTag(action.language);
-      return;
-    }
-    if (action.operation === "digest") {
-      if (action.digestKind === null || action.enabled === null) throw new InvalidAiActionError("digest kind and enabled state are required", "settings_shape");
-      return;
-    }
-    if (action.operation === "weekly_review") {
-      if (action.enabled === null) throw new InvalidAiActionError("weekly review enabled state is required", "settings_shape");
-      if (action.enabled && (action.weekday === null || action.time === null)) throw new InvalidAiActionError("weekly review requires weekday and time", "settings_shape");
-      return;
-    }
-    if (action.operation === "quiet_hours") {
-      if (action.enabled === null) throw new InvalidAiActionError("quiet hours enabled state is required", "settings_shape");
-      const times = [action.weekdayStart, action.weekdayEnd, action.weekendStart, action.weekendEnd];
-      if (action.enabled && times.some((value) => value === null)) throw new InvalidAiActionError("enabled quiet hours require weekday and weekend ranges", "settings_shape");
-      return;
-    }
-    if (action.operation === "snooze") {
-      const until = snoozeUntilFromAction(action, current.timezone);
-      if (until) {
-        if (until <= now) throw new InvalidAiActionError("notification snooze must be in the future", "time_past");
-        if (until.getTime() - now.getTime() > 7 * 24 * 60 * 60_000) throw new InvalidAiActionError("notification snooze cannot exceed 7 days", "settings_shape");
-      }
-      return;
-    }
-    const values = [
-      action.eventOffsets,
-      action.plannedTaskOffsetMinutes,
-      action.criticalPostDueMinutes,
-      action.seenNormalMinutes,
-      action.seenRequiredMinutes,
-      action.seenCriticalMinutes,
-    ];
-    if (values.every((value) => value === null)) throw new InvalidAiActionError("at least one reminder default is required", "settings_shape");
-    if (action.eventOffsets !== null && action.eventOffsets.length === 0) throw new InvalidAiActionError("event offsets cannot be empty", "settings_shape");
-    for (const value of [action.criticalPostDueMinutes, action.seenNormalMinutes, action.seenRequiredMinutes, action.seenCriticalMinutes]) {
-      if (value !== null && value < 15) throw new InvalidAiActionError("critical and Seen intervals must be at least 15 minutes", "settings_shape");
-    }
   }
 }
 
