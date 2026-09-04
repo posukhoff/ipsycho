@@ -177,14 +177,17 @@ export class MessagesRepository {
     return deleted.length;
   }
 
-  async listRecentForAi(workspaceId: string, userId: string, limit = 20, topicId?: string) {
-    const topicScope = topicId ? eq(messages.topicId, topicId) : isNull(messages.topicId);
+  /**
+   * The last `limit` processed messages by time, whatever topic they were filed under. History
+   * was once partitioned by topic, and the model's own `topic.mode: none` on a plain command
+   * then hid every previous turn from it.
+   */
+  async listRecentForAi(workspaceId: string, userId: string, limit = 20) {
     const rows = await this.database.db.select().from(messages)
       .where(and(
         eq(messages.workspaceId, workspaceId),
         eq(messages.userId, userId),
         eq(messages.status, "processed"),
-        topicScope,
       ))
       .orderBy(desc(messages.createdAt))
       .limit(limit);

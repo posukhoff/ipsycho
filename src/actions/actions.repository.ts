@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { and, eq, gt, inArray, isNotNull, lte, or } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { actionEvents, actionGroups, pendingActions } from "../database/schema.js";
+import { DomainRuleError } from "../core/errors.js";
 
 @Injectable()
 export class ActionsRepository {
@@ -176,7 +177,7 @@ export class ActionsRepository {
         eq(actionGroups.id, input.groupId),
         eq(actionGroups.status, "applying"),
       )).returning({ id: actionGroups.id });
-      if (!updated) throw new Error("action group is not claimable as applied");
+      if (!updated) throw new DomainRuleError("action group is not claimable as applied");
     });
   }
 
@@ -224,7 +225,7 @@ export class ActionsRepository {
       eq(actionGroups.id, groupId),
       eq(actionGroups.status, "undoing"),
     )).returning({ id: actionGroups.id });
-    if (!updated) throw new Error("undo group is not in progress");
+    if (!updated) throw new DomainRuleError("undo group is not in progress");
   }
 
   async listEventsForGroup(workspaceId: string, groupId: string) {

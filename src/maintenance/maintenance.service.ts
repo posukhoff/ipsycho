@@ -87,8 +87,9 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
       .where(eq(users.status, "active"));
     for (const row of rows) {
       if (row.settings.lastAiSpendWarningMonth === month) continue;
-      const threshold = Number(row.settings.aiMonthlyWarningUsd);
-      if (!Number.isFinite(threshold) || threshold <= 0) continue;
+      const userThreshold = Number(row.settings.aiMonthlyWarningUsd);
+      const threshold = Number.isFinite(userThreshold) && userThreshold > 0 ? userThreshold : this.config.aiMonthlyWarningUsd ?? 0;
+      if (threshold <= 0) continue;
       const spend = await this.ai.monthlySpendUsd(row.user.id, monthStart);
       if (spend < threshold) continue;
       const marked = await this.settings.markSpendWarning(row.user.id, month);

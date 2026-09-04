@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createChatHarness } from "./helpers/chat-harness.mjs";
+import { createChatHarness, resolveLikeServer } from "./helpers/chat-harness.mjs";
 import { AiTurnSchema } from "../../dist/core/ai-contract.js";
 
 /**
@@ -141,7 +141,7 @@ const DIALOGS = [
     ]),
     check: (result, harness) => {
       assert.equal(result.appliedCount, 1);
-      assert.deepEqual(harness.handled[0].resolved[0].goal, { id: "g1" });
+      assert.deepEqual(harness.handled[0].resolved[0].goal, { goalId: "goal:g1", goalVersion: 1 });
     },
   },
   {
@@ -323,22 +323,54 @@ test("a bare «да» with no live card goes to the model instead of confirming 
   assert.equal(result.kind, "ok");
 });
 
-test("an explicit action while a card is live replaces the card: cancel first, then apply", async () => {
-  const scripted = turn("Отменил созвон.", [
-    { type: "set_task_state", intent: "explicit", task: { id: "t1" }, state: "cancelled", note: null, scope: "occurrence" },
-  ]);
+test("an explicit action that answers the live card replaces it: apply first, then cancel the card", async () => {
+  const proposal = { type: "set_task_state", intent: "inferred", task: { id: "t1" }, state: "cancelled", note: null, scope: "occurrence" };
+  const scripted = turn("Отменил созвон.", [{ ...proposal, intent: "explicit" }]);
   const harness = createChatHarness({
     turns: [scripted],
     lastAssistant: { id: "assistant-1", pendingGroupId: "group-old" },
-    pendingSummary: { groupId: "group-old", createdAt: new Date(), titles: ["Отменить созвон с дизайнером"] },
+    pendingSummary: { groupId: "group-old", createdAt: new Date(), titles: ["Отменить созвон с дизайнером"], actions: [resolveLikeServer(proposal)] },
   });
   const result = await send(harness, "да, отмени созвон с дизайнером");
 
   assert.deepEqual(harness.cancelled, ["group-old"]);
   assert.equal(harness.handled.length, 1);
-  assert.equal(harness.handled[0].cancelledBefore, 1, "the old card is cancelled before the new package is applied");
+  assert.equal(harness.handled[0].cancelledBefore, 0, "the card is cancelled only after the new package succeeded");
   assert.equal(result.supersededPendingGroupId, "group-old");
   assert.equal(result.appliedCount, 1);
+});
+
+test("an unrelated explicit command leaves the live card on its buttons", async () => {
+  const proposal = { type: "set_task_state", intent: "inferred", task: { id: "t1" }, state: "cancelled", note: null, scope: "occurrence" };
+  const scripted = turn("Записал.", [
+    { type: "create_task", intent: "explicit", title: "Купить молоко", why: null, nextAction: null, context: null, checklist: null, importance: "normal", kind: "task", when: { mode: "date", date: "2026-09-05" }, recurrence: null, reminder: null, habit: null, timezone: null, goal: null },
+  ]);
+  const harness = createChatHarness({
+    turns: [scripted],
+    lastAssistant: { id: "assistant-1", pendingGroupId: "group-old" },
+    pendingSummary: { groupId: "group-old", createdAt: new Date(), titles: ["Отменить созвон с дизайнером"], actions: [resolveLikeServer(proposal)] },
+  });
+  const result = await send(harness, "создай задачу купить молоко завтра");
+
+  assert.deepEqual(harness.cancelled, [], "the proposal about the call is still waiting for its answer");
+  assert.equal(result.supersededPendingGroupId, undefined);
+  assert.equal(result.appliedCount, 1);
+});
+
+test("a rejected turn does not cost the user the live card", async () => {
+  const proposal = { type: "set_task_state", intent: "inferred", task: { id: "t1" }, state: "cancelled", note: null, scope: "occurrence" };
+  const scripted = turn("Отменил созвон.", [{ ...proposal, intent: "explicit" }]);
+  const harness = createChatHarness({
+    turns: [scripted],
+    issues: [[{ kind: "domain", index: 0, code: "terminal_occurrence", message: "terminal occurrence cannot be rescheduled" }]],
+    lastAssistant: { id: "assistant-1", pendingGroupId: "group-old" },
+    pendingSummary: { groupId: "group-old", createdAt: new Date(), titles: ["Отменить созвон с дизайнером"], actions: [resolveLikeServer(proposal)] },
+  });
+  const result = await send(harness, "да, отмени созвон с дизайнером");
+
+  assert.deepEqual(harness.cancelled, []);
+  assert.equal(result.appliedCount, 0);
+  assert.equal(result.supersededPendingGroupId, undefined);
 });
 
 test("a new pending card supersedes the old one so only one card is ever live", async () => {

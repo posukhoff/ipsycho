@@ -40,7 +40,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   /** Git commit the image was built from; injected by the Docker build, absent in local dev. */
   APP_COMMIT: z.string().trim().optional(),
-  TELEGRAM_BOT_TOKEN: optionalSecret,
+  TELEGRAM_BOT_TOKEN: z.string().min(20),
   BOT_IDENTITY: z.string().min(1).max(64).default("ipsycho-main"),
   OWNER_TELEGRAM_USER_ID: optionalSafeInteger,
   AI_PROVIDER: z.enum(["openai", "gemini", "deepseek"]).default("openai"),
@@ -53,9 +53,17 @@ const schema = z.object({
   AI_PRICING_JSON: optionalPricing,
   AI_MAX_MESSAGES_PER_HOUR: z.coerce.number().int().min(5).max(1000).default(60),
   AI_MAX_CALLS_PER_HOUR: z.coerce.number().int().min(5).max(1000).default(60),
+  /** Default monthly AI spend (USD) at which a user and the owner are warned; per-user settings override it. */
+  AI_MONTHLY_WARNING_USD: z.preprocess((value) => value === "" || value === undefined ? undefined : value, z.coerce.number().positive().optional()),
   OPENAI_API_KEY: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
   DEEPSEEK_API_KEY: optionalSecret,
+}).superRefine((value, ctx) => {
+  const key = value.AI_PROVIDER === "openai" ? value.OPENAI_API_KEY : value.AI_PROVIDER === "gemini" ? value.GEMINI_API_KEY : value.DEEPSEEK_API_KEY;
+  if (!key) {
+    const name = value.AI_PROVIDER === "openai" ? "OPENAI_API_KEY" : value.AI_PROVIDER === "gemini" ? "GEMINI_API_KEY" : "DEEPSEEK_API_KEY";
+    ctx.addIssue({ code: "custom", path: [name], message: `AI_PROVIDER=${value.AI_PROVIDER} requires ${name}` });
+  }
 });
 
 export type AiProviderName = "openai" | "gemini" | "deepseek";
@@ -67,7 +75,7 @@ export interface AppConfig {
   host: string;
   port: number;
   databaseUrl: string;
-  telegramBotToken?: string;
+  telegramBotToken: string;
   botIdentity: string;
   ownerTelegramUserId?: number;
   aiProvider: AiProviderName;
@@ -80,6 +88,7 @@ export interface AppConfig {
   aiPricing: Record<string, AiModelPricing>;
   aiMaxMessagesPerHour: number;
   aiMaxCallsPerHour: number;
+  aiMonthlyWarningUsd?: number;
   openAiApiKey?: string;
   geminiApiKey?: string;
   deepSeekApiKey?: string;
@@ -95,7 +104,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     host: value.HOST,
     port: value.PORT,
     databaseUrl: value.DATABASE_URL,
-    ...(value.TELEGRAM_BOT_TOKEN ? { telegramBotToken: value.TELEGRAM_BOT_TOKEN } : {}),
+    telegramBotToken: value.TELEGRAM_BOT_TOKEN,
     botIdentity: value.BOT_IDENTITY,
     ...(value.OWNER_TELEGRAM_USER_ID ? { ownerTelegramUserId: value.OWNER_TELEGRAM_USER_ID } : {}),
     aiProvider: value.AI_PROVIDER,
@@ -108,8 +117,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     aiPricing: value.AI_PRICING_JSON ?? {},
     aiMaxMessagesPerHour: value.AI_MAX_MESSAGES_PER_HOUR,
     aiMaxCallsPerHour: value.AI_MAX_CALLS_PER_HOUR,
+    ...(value.AI_MONTHLY_WARNING_USD ? { aiMonthlyWarningUsd: value.AI_MONTHLY_WARNING_USD } : {}),
     ...(value.OPENAI_API_KEY ? { openAiApiKey: value.OPENAI_API_KEY } : {}),
     ...(value.GEMINI_API_KEY ? { geminiApiKey: value.GEMINI_API_KEY } : {}),
     ...(value.DEEPSEEK_API_KEY ? { deepSeekApiKey: value.DEEPSEEK_API_KEY } : {}),
   };
 }
+
+/** Configuration that is valid but leaves a feature silently off; reported once at startup. */
+export function configWarnings(config: AppConfig): string[] {
+  const warnings: string[] = [];
+  const textPricing = config.aiPricing[config.aiModel];
+  if (!textPricing?.inputUsdPerMillion) warnings.push(`AI_PRICING_JSON has no text pricing for AI_MODEL=${config.aiModel}; spend estimates and warnings stay empty`);
+  if (config.aiProvider === "openai" && !config.aiPricing[config.aiTranscriptionModel]?.audioUsdPerMinute) warnings.push(`AI_PRICING_JSON has no audio pricing for ${config.aiTranscriptionModel}; voice spend is not estimated`);
+  if (config.aiProvider !== "openai") warnings.push(`AI_PROVIDER=${config.aiProvider}: voice transcription is unavailable, only OpenAI transcribes`);
+  return warnings;
+}
+

@@ -82,7 +82,7 @@ export function createChatHarness(options = {}) {
     prepare: async (list, refs, scope) => {
       prepared.push({ actions: list, refs, scope });
       return {
-        resolved: list.map((action) => ({ ...action, resolved: true })),
+        resolved: list.map(resolveLikeServer),
         issues: perCall(issues, prepared.length - 1) ?? [],
       };
     },
@@ -121,8 +121,8 @@ export function createChatHarness(options = {}) {
       return confirmResult ?? { groupId, count: 1, titles: [], items: [] };
     },
     pendingGroupSummary: async (_workspaceId, _actorUserId, groupId) => {
-      if (typeof pendingSummary === "function") return pendingSummary(groupId);
-      return pendingSummary;
+      const summary = typeof pendingSummary === "function" ? pendingSummary(groupId) : pendingSummary;
+      return summary ? { actions: [], ...summary } : summary;
     },
   };
 
@@ -188,3 +188,26 @@ export function createChatHarness(options = {}) {
   const chat = new ChatService(ai, actions, messages, turnContext, context, briefings);
   return { chat, calls, corrections, prepared, handled, cancelled, confirmed, statuses, retries, topics, saved };
 }
+
+/**
+ * The shape ActionsService.prepare produces, approximated: model fields are kept (tests assert on
+ * them) and the server-side target/ids are added so code that reads `target.taskId` works.
+ */
+export function resolveLikeServer(action) {
+  const taskTarget = (ref) => ref ? { kind: "occurrence", taskId: `task:${ref.id}`, taskVersion: 1, occurrenceId: `occurrence:${ref.id}`, occurrenceVersion: 1, timezone: "Europe/Kyiv" } : null;
+  const base = { ...action, resolved: true, timezone: "Europe/Kyiv", reviewTime: "09:00" };
+  switch (action.type) {
+    case "create_task": {
+      const { type, intent, goal, ...body } = action;
+      return { ...base, body, goal: goal ? { goalId: `goal:${goal.id}`, goalVersion: 1 } : null };
+    }
+    case "update_task": return { ...base, taskId: `task:${action.task.id}`, taskVersion: 1 };
+    case "set_task_state":
+    case "reschedule":
+    case "set_reminder": return { ...base, target: taskTarget(action.task) };
+    case "goal": return { ...base, goalId: action.goal ? `goal:${action.goal.id}` : null, goalVersion: action.goal ? 1 : null, taskId: action.task ? `task:${action.task.id}` : null, taskVersion: action.task ? 1 : null };
+    case "memory": return { ...base, memoryId: action.item ? `memory:${action.item.id}` : null, memoryVersion: action.item ? 1 : null };
+    default: return base;
+  }
+}
+

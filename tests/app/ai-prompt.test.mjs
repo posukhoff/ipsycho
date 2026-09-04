@@ -99,7 +99,8 @@ test("AI prompt contains no vocabulary of the removed contract", () => {
 test("AI prompt stays inside its size budget without context", () => {
   // The budget exists so rules keep moving into code rather than accumulating here.
   // It is a budget, not a rule: raising it is a decision, and the number says by how much.
-  assert.ok(prompt.length < 9400, `prompt is ${prompt.length} characters`);
+  // 2026-09-04: raised from 9400 for the reply-length rule in paragraph 12.
+  assert.ok(prompt.length < 9450, `prompt is ${prompt.length} characters`);
 });
 
 test("AI prompt ends with one local CURRENT_TIME line and the context when given", () => {

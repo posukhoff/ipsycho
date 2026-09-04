@@ -5,6 +5,7 @@ import { actionEvents, goals, memoryItems, taskGoals, tasks } from "../database/
 import { insertTaskPlan, type PersistedTaskPlan } from "../tasks/tasks.repository.js";
 import { finalizeGroup } from "../actions/action-group.repository.js";
 import type { DbTransaction, InTx, TouchedVersion } from "../actions/action-mutations.repository.js";
+import { DomainRuleError } from "../core/errors.js";
 
 export type LinkSource = "user_explicit" | "ai_inferred";
 export type MemoryType = "note" | "decision" | "preference" | "context";
@@ -145,11 +146,11 @@ export async function updateGoalInTx(tx: DbTransaction, input: UpdateGoalInput):
   const [before] = await tx.select().from(goals).where(and(
     eq(goals.workspaceId, input.workspaceId), eq(goals.id, input.goalId), eq(goals.version, input.expectedVersion),
   )).limit(1);
-  if (!before) throw new Error("goal is stale or missing");
+  if (!before) throw new DomainRuleError("goal is stale or missing");
   const [after] = await tx.update(goals).set({
     ...input.patch, version: input.expectedVersion + 1, updatedAt: input.now,
   }).where(and(eq(goals.workspaceId, input.workspaceId), eq(goals.id, input.goalId), eq(goals.version, input.expectedVersion))).returning();
-  if (!after) throw new Error("goal is stale or missing");
+  if (!after) throw new DomainRuleError("goal is stale or missing");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "update_goal", entityType: "goal", entityId: input.goalId,
     postVersion: after.version, beforeState: goalState(before), afterState: goalState(after),
@@ -181,12 +182,12 @@ export async function deleteMemoryInTx(tx: DbTransaction, input: DeleteMemoryInp
     eq(memoryItems.workspaceId, input.workspaceId), eq(memoryItems.userId, input.actorUserId),
     eq(memoryItems.id, input.memoryId), eq(memoryItems.version, input.expectedVersion),
   )).limit(1);
-  if (!memory) throw new Error("memory is stale or missing");
+  if (!memory) throw new DomainRuleError("memory is stale or missing");
   const deleted = await tx.delete(memoryItems).where(and(
     eq(memoryItems.workspaceId, input.workspaceId), eq(memoryItems.userId, input.actorUserId),
     eq(memoryItems.id, input.memoryId), eq(memoryItems.version, input.expectedVersion),
   )).returning({ id: memoryItems.id });
-  if (!deleted.length) throw new Error("memory changed before deletion");
+  if (!deleted.length) throw new DomainRuleError("memory changed before deletion");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "delete_memory", entityType: "memory",
     entityId: memory.id, postVersion: null, beforeState: memoryState(memory),
@@ -199,11 +200,11 @@ export async function updateMemoryInTx(tx: DbTransaction, input: UpdateMemoryInp
     eq(memoryItems.workspaceId, input.workspaceId), eq(memoryItems.userId, input.actorUserId),
     eq(memoryItems.id, input.memoryId), eq(memoryItems.version, input.expectedVersion),
   )).limit(1);
-  if (!before) throw new Error("memory is stale or missing");
+  if (!before) throw new DomainRuleError("memory is stale or missing");
   const [after] = await tx.update(memoryItems).set({
     ...input.patch, version: input.expectedVersion + 1, updatedAt: input.now,
   }).where(and(eq(memoryItems.workspaceId, input.workspaceId), eq(memoryItems.id, input.memoryId), eq(memoryItems.version, input.expectedVersion))).returning();
-  if (!after) throw new Error("memory is stale or missing");
+  if (!after) throw new DomainRuleError("memory is stale or missing");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "update_memory", entityType: "memory", entityId: before.id,
     postVersion: after.version, beforeState: memoryState(before), afterState: memoryState(after),
@@ -216,7 +217,7 @@ export async function linkTaskToGoalInTx(tx: DbTransaction, input: LinkTaskToGoa
   const [link] = await tx.insert(taskGoals).values({
     workspaceId: input.workspaceId, taskId: task.id, goalId: goal.id, source: input.source, confidence: Math.round(input.confidence * 100),
   }).onConflictDoNothing().returning();
-  if (!link) throw new Error("task is already linked to this goal");
+  if (!link) throw new DomainRuleError("task is already linked to this goal");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "link_task_to_goal", entityType: "task_goal", entityId: task.id,
     afterState: { taskId: task.id, goalId: goal.id, source: link.source, confidence: link.confidence },
@@ -229,7 +230,7 @@ export async function unlinkTaskToGoalInTx(tx: DbTransaction, input: UnlinkTaskT
   const [link] = await tx.delete(taskGoals).where(and(
     eq(taskGoals.workspaceId, input.workspaceId), eq(taskGoals.taskId, task.id), eq(taskGoals.goalId, goal.id),
   )).returning();
-  if (!link) throw new Error("task is not linked to this goal");
+  if (!link) throw new DomainRuleError("task is not linked to this goal");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "unlink_task_to_goal", entityType: "task_goal", entityId: task.id,
     beforeState: { taskId: task.id, goalId: goal.id, source: link.source, confidence: link.confidence },
@@ -277,7 +278,7 @@ async function loadLinkPair(
     eq(goals.workspaceId, input.workspaceId), eq(goals.id, input.goalId), eq(goals.version, input.expectedGoalVersion),
     ...(requireActiveGoal ? [eq(goals.status, "active")] : []),
   )).limit(1);
-  if (!task || !goal) throw new Error("task or goal is stale or missing");
+  if (!task || !goal) throw new DomainRuleError("task or goal is stale or missing");
   return { task, goal };
 }
 

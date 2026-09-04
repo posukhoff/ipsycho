@@ -15,6 +15,7 @@ import {
   userSettings,
   workspaceMembers,
 } from "../database/schema.js";
+import { DomainRuleError } from "../core/errors.js";
 
 export interface PersistedTaskPlan {
   task: typeof tasks.$inferInsert & { id: string; workspaceId: string; createdByUserId: string };
@@ -247,10 +248,10 @@ export class TasksRepository {
       const ids = expected.map((item) => item.id);
       const rows = await tx.select({ id: tasks.id, version: tasks.version }).from(tasks)
         .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids)));
-      if (rows.length !== expected.length) throw new Error("undo target missing");
+      if (rows.length !== expected.length) throw new DomainRuleError("undo target missing");
       const versions = new Map(rows.map((row) => [row.id, row.version]));
       for (const item of expected) {
-        if (versions.get(item.id) !== item.version) throw new Error("undo target changed after action");
+        if (versions.get(item.id) !== item.version) throw new DomainRuleError("undo target changed after action");
       }
       await tx.delete(tasks).where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids)));
     });
@@ -382,7 +383,7 @@ export class TasksRepository {
           eq(taskOccurrences.version, input.expectedVersion),
         ))
         .returning();
-      if (!updated) throw new Error("stale or missing occurrence");
+      if (!updated) throw new DomainRuleError("stale or missing occurrence");
 
       if (input.nextTaskStatus) {
         const [updatedTask] = await tx.update(tasks)
@@ -397,7 +398,7 @@ export class TasksRepository {
             eq(tasks.version, input.expectedTaskVersion),
           ))
           .returning({ id: tasks.id });
-        if (!updatedTask) throw new Error("stale or missing task");
+        if (!updatedTask) throw new DomainRuleError("stale or missing task");
       }
 
       if (input.nextStatus === "in_progress") {

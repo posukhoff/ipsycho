@@ -1,6 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import type { ChatProcessResult } from "../chat/chat.service.js";
-import { compactText } from "../core/telegram-ux.js";
+import { MODEL_REPLY_MAX, REVIEW_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 
 export type RenderedChatResult = { responseText: string; persistedText: string; keyboard: InlineKeyboard | undefined };
 
@@ -15,7 +15,7 @@ export function renderChatResult(result: Extract<ChatProcessResult, { kind: "ok"
   const suffix = actionSummary(result.pendingCount, result.pendingTitles, result.appliedCount);
   const warningText = result.warnings.length ? `\n\n${result.warnings.join("\n")}` : "";
   // Only the model's prose is capped; the deterministic report must stay complete.
-  const body = compactText(result.text, result.review ? 800 : 600);
+  const body = compactText(result.text, result.review ? REVIEW_REPLY_MAX : MODEL_REPLY_MAX);
   const reportText = result.report ? `\n\n${result.report}` : "";
   const persistedText = compactText(`${body}${reportText}${suffix ? `\n\n${suffix}` : ""}${warningText}`, MAX_REPLY_LENGTH);
   const header = reviewHeader(result.review);

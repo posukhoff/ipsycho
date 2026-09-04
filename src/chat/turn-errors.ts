@@ -224,17 +224,16 @@ export function issueCode(issue: Pick<ActionIssue, "code" | "message">): string 
   return BY_MESSAGE.find((entry) => entry.test.test(issue.message))?.code ?? issue.code;
 }
 
-/** The raw rule keeps an unmapped failure debuggable instead of silently generic. */
-function technicalHint(message: string): string {
-  const raw = message.replace(/\s+/gu, " ").trim();
-  return raw.length > 160 ? `${raw.slice(0, 157)}…` : raw;
+/** Whether a code has a user-facing sentence; the chat layer logs the raw rule only when it does not. */
+export function hasExplanation(code: string): boolean {
+  return Boolean(BY_CODE[code]);
 }
 
-function genericRejection(locale: Locale, message: string): string {
-  const hint = technicalHint(message);
-  if (locale === "uk") return `Не зберіг: зібрана дія не пройшла перевірку правил${hint ? ` (${hint})` : ""}. Сформулюй завдання й час одним реченням — або скажи, що саме зробити.`;
-  if (locale === "en") return `Not saved: the action I assembled failed a domain rule${hint ? ` (${hint})` : ""}. Restate the task and its time in one sentence, or tell me exactly what to do.`;
-  return `Не сохранил: собранное действие не прошло проверку правил${hint ? ` (${hint})` : ""}. Сформулируй задачу и время одной фразой — или скажи, что именно сделать.`;
+/** An unmapped rule gets a plain sentence; its English text goes to the log, never to the user. */
+function genericRejection(locale: Locale): string {
+  if (locale === "uk") return "Не зберіг: не спрацювало одне з правил. Сформулюй завдання й час одним реченням — або скажи, що саме зробити.";
+  if (locale === "en") return "Not saved: one of the rules did not allow it. Restate the task and its time in one sentence, or tell me exactly what to do.";
+  return "Не сохранил: не сработало одно из правил. Сформулируй задачу и время одной фразой — или скажи, что именно сделать.";
 }
 
 export function clarificationForCandidates(candidates: ReadonlyArray<{ title: string }>, language: string | null | undefined, question?: string): string {
@@ -277,5 +276,5 @@ export function renderValidationReply(issues: readonly ActionIssue[], language: 
   if (!first) return `${prefix}${unclearReply(language)}`;
   const code = issueCode(first);
   const copy = BY_CODE[code];
-  return `${prefix}${copy ? copy[locale] : genericRejection(locale, first.message)}`;
+  return `${prefix}${copy ? copy[locale] : genericRejection(locale)}`;
 }

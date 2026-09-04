@@ -1,13 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import { BriefingContentService } from "../briefings/briefing-content.service.js";
-import { ActionStateUncertainError, ActionsService, InvalidAiActionError, type ProposedActionsResult } from "../actions/actions.service.js";
+import { ActionStateUncertainError, ActionsService, InvalidAiActionError, type PendingGroupSummary, type ProposedActionsResult } from "../actions/actions.service.js";
 import { AiService } from "../ai/ai.service.js";
 import type { AiMessage } from "../ai/ai-provider.js";
 import { AiStructuredOutputError } from "../ai/ai-provider.js";
 import type { AiTurn, ResolvedAction } from "../core/ai-contract.js";
-import type { ActionIssue } from "../core/ai-actions.js";
+import { answersProposal, type ActionIssue } from "../core/ai-actions.js";
 import { aiBurstAllowed } from "../core/ai-usage-policy.js";
 import { reviewClarificationDecision, reviewCorrection, reviewPresentation, reviewQuestionLimit, type ReviewKind } from "../core/review-policy.js";
+import { isDomainRuleError } from "../core/errors.js";
+import { MODEL_REPLY_MAX, REVIEW_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 import { localDateAt } from "../core/timezone.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
 import { renderAppliedReport } from "../core/applied-report.js";
@@ -18,7 +20,7 @@ import { MessagesRepository } from "../messages/messages.repository.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
 import { ensureAssumptionsLabel, normalizeReviewPresentation, removeDanglingContinuation, reviewTopicDirective } from "./review-turn.js";
 import { TurnContextService, type TurnContext } from "./turn-context.service.js";
-import { issueCode, renderValidationReply, unclearReply } from "./turn-errors.js";
+import { hasExplanation, issueCode, renderValidationReply, unclearReply } from "./turn-errors.js";
 
 export type ChatProcessResult =
   | { kind: "consent_required"; provider: string; consentVersion: string }
@@ -267,7 +269,7 @@ export class ChatService {
       const now = new Date();
       const [ctx, historyRows] = await Promise.all([
         this.turnContext.build({ workspaceId: input.workspaceId, userId: input.userId, timezone: input.timezone, ...(input.language !== undefined ? { language: input.language } : {}), query: "", now }),
-        this.messages.listRecentForAi(input.workspaceId, input.userId, 20, topic.id),
+        this.messages.listRecentForAi(input.workspaceId, input.userId, 20),
       ]);
       const history: AiMessage[] = [
         ...historyRows.map((row) => ({ role: row.role, content: row.content })),
@@ -413,7 +415,7 @@ export class ChatService {
       const forceReviewConclusion = review
         ? reviewClarificationDecision({ kind: review, clarificationCountBeforeTurn, askedQuestion: false }).forceConclusion
         : false;
-      const historyRows = await this.messages.listRecentForAi(input.workspaceId, input.userId, 19, currentTopicId);
+      const historyRows = await this.messages.listRecentForAi(input.workspaceId, input.userId, 19);
       const history: AiMessage[] = [
         ...historyRows.map((row) => ({ role: row.role, content: row.content })),
         { role: "user", content: input.inbound.content },
@@ -446,14 +448,12 @@ export class ChatService {
         return { kind: "ok", text: renderValidationReply(prepared.issues, input.language, turn.actions.length), appliedCount: 0, pendingCount: 0, warnings: [], ...(topicId ? { topicId } : {}) };
       }
 
-      // A card the user still sees is replaced by whatever this turn decides: either the
-      // user accepted it in words (the model returns it as explicit) or moved on. One card at a time.
+      // A card the user still sees is replaced only when this turn answers it: the user accepted
+      // it in words (the model returns the same change as explicit) or a new proposal takes its
+      // place. An unrelated command leaves the card on its buttons. The old card is cancelled
+      // after the new package succeeds, so a rejected turn never costs the user the card too.
       let supersededPendingGroupId: string | undefined;
-      const acceptsCard = liveCard !== null && prepared.resolved.some((action) => action.intent === "explicit");
-      if (acceptsCard) {
-        await this.actions.cancel(input.workspaceId, input.userId, liveCard.groupId).catch(() => false);
-        supersededPendingGroupId = liveCard.groupId;
-      }
+      const acceptsCard = liveCard !== null && prepared.resolved.some((action) => action.intent === "explicit" && answersProposal(action, liveCard.actions));
       let actionResult: ProposedActionsResult = {};
       if (prepared.resolved.length) {
         try {
@@ -473,9 +473,12 @@ export class ChatService {
           return { kind: "ok", text: renderValidationReply([issue], input.language, turn.actions.length), appliedCount: 0, pendingCount: 0, warnings: [], ...(failedTopicId ? { topicId: failedTopicId } : {}) };
         }
       }
-      if (actionResult.pending && liveCard && !supersededPendingGroupId) {
-        await this.actions.cancel(input.workspaceId, input.userId, liveCard.groupId).catch(() => false);
-        supersededPendingGroupId = liveCard.groupId;
+      if (liveCard && (acceptsCard || actionResult.pending)) {
+        const cancelled = await this.actions.cancel(input.workspaceId, input.userId, liveCard.groupId).catch((error) => {
+          console.error("superseded card could not be cancelled", { groupId: liveCard.groupId, error: safeError(error) });
+          return false;
+        });
+        if (cancelled) supersededPendingGroupId = liveCard.groupId;
       }
 
       const topicId = await this.applyTopic(input, turn, control, currentTopicId, now);
@@ -516,7 +519,7 @@ export class ChatService {
       const report = actionResult.applied?.items?.length ? renderAppliedReport(actionResult.applied.items, now) : "";
       return {
         kind: "ok",
-        text: renderTurn(turn.reply, turn.question),
+        text: renderTurn(turn.reply, turn.question, review ? REVIEW_REPLY_MAX : MODEL_REPLY_MAX),
         ...(report ? { report } : {}),
         ...(actionResult.applied && actionResult.applied.undoable !== false ? { appliedGroupId: actionResult.applied.groupId } : {}),
         ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId, pendingTitles: actionResult.pending.titles } : {}),
@@ -570,7 +573,7 @@ export class ChatService {
   }
 
   /** The confirmation card the user is still looking at, if the bot's last message was one. */
-  private async liveCard(workspaceId: string, userId: string, now: Date): Promise<{ groupId: string; createdAt: Date; titles: string[] } | null> {
+  private async liveCard(workspaceId: string, userId: string, now: Date): Promise<PendingGroupSummary | null> {
     const last = await this.messages.findLastAssistantMessage(workspaceId, userId).catch(() => null);
     if (!last?.pendingGroupId) return null;
     return this.actions.pendingGroupSummary(workspaceId, userId, last.pendingGroupId, now).catch(() => null);
@@ -644,7 +647,12 @@ export class ChatService {
       messageId,
       actionTypes: turn.actions.map((action) => action.type),
       intents: turn.actions.map((action) => action.intent),
-      issues: issues.map((issue) => ({ kind: issue.kind, index: issue.index, code: issueCode(issue), candidateCount: issue.candidates?.length ?? 0 })),
+      // The rule text is kept only for codes without a user-facing explanation, so an unmapped
+      // rule stays debuggable in the log instead of leaking into the reply.
+      issues: issues.map((issue) => ({
+        kind: issue.kind, index: issue.index, code: issueCode(issue), candidateCount: issue.candidates?.length ?? 0,
+        ...(hasExplanation(issueCode(issue)) ? {} : { rule: issue.message.slice(0, 160) }),
+      })),
       context: ctx.meta,
       timeContext: aiTimeContext(now, timezone),
     });
@@ -694,15 +702,16 @@ function aiHistoryClearedText(language: string | null | undefined, count: number
   return `AI-история очищена (${count} сообщений). Сообщения Telegram, задачи, цели, напоминания и настройки не изменены.`;
 }
 
-/** Domain rules raised inside a repository transaction arrive as plain errors. */
-function isDomainRuleError(error: unknown): boolean {
-  return error instanceof Error && !/^(?:connect|timeout|ECONN|socket)/i.test(error.message) && error.message.length < 200;
-}
-
-export function renderTurn(reply: string, question: string | null): string {
+/**
+ * The model's prose plus its one question, within Telegram's budget for prose. The reply is
+ * shortened first so the question, which the whole turn may hinge on, is never the part cut off.
+ */
+export function renderTurn(reply: string, question: string | null, maxLength = MODEL_REPLY_MAX): string {
   const trimmed = reply.trim();
   const q = question?.trim() ?? "";
-  return q && !normalizedText(trimmed).includes(normalizedText(q)) ? `${trimmed}\n\n${q}` : trimmed;
+  if (!q || normalizedText(trimmed).includes(normalizedText(q))) return compactText(trimmed, maxLength);
+  const replyBudget = Math.max(40, maxLength - q.length - 2);
+  return `${compactText(trimmed, replyBudget)}\n\n${q}`;
 }
 
 function normalizedText(value: string): string {

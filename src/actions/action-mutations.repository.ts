@@ -25,6 +25,7 @@ import { taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { defaultReminderRuleRows } from "../tasks/task-plan-rules.js";
 import { seriesOperationState } from "../core/series-policy.js";
 import { finalizeGroup } from "./action-group.repository.js";
+import { DomainRuleError } from "../core/errors.js";
 
 export type DbTransaction = Parameters<Parameters<DatabaseService["db"]["transaction"]>[0]>[0];
 
@@ -222,11 +223,11 @@ export async function updateSettingsInTx(tx: DbTransaction, input: UpdateSetting
   const [before] = await tx.select().from(userSettings).where(and(
     eq(userSettings.userId, input.actorUserId), eq(userSettings.version, input.expectedVersion),
   )).limit(1);
-  if (!before) throw new Error("settings are stale or missing");
+  if (!before) throw new DomainRuleError("settings are stale or missing");
   const [after] = await tx.update(userSettings).set({
     ...input.patch, version: sql`${userSettings.version} + 1`, updatedAt: input.now,
   }).where(and(eq(userSettings.userId, input.actorUserId), eq(userSettings.version, input.expectedVersion))).returning();
-  if (!after) throw new Error("settings are stale or missing");
+  if (!after) throw new DomainRuleError("settings are stale or missing");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "update_settings",
     entityType: "settings", entityId: input.actorUserId, postVersion: after.version,
@@ -245,11 +246,11 @@ export async function updateOccurrenceInTx(tx: DbTransaction, input: UpdateOccur
     ...(row.occurrence.plannedEndAt ? { plannedEndAt: row.occurrence.plannedEndAt } : {}),
     eventElapseGraceMinutes: 15, explicitUserAction: true, systemExpire: false,
   });
-  if (!transition.ok) throw new Error(transition.reason);
+  if (!transition.ok) throw new DomainRuleError(transition.reason);
   const [afterOccurrence] = await tx.update(taskOccurrences).set({
     status: nextStatus, version: sql`${taskOccurrences.version} + 1`, updatedAt: input.now,
   }).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion))).returning();
-  if (!afterOccurrence) throw new Error("occurrence is stale or missing");
+  if (!afterOccurrence) throw new DomainRuleError("occurrence is stale or missing");
   touched.push({ entity: "occurrence", id: input.occurrenceId, version: afterOccurrence.version });
   const activeSystemFollowUps = input.operation === "start" ? await tx.select({ id: reminderRules.id }).from(reminderRules).where(and(
     eq(reminderRules.workspaceId, input.workspaceId), eq(reminderRules.occurrenceId, input.occurrenceId),
@@ -263,7 +264,7 @@ export async function updateOccurrenceInTx(tx: DbTransaction, input: UpdateOccur
   if (input.operation === "cancel" && !row.task.recurrenceRule) {
     const [afterTask] = await tx.update(tasks).set({ status: "cancelled", version: sql`${tasks.version} + 1`, updatedAt: input.now })
       .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, row.task.id), eq(tasks.version, row.task.version))).returning();
-    if (!afterTask) throw new Error("task changed while cancelling occurrence");
+    if (!afterTask) throw new DomainRuleError("task changed while cancelling occurrence");
     touched.push({ entity: "task", id: row.task.id, version: afterTask.version });
     await tx.insert(actionEvents).values({
       workspaceId: input.workspaceId, groupId: input.groupId, actionType: "update_occurrence", entityType: "task",
@@ -308,7 +309,7 @@ export async function updateTaskInTx(tx: DbTransaction, input: UpdateTaskInput):
   const [before] = await tx.select().from(tasks).where(and(
     eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, input.taskId), eq(tasks.version, input.expectedVersion),
   )).limit(1);
-  if (!before) throw new Error("task is stale or missing");
+  if (!before) throw new DomainRuleError("task is stale or missing");
 
   const beforeChecklist = await tx.select({ text: taskChecklistItems.text, done: taskChecklistItems.done })
     .from(taskChecklistItems)
@@ -321,7 +322,7 @@ export async function updateTaskInTx(tx: DbTransaction, input: UpdateTaskInput):
   const [after] = await tx.update(tasks).set({
     ...taskPatch, version: sql`${tasks.version} + 1`, updatedAt: input.now,
   }).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, input.taskId), eq(tasks.version, input.expectedVersion))).returning();
-  if (!after) throw new Error("task is stale or missing");
+  if (!after) throw new DomainRuleError("task is stale or missing");
 
   let afterChecklist = beforeChecklist;
   if (checklist !== undefined) {
@@ -352,7 +353,7 @@ export async function completeOccurrenceInTx(tx: DbTransaction, input: CompleteO
 /** Closes through the live occurrence when there is one; an undated task closes directly. */
 export async function completeTaskInTx(tx: DbTransaction, input: CompleteTaskInput): Promise<InTx<CompleteTaskStepResult>> {
   const task = await loadTask(tx, input.workspaceId, input.taskId, input.expectedVersion);
-  if (task.status !== "active") throw new Error("only an active task can be completed");
+  if (task.status !== "active") throw new DomainRuleError("only an active task can be completed");
 
   const occurrence = await liveOccurrence(tx, input.workspaceId, task.id, ["scheduled", "open", "in_progress", "elapsed"]);
   if (occurrence) {
@@ -361,7 +362,7 @@ export async function completeTaskInTx(tx: DbTransaction, input: CompleteTaskInp
 
   const [updatedTask] = await tx.update(tasks).set({ status: "closed", version: sql`${tasks.version} + 1`, updatedAt: input.now })
     .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, task.id), eq(tasks.version, task.version))).returning();
-  if (!updatedTask) throw new Error("task changed while completing it");
+  if (!updatedTask) throw new DomainRuleError("task changed while completing it");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "complete_task", entityType: "task",
     entityId: task.id, postVersion: updatedTask.version, beforeState: taskMutableState(task), afterState: taskMutableState(updatedTask),
@@ -376,7 +377,7 @@ export async function completeTaskInTx(tx: DbTransaction, input: CompleteTaskInp
  */
 export async function cancelTaskInTx(tx: DbTransaction, input: CancelTaskInput): Promise<InTx<CancelTaskStepResult>> {
   const task = await loadTask(tx, input.workspaceId, input.taskId, input.expectedVersion);
-  if (task.status !== "active") throw new Error("only an active task can be cancelled");
+  if (task.status !== "active") throw new DomainRuleError("only an active task can be cancelled");
 
   const occurrence = await liveOccurrence(tx, input.workspaceId, task.id, ["scheduled", "open", "in_progress"]);
   if (occurrence) {
@@ -387,7 +388,7 @@ export async function cancelTaskInTx(tx: DbTransaction, input: CancelTaskInput):
   const planningReviewRuleIds = await retirePlanningReview(tx, input.workspaceId, task.id);
   const [updatedTask] = await tx.update(tasks).set({ status: "cancelled", version: sql`${tasks.version} + 1`, updatedAt: input.now })
     .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, task.id), eq(tasks.version, task.version))).returning();
-  if (!updatedTask) throw new Error("task changed while cancelling it");
+  if (!updatedTask) throw new DomainRuleError("task changed while cancelling it");
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "cancel_task", entityType: "task",
     entityId: task.id, postVersion: updatedTask.version,
@@ -399,19 +400,19 @@ export async function cancelTaskInTx(tx: DbTransaction, input: CancelTaskInput):
 
 export async function rescheduleOccurrenceInTx(tx: DbTransaction, input: RescheduleOccurrenceInput): Promise<InTx<RescheduleOccurrenceStepResult>> {
   const row = await loadOccurrence(tx, input.workspaceId, input.occurrenceId, input.expectedVersion);
-  if (["done", "skipped", "cancelled", "elapsed"].includes(row.occurrence.status)) throw new Error("terminal occurrence cannot be rescheduled");
-  if (input.scheduleTimezone !== row.occurrence.timezone) throw new Error("reschedule timezone must match the occurrence timezone");
+  if (["done", "skipped", "cancelled", "elapsed"].includes(row.occurrence.status)) throw new DomainRuleError("terminal occurrence cannot be rescheduled");
+  if (input.scheduleTimezone !== row.occurrence.timezone) throw new DomainRuleError("reschedule timezone must match the occurrence timezone");
 
   const previousReschedules = await tx.select({ id: taskEvents.id }).from(taskEvents).where(and(
     eq(taskEvents.workspaceId, input.workspaceId), eq(taskEvents.occurrenceId, input.occurrenceId), eq(taskEvents.eventType, "occurrence:rescheduled"),
   ));
   if (isRescheduleReasonRequired(row.task.importance, previousReschedules.length) && !input.reason?.trim()) {
-    throw new Error("reschedule reason is required");
+    throw new DomainRuleError("reschedule reason is required");
   }
 
   const nextDefinition = rescheduledDefinition(taskDefinitionFromRow(row.task), input.schedule, input.timeMode);
   const becomesFuzzy = nextDefinition.timeMode === "fuzzy";
-  if (becomesFuzzy && row.task.recurrenceRule) throw new Error("recurring occurrence cannot become fuzzy");
+  if (becomesFuzzy && row.task.recurrenceRule) throw new DomainRuleError("recurring occurrence cannot become fuzzy");
   const nextStatus = becomesFuzzy ? "cancelled" : rescheduledOccurrenceStatus(nextDefinition, input.now);
   const touched: TouchedVersion[] = [];
 
@@ -433,7 +434,7 @@ export async function rescheduleOccurrenceInTx(tx: DbTransaction, input: Resched
     version: sql`${taskOccurrences.version} + 1`,
     updatedAt: input.now,
   }).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion))).returning();
-  if (!updatedOccurrence) throw new Error("occurrence is stale or missing");
+  if (!updatedOccurrence) throw new DomainRuleError("occurrence is stale or missing");
   touched.push({ entity: "occurrence", id: input.occurrenceId, version: updatedOccurrence.version });
 
   await cancelOccurrenceDeliveries(tx, input.workspaceId, input.occurrenceId);
@@ -457,7 +458,7 @@ export async function rescheduleOccurrenceInTx(tx: DbTransaction, input: Resched
       fuzzyHorizonText: nextDefinition.fuzzyHorizonText ?? null, reviewAt: nextDefinition.reviewAt ?? null,
       version: sql`${tasks.version} + 1`, updatedAt: input.now,
     }).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, row.task.id), eq(tasks.version, row.task.version))).returning();
-    if (!updatedTask) throw new Error("task changed while rescheduling occurrence");
+    if (!updatedTask) throw new DomainRuleError("task changed while rescheduling occurrence");
     touched.push({ entity: "task", id: row.task.id, version: updatedTask.version });
     await tx.insert(actionEvents).values({
       workspaceId: input.workspaceId, groupId: input.groupId, actionType: "reschedule_occurrence", entityType: "task",
@@ -483,11 +484,11 @@ export async function rescheduleOccurrenceInTx(tx: DbTransaction, input: Resched
  */
 export async function concretiseTaskInTx(tx: DbTransaction, input: ConcretiseTaskInput): Promise<InTx<ConcretiseTaskStepResult>> {
   const task = await loadTask(tx, input.workspaceId, input.taskId, input.expectedVersion);
-  if (task.status !== "active") throw new Error("only an active task can be scheduled");
-  if (task.timeMode !== "fuzzy" || task.recurrenceRule) throw new Error("only a fuzzy one-time task can be concretised");
-  if (input.definition.timeMode === "fuzzy") throw new Error("concretised definition must carry a concrete time");
+  if (task.status !== "active") throw new DomainRuleError("only an active task can be scheduled");
+  if (task.timeMode !== "fuzzy" || task.recurrenceRule) throw new DomainRuleError("only a fuzzy one-time task can be concretised");
+  if (input.definition.timeMode === "fuzzy") throw new DomainRuleError("concretised definition must carry a concrete time");
   const [settingsRow] = await tx.select().from(userSettings).where(eq(userSettings.userId, input.actorUserId)).limit(1);
-  if (!settingsRow) throw new Error("actor settings are missing");
+  if (!settingsRow) throw new DomainRuleError("actor settings are missing");
 
   const planningReviewRuleIds = await retirePlanningReview(tx, input.workspaceId, task.id);
   const definition = input.definition;
@@ -497,7 +498,7 @@ export async function concretiseTaskInTx(tx: DbTransaction, input: ConcretiseTas
     plannedLocalDate: definition.plannedLocalDate ?? null, dueAt: definition.dueAt ?? null, dueLocalDate: definition.dueLocalDate ?? null,
     fuzzyHorizonText: null, reviewAt: null, version: sql`${tasks.version} + 1`, updatedAt: input.now,
   }).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, task.id), eq(tasks.version, task.version))).returning();
-  if (!updatedTask) throw new Error("task changed while scheduling it");
+  if (!updatedTask) throw new DomainRuleError("task changed while scheduling it");
 
   const occurrenceId = crypto.randomUUID();
   const [occurrence] = await tx.insert(taskOccurrences).values({
@@ -541,7 +542,7 @@ export async function concretiseTaskInTx(tx: DbTransaction, input: ConcretiseTas
 
 export async function changeReminderInTx(tx: DbTransaction, input: ChangeReminderInput): Promise<InTx<ChangeReminderStepResult>> {
   const row = await loadOccurrence(tx, input.workspaceId, input.occurrenceId, input.expectedVersion);
-  if (["done", "skipped", "cancelled", "elapsed"].includes(row.occurrence.status)) throw new Error("terminal occurrence cannot change reminders");
+  if (["done", "skipped", "cancelled", "elapsed"].includes(row.occurrence.status)) throw new DomainRuleError("terminal occurrence cannot change reminders");
 
   const explicit = await tx.select({ id: reminderRules.id }).from(reminderRules).where(and(
     eq(reminderRules.workspaceId, input.workspaceId), eq(reminderRules.occurrenceId, input.occurrenceId),
@@ -558,7 +559,7 @@ export async function changeReminderInTx(tx: DbTransaction, input: ChangeReminde
 
   let insertedRuleId: string | null = null;
   if (input.mode !== "clear") {
-    if (!input.rule) throw new Error("reminder rule is required");
+    if (!input.rule) throw new DomainRuleError("reminder rule is required");
     insertedRuleId = crypto.randomUUID();
     await tx.insert(reminderRules).values({
       id: insertedRuleId, workspaceId: input.workspaceId, taskId: row.task.id, occurrenceId: input.occurrenceId,
@@ -582,7 +583,7 @@ export async function changeReminderInTx(tx: DbTransaction, input: ChangeReminde
     version: sql`${taskOccurrences.version} + 1`,
     updatedAt: input.now,
   }).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion))).returning();
-  if (!after) throw new Error("occurrence changed while updating reminder");
+  if (!after) throw new DomainRuleError("occurrence changed while updating reminder");
 
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId, groupId: input.groupId, actionType: "change_reminder", entityType: "occurrence", entityId: input.occurrenceId,
@@ -599,9 +600,9 @@ export async function changeReminderInTx(tx: DbTransaction, input: ChangeReminde
 
 export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInput): Promise<InTx<ChangeSeriesStepResult>> {
   const task = await loadTask(tx, input.workspaceId, input.taskId, input.expectedVersion, "series task is stale or missing");
-  if (!task.recurrenceRule && input.operation !== "resume") throw new Error("task is not a recurring series");
-  if (input.operation === "resume" && (task.status !== "paused" || !task.recurrenceRule)) throw new Error("only a paused recurring series can resume");
-  if (input.operation === "edit" && !input.editDefinition) throw new Error("series edit definition is required");
+  if (!task.recurrenceRule && input.operation !== "resume") throw new DomainRuleError("task is not a recurring series");
+  if (input.operation === "resume" && (task.status !== "paused" || !task.recurrenceRule)) throw new DomainRuleError("only a paused recurring series can resume");
+  if (input.operation === "edit" && !input.editDefinition) throw new DomainRuleError("series edit definition is required");
   const touched: TouchedVersion[] = [];
 
   const beforeExclusions = await tx.select({ localDate: taskRecurrenceExclusions.localDate }).from(taskRecurrenceExclusions).where(and(
@@ -636,7 +637,7 @@ export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInp
 
   const [afterTask] = await tx.update(tasks).set({ ...taskPatch, version: sql`${tasks.version} + 1` })
     .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, input.taskId), eq(tasks.version, input.expectedVersion))).returning();
-  if (!afterTask) throw new Error("series task changed");
+  if (!afterTask) throw new DomainRuleError("series task changed");
   touched.push({ entity: "task", id: input.taskId, version: afterTask.version });
   if (input.operation === "stop" || input.operation === "edit") {
     await tx.delete(taskRecurrenceExclusions).where(and(
@@ -684,7 +685,7 @@ export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInp
     const [afterOccurrence] = await tx.update(taskOccurrences).set({
       status: nextStatus, skipReason, version: sql`${taskOccurrences.version} + 1`, updatedAt: input.now,
     }).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, occurrence.id), eq(taskOccurrences.version, occurrence.version))).returning();
-    if (!afterOccurrence) throw new Error("series occurrence changed");
+    if (!afterOccurrence) throw new DomainRuleError("series occurrence changed");
     touched.push({ entity: "occurrence", id: occurrence.id, version: afterOccurrence.version });
     await tx.insert(actionEvents).values({
       workspaceId: input.workspaceId, groupId: input.groupId, actionType: "change_series", entityType: "occurrence", entityId: occurrence.id,
@@ -709,14 +710,14 @@ async function completeLoadedOccurrence(
     ...(row.occurrence.plannedEndAt ? { plannedEndAt: row.occurrence.plannedEndAt } : {}),
     eventElapseGraceMinutes: 15, explicitUserAction: true, systemExpire: false,
   });
-  if (!transition.ok) throw new Error(transition.reason);
+  if (!transition.ok) throw new DomainRuleError(transition.reason);
   const touched: TouchedVersion[] = [];
 
   const [updatedOccurrence] = await tx.update(taskOccurrences).set({
     status: "done", completedAt: input.now, completedLate: row.occurrence.status === "elapsed",
     version: sql`${taskOccurrences.version} + 1`, updatedAt: input.now,
   }).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion))).returning();
-  if (!updatedOccurrence) throw new Error("occurrence is stale or missing");
+  if (!updatedOccurrence) throw new DomainRuleError("occurrence is stale or missing");
   touched.push({ entity: "occurrence", id: input.occurrenceId, version: updatedOccurrence.version });
 
   await suppressOccurrenceDeliveries(tx, input.workspaceId, input.occurrenceId);
@@ -729,7 +730,7 @@ async function completeLoadedOccurrence(
   if (!row.task.recurrenceRule) {
     const [updatedTask] = await tx.update(tasks).set({ status: "closed", version: sql`${tasks.version} + 1`, updatedAt: input.now })
       .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, row.task.id), eq(tasks.version, row.task.version))).returning();
-    if (!updatedTask) throw new Error("task changed while completing occurrence");
+    if (!updatedTask) throw new DomainRuleError("task changed while completing occurrence");
     touched.push({ entity: "task", id: row.task.id, version: updatedTask.version });
     await tx.insert(actionEvents).values({
       workspaceId: input.workspaceId, groupId: input.groupId, actionType: "complete_occurrence", entityType: "task",
@@ -745,7 +746,7 @@ async function completeLoadedOccurrence(
 
 async function loadTask(tx: DbTransaction, workspaceId: string, taskId: string, expectedVersion: number, message = "task is stale or missing") {
   const [task] = await tx.select().from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), eq(tasks.version, expectedVersion))).limit(1);
-  if (!task) throw new Error(message);
+  if (!task) throw new DomainRuleError(message);
   return task;
 }
 
@@ -753,7 +754,7 @@ async function loadOccurrence(tx: DbTransaction, workspaceId: string, occurrence
   const [row] = await tx.select({ task: tasks, occurrence: taskOccurrences }).from(taskOccurrences)
     .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
     .where(and(eq(taskOccurrences.workspaceId, workspaceId), eq(taskOccurrences.id, occurrenceId), eq(taskOccurrences.version, expectedVersion))).limit(1);
-  if (!row) throw new Error("occurrence is stale or missing");
+  if (!row) throw new DomainRuleError("occurrence is stale or missing");
   return row;
 }
 

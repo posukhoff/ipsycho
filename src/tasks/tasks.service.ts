@@ -14,6 +14,7 @@ import { defaultReminderRuleSpecs, reminderRuleRows, withExplicitReminder } from
 import { reminderSettingsFromRow } from "./task-record-mappers.js";
 import { RecurrenceMaintenanceService } from "./recurrence-maintenance.service.js";
 import { safeError } from "../observability/safe-error.js";
+import { DomainRuleError } from "../core/errors.js";
 
 export interface CreateTaskInput {
   workspaceId: string;
@@ -90,13 +91,13 @@ export class TasksService {
 
   private async buildTaskPlan(input: CreateTaskInput): Promise<BuiltTaskPlan> {
     const title = input.title.trim();
-    if (!title) throw new Error("task title is required");
-    if (title.length > 500) throw new Error("task title must be at most 500 characters");
+    if (!title) throw new DomainRuleError("task title is required");
+    if (title.length > 500) throw new DomainRuleError("task title must be at most 500 characters");
     const validation = validateTaskDefinition(input.definition);
     if (!validation.ok) throw new Error(validation.errors.join("; "));
 
     const settingsRow = await this.repository.findMemberSettings(input.workspaceId, input.recipientUserId);
-    if (!settingsRow) throw new Error("recipient is not a workspace member");
+    if (!settingsRow) throw new DomainRuleError("recipient is not a workspace member");
     const settings = reminderSettingsFromRow(settingsRow);
 
     const now = input.now ?? new Date();
@@ -333,7 +334,7 @@ export class TasksService {
 
   async isRescheduleReasonRequired(workspaceId: string, occurrenceId: string): Promise<boolean> {
     const context = await this.getOccurrenceContext(workspaceId, occurrenceId);
-    if (!context) throw new Error("occurrence not found");
+    if (!context) throw new DomainRuleError("occurrence not found");
     const previous = await this.repository.countReschedules(workspaceId, occurrenceId);
     return isRescheduleReasonRequired(context.task.importance, previous);
   }
@@ -353,9 +354,9 @@ export class TasksService {
     systemExpire?: boolean;
   }) {
     const occurrence = await this.repository.findOccurrence(input.workspaceId, input.occurrenceId);
-    if (!occurrence) throw new Error("occurrence not found");
+    if (!occurrence) throw new DomainRuleError("occurrence not found");
     const task = await this.repository.findTask(input.workspaceId, occurrence.taskId);
-    if (!task) throw new Error("task not found");
+    if (!task) throw new DomainRuleError("task not found");
 
     const now = input.now ?? new Date();
     const result = validateOccurrenceTransition(occurrence.status, input.nextStatus, {
@@ -368,7 +369,7 @@ export class TasksService {
       explicitUserAction: Boolean(input.actorUserId),
       systemExpire: input.systemExpire ?? false,
     });
-    if (!result.ok) throw new Error(result.reason);
+    if (!result.ok) throw new DomainRuleError(result.reason);
 
     const patch: Partial<typeof taskOccurrences.$inferInsert> = {};
     if (input.nextStatus === "done") {
@@ -404,7 +405,7 @@ export class TasksService {
     eventType: "occurrence:seen" | "occurrence:cant_start";
   }): Promise<void> {
     const occurrence = await this.repository.findOccurrence(input.workspaceId, input.occurrenceId);
-    if (!occurrence) throw new Error("occurrence not found");
+    if (!occurrence) throw new DomainRuleError("occurrence not found");
     await this.repository.recordEvent({
       workspaceId: input.workspaceId,
       taskId: occurrence.taskId,
@@ -416,9 +417,9 @@ export class TasksService {
 
   async recordBlocker(input: { workspaceId: string; occurrenceId: string; actorUserId: string; details: string }): Promise<void> {
     const occurrence = await this.repository.findOccurrence(input.workspaceId, input.occurrenceId);
-    if (!occurrence) throw new Error("occurrence not found");
+    if (!occurrence) throw new DomainRuleError("occurrence not found");
     const details = input.details.trim();
-    if (!details) throw new Error("blocker cannot be empty");
+    if (!details) throw new DomainRuleError("blocker cannot be empty");
     await this.repository.recordEvent({
       workspaceId: input.workspaceId, taskId: occurrence.taskId, occurrenceId: occurrence.id, actorUserId: input.actorUserId,
       eventType: "occurrence:blocker", details,

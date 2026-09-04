@@ -22,6 +22,7 @@ import {
   type CreateGoalStepResult, type DeleteMemoryStepResult, type GoalPlanStepResult, type GoalState, type LinkSource, type LinkTaskToGoalStepResult,
   type MemoryState, type MemoryType, type SaveMemoryStepResult, type UnlinkTaskToGoalStepResult, type UpdateGoalStepResult, type UpdateMemoryStepResult,
 } from "../context/context-actions.repository.js";
+import { DomainRuleError } from "../core/errors.js";
 
 /**
  * One step of an action group. Every step names the row versions the resolver read; the group
@@ -339,8 +340,8 @@ export class ActionGroupRepository {
         for (const id of ids) {
           const expected = Math.max(...(grouped.get(id) ?? []).map((event) => event.postVersion ?? 0));
           const row = rows.find((item) => item.id === id);
-          if (!row) throw new Error(`undo refused because a ${entity} is missing`);
-          if (row.version !== expected) throw new Error(`undo refused because a ${entity} changed after the action`);
+          if (!row) throw new DomainRuleError(`undo refused because a ${entity} is missing`);
+          if (row.version !== expected) throw new DomainRuleError(`undo refused because a ${entity} changed after the action`);
         }
       };
       await lockAndVerify("task", taskEvents, (ids) => tx.select({ id: tasks.id, version: tasks.version }).from(tasks).where(and(eq(tasks.workspaceId, input.workspaceId), inArray(tasks.id, ids))).orderBy(tasks.id).for("update"));
@@ -357,24 +358,24 @@ export class ActionGroupRepository {
         const unlinked = list.some((event) => event.actionType === "unlink_task_to_goal");
         if (linked && !unlinked) {
           const deleted = await tx.delete(taskGoals).where(and(eq(taskGoals.workspaceId, input.workspaceId), eq(taskGoals.taskId, taskId), eq(taskGoals.goalId, goalId))).returning({ taskId: taskGoals.taskId });
-          if (!deleted.length) throw new Error("task-goal link changed after the action");
+          if (!deleted.length) throw new DomainRuleError("task-goal link changed after the action");
         } else if (unlinked && !linked) {
           const state = list.find((event) => event.actionType === "unlink_task_to_goal")?.beforeState as { source?: string; confidence?: number } | null;
-          if (!state?.source) throw new Error("task-goal undo state is missing");
+          if (!state?.source) throw new DomainRuleError("task-goal undo state is missing");
           const [restored] = await tx.insert(taskGoals).values({ workspaceId: input.workspaceId, taskId, goalId, source: state.source, confidence: state.confidence ?? 100 }).onConflictDoNothing().returning({ taskId: taskGoals.taskId });
-          if (!restored) throw new Error("task-goal link changed after the action");
+          if (!restored) throw new DomainRuleError("task-goal link changed after the action");
         }
       }
 
       for (const [occurrenceId, list] of occurrenceEvents) {
         if (list.some((event) => CREATE_ACTIONS.has(event.actionType))) {
           const deleted = await tx.delete(taskOccurrences).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, occurrenceId))).returning({ id: taskOccurrences.id });
-          if (!deleted.length) throw new Error("created occurrence is missing during undo");
+          if (!deleted.length) throw new DomainRuleError("created occurrence is missing during undo");
           continue;
         }
         const earliest = list[0]!;
         const state = earliest.beforeState as (OccurrenceMutableState & { explicitReminderRuleIds?: string[]; systemFollowUpRuleIds?: string[] }) | null;
-        if (!state || typeof state !== "object") throw new Error("undo state is incomplete");
+        if (!state || typeof state !== "object") throw new DomainRuleError("undo state is incomplete");
         const actionTypes = new Set(list.map((event) => event.actionType));
         if (actionTypes.has("change_reminder")) {
           await tx.update(reminderRules).set({ active: false }).where(and(eq(reminderRules.workspaceId, input.workspaceId), eq(reminderRules.occurrenceId, occurrenceId), eq(reminderRules.origin, "explicit"), eq(reminderRules.active, true)));
@@ -391,7 +392,7 @@ export class ActionGroupRepository {
           defaultRemindersSuppressed: state.defaultRemindersSuppressed, seriesRevision: state.seriesRevision,
           version: sql`${taskOccurrences.version} + 1`, updatedAt: input.now,
         }).where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, occurrenceId), eq(taskOccurrences.version, current))).returning({ id: taskOccurrences.id });
-        if (!restored) throw new Error("undo target occurrence changed after action");
+        if (!restored) throw new DomainRuleError("undo target occurrence changed after action");
         const followUpIds = list.flatMap((event) => (event.beforeState as { systemFollowUpRuleIds?: string[] } | null)?.systemFollowUpRuleIds ?? []);
         if (actionTypes.has("update_occurrence") && followUpIds.length) {
           await tx.update(reminderRules).set({ active: true }).where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, followUpIds)));
@@ -412,19 +413,19 @@ export class ActionGroupRepository {
       for (const [taskId, list] of taskEvents) {
         if (list.some((event) => CREATE_ACTIONS.has(event.actionType))) {
           const deleted = await tx.delete(tasks).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, taskId))).returning({ id: tasks.id });
-          if (!deleted.length) throw new Error("created task is missing during undo");
+          if (!deleted.length) throw new DomainRuleError("created task is missing during undo");
           continue;
         }
         const earliest = list[0]!;
         const state = earliest.beforeState as (TaskMutableState & { checklist?: Array<{ text: string; done: boolean }>; planningReviewRuleIds?: string[] }) | null;
-        if (!state || typeof state !== "object") throw new Error("undo state is incomplete");
+        if (!state || typeof state !== "object") throw new DomainRuleError("undo state is incomplete");
         const actionTypes = new Set(list.map((event) => event.actionType));
         if (actionTypes.has("change_series")) {
           const newerRevision = await tx.select().from(taskOccurrences).where(and(
             eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.taskId, taskId),
             sql`${taskOccurrences.seriesRevision} <> ${state.seriesRevision}`, inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"]),
           ));
-          if (newerRevision.some((row) => row.version !== 1 || row.status === "in_progress")) throw new Error("undo blocked because a new-series occurrence changed after the edit");
+          if (newerRevision.some((row) => row.version !== 1 || row.status === "in_progress")) throw new DomainRuleError("undo blocked because a new-series occurrence changed after the edit");
           if (newerRevision.length) {
             const ids = newerRevision.map((row) => row.id);
             await tx.update(taskOccurrences).set({ status: "cancelled", skipReason: "series_edit_undone", version: sql`${taskOccurrences.version} + 1`, updatedAt: input.now })
@@ -444,7 +445,7 @@ export class ActionGroupRepository {
           habitOfferSentAt: parseJsonDate(state.habitOfferSentAt), seriesRevision: state.seriesRevision,
           version: sql`${tasks.version} + 1`, updatedAt: input.now,
         }).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, taskId), eq(tasks.version, current))).returning({ id: tasks.id });
-        if (!restored) throw new Error("undo target task changed after action");
+        if (!restored) throw new DomainRuleError("undo target task changed after action");
         if (actionTypes.has("change_series")) {
           await tx.delete(taskRecurrenceExclusions).where(and(eq(taskRecurrenceExclusions.workspaceId, input.workspaceId), eq(taskRecurrenceExclusions.taskId, taskId)));
           if (state.recurrenceExcludedLocalDates?.length) {
@@ -470,23 +471,23 @@ export class ActionGroupRepository {
       for (const [goalId, list] of goalEvents) {
         if (list.some((event) => CREATE_ACTIONS.has(event.actionType))) {
           const deleted = await tx.delete(goals).where(and(eq(goals.workspaceId, input.workspaceId), eq(goals.id, goalId))).returning({ id: goals.id });
-          if (!deleted.length) throw new Error("created goal is missing during undo");
+          if (!deleted.length) throw new DomainRuleError("created goal is missing during undo");
           continue;
         }
         const state = list[0]!.beforeState as GoalState | null;
-        if (!state) throw new Error("goal undo state is missing");
+        if (!state) throw new DomainRuleError("goal undo state is missing");
         const current = versions.current("goal", goalId);
         const [restored] = await tx.update(goals).set({
           title: state.title, why: state.why, status: state.status, targetLocalDate: state.targetLocalDate, reviewEnabled: state.reviewEnabled,
           nextReviewAt: parseJsonDate(state.nextReviewAt), version: current + 1, updatedAt: input.now,
         }).where(and(eq(goals.workspaceId, input.workspaceId), eq(goals.id, goalId), eq(goals.version, current))).returning({ id: goals.id });
-        if (!restored) throw new Error("goal changed after action");
+        if (!restored) throw new DomainRuleError("goal changed after action");
       }
 
       for (const [memoryId, list] of memoryEvents) {
         if (list.every((event) => event.actionType === "delete_memory")) {
           const state = list[0]!.beforeState as MemoryState | null;
-          if (!state) throw new Error("deleted memory state is missing");
+          if (!state) throw new DomainRuleError("deleted memory state is missing");
           await tx.insert(memoryItems).values({
             id: memoryId, workspaceId: input.workspaceId, userId: state.userId, type: state.type, content: state.content, sensitive: state.sensitive, source: state.source,
             ...(state.sourceMessageId ? { sourceMessageId: state.sourceMessageId } : {}),
@@ -496,20 +497,20 @@ export class ActionGroupRepository {
         }
         if (list.some((event) => CREATE_ACTIONS.has(event.actionType))) {
           const deleted = await tx.delete(memoryItems).where(and(eq(memoryItems.workspaceId, input.workspaceId), eq(memoryItems.id, memoryId))).returning({ id: memoryItems.id });
-          if (!deleted.length) throw new Error("memory changed after action");
+          if (!deleted.length) throw new DomainRuleError("memory changed after action");
           continue;
         }
         const state = list[0]!.beforeState as MemoryState | null;
-        if (!state) throw new Error("memory undo state is missing");
+        if (!state) throw new DomainRuleError("memory undo state is missing");
         const current = versions.current("memory", memoryId);
         const [restored] = await tx.update(memoryItems).set({ content: state.content, sensitive: state.sensitive, version: current + 1, updatedAt: input.now })
           .where(and(eq(memoryItems.workspaceId, input.workspaceId), eq(memoryItems.id, memoryId), eq(memoryItems.version, current))).returning({ id: memoryItems.id });
-        if (!restored) throw new Error("memory changed after action");
+        if (!restored) throw new DomainRuleError("memory changed after action");
       }
 
       for (const [userId, list] of settingsEvents) {
         const state = list[0]!.beforeState as SettingsMutableState | null;
-        if (!state) throw new Error("settings undo state is missing");
+        if (!state) throw new DomainRuleError("settings undo state is missing");
         const current = versions.current("settings", userId);
         const [restored] = await tx.update(userSettings).set({
           timezone: state.timezone, digestTimezone: state.digestTimezone, quietHoursTimezone: state.quietHoursTimezone,
@@ -524,12 +525,12 @@ export class ActionGroupRepository {
           seenNormalMinutes: state.seenNormalMinutes, seenRequiredMinutes: state.seenRequiredMinutes, seenCriticalMinutes: state.seenCriticalMinutes,
           version: sql`${userSettings.version} + 1`, updatedAt: input.now,
         }).where(and(eq(userSettings.userId, userId), eq(userSettings.version, current))).returning({ userId: userSettings.userId });
-        if (!restored) throw new Error("undo target settings changed after action");
+        if (!restored) throw new DomainRuleError("undo target settings changed after action");
       }
 
       const [group] = await tx.update(actionGroups).set({ status: "undone", undoneAt: input.now })
         .where(and(eq(actionGroups.workspaceId, input.workspaceId), eq(actionGroups.id, input.groupId), eq(actionGroups.status, "undoing"))).returning({ id: actionGroups.id });
-      if (!group) throw new Error("undo group is not in progress");
+      if (!group) throw new DomainRuleError("undo group is not in progress");
       return { reminderRebuildOccurrenceIds: [...rebuild], fuzzyRebuildTaskIds: [...fuzzyRebuild], reconcileTaskIds: [...reconcile] };
     });
   }
@@ -540,7 +541,7 @@ export async function finalizeGroup(tx: DbTransaction, workspaceId: string, grou
   await tx.delete(pendingActions).where(and(eq(pendingActions.workspaceId, workspaceId), eq(pendingActions.groupId, groupId)));
   const [updated] = await tx.update(actionGroups).set({ status: "applied", appliedAt: now, undoExpiresAt })
     .where(and(eq(actionGroups.workspaceId, workspaceId), eq(actionGroups.id, groupId), eq(actionGroups.status, "applying"))).returning({ id: actionGroups.id });
-  if (!updated) throw new Error("action group is not claimable as applied");
+  if (!updated) throw new DomainRuleError("action group is not claimable as applied");
 }
 
 /**
@@ -560,14 +561,14 @@ class VersionTracker {
 
   expect(entity: TouchedVersion["entity"], id: string, expected: number): number {
     const row = this.rows.get(`${entity}:${id}`);
-    if (!row) throw new Error(`${entity} target is missing`);
-    if (row.initial !== expected) throw new Error(`${entity} is stale or missing`);
+    if (!row) throw new DomainRuleError(`${entity} target is missing`);
+    if (row.initial !== expected) throw new DomainRuleError(`${entity} is stale or missing`);
     return row.current;
   }
 
   current(entity: TouchedVersion["entity"], id: string): number {
     const row = this.rows.get(`${entity}:${id}`);
-    if (!row) throw new Error(`${entity} target is missing`);
+    if (!row) throw new DomainRuleError(`${entity} target is missing`);
     return row.current;
   }
 
@@ -609,7 +610,7 @@ async function lockTargets(tx: DbTransaction, workspaceId: string, actorUserId: 
   if (taskIds.size) {
     const ids = sorted(taskIds);
     const rows = await tx.select({ id: tasks.id, version: tasks.version }).from(tasks).where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids))).orderBy(tasks.id).for("update");
-    if (rows.length !== ids.length) throw new Error("task target is missing");
+    if (rows.length !== ids.length) throw new DomainRuleError("task target is missing");
     for (const row of rows) versions.register("task", row.id, row.version);
   }
   if (occurrenceIds.size) {
@@ -617,7 +618,7 @@ async function lockTargets(tx: DbTransaction, workspaceId: string, actorUserId: 
     const rows = await tx.select({ id: taskOccurrences.id, version: taskOccurrences.version, taskId: tasks.id, taskVersion: tasks.version }).from(taskOccurrences)
       .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
       .where(and(eq(taskOccurrences.workspaceId, workspaceId), inArray(taskOccurrences.id, ids))).orderBy(taskOccurrences.id).for("update");
-    if (rows.length !== ids.length) throw new Error("occurrence target is missing");
+    if (rows.length !== ids.length) throw new DomainRuleError("occurrence target is missing");
     for (const row of rows) {
       versions.register("occurrence", row.id, row.version);
       if (!taskIds.has(row.taskId)) versions.register("task", row.taskId, row.taskVersion);
@@ -626,19 +627,19 @@ async function lockTargets(tx: DbTransaction, workspaceId: string, actorUserId: 
   if (goalIds.size) {
     const ids = sorted(goalIds);
     const rows = await tx.select({ id: goals.id, version: goals.version }).from(goals).where(and(eq(goals.workspaceId, workspaceId), inArray(goals.id, ids))).orderBy(goals.id).for("update");
-    if (rows.length !== ids.length) throw new Error("goal target is missing");
+    if (rows.length !== ids.length) throw new DomainRuleError("goal target is missing");
     for (const row of rows) versions.register("goal", row.id, row.version);
   }
   if (memoryIds.size) {
     const ids = sorted(memoryIds);
     const rows = await tx.select({ id: memoryItems.id, version: memoryItems.version }).from(memoryItems)
       .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.userId, actorUserId), inArray(memoryItems.id, ids))).orderBy(memoryItems.id).for("update");
-    if (rows.length !== ids.length) throw new Error("memory target is missing");
+    if (rows.length !== ids.length) throw new DomainRuleError("memory target is missing");
     for (const row of rows) versions.register("memory", row.id, row.version);
   }
   if (settings) {
     const [row] = await tx.select({ id: userSettings.userId, version: userSettings.version }).from(userSettings).where(eq(userSettings.userId, actorUserId)).for("update");
-    if (!row) throw new Error("settings target is missing");
+    if (!row) throw new DomainRuleError("settings target is missing");
     versions.register("settings", row.id, row.version);
   }
   return versions;
@@ -648,7 +649,7 @@ function groupPairs(events: readonly UndoEvent[]): Map<string, UndoEvent[]> {
   const map = new Map<string, UndoEvent[]>();
   for (const event of events) {
     const state = (event.actionType === "unlink_task_to_goal" ? event.beforeState : event.afterState) as { taskId?: string; goalId?: string } | null;
-    if (!state?.taskId || !state.goalId) throw new Error("task-goal undo state is incomplete");
+    if (!state?.taskId || !state.goalId) throw new DomainRuleError("task-goal undo state is incomplete");
     const key = `${state.taskId}:${state.goalId}`;
     const list = map.get(key) ?? [];
     list.push(event);

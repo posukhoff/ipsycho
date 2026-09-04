@@ -25,7 +25,6 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly database: DatabaseService,
   ) {
-    if (!config.telegramBotToken) throw new Error("TELEGRAM_BOT_TOKEN is required to run the app");
     this.bot = new Bot(config.telegramBotToken);
     // Telegram answers 429 with retry_after; without this every burst (a digest hour, a Today
     // screen refresh) surfaced as a failed call instead of a short wait.

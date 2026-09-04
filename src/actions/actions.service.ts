@@ -27,6 +27,8 @@ import { resolveActions } from "./action-resolver.js";
 import { ActionGroupRepository, type ActionGroupStep, type ActionGroupStepResult } from "./action-group.repository.js";
 import { ActionMutationsRepository } from "./action-mutations.repository.js";
 import { ActionsRepository } from "./actions.repository.js";
+import { DomainRuleError } from "../core/errors.js";
+import { isConnectionLevelError } from "../database/pg-errors.js";
 
 export interface ActionScope {
   workspaceId: string;
@@ -50,6 +52,13 @@ export interface ProposedActionsResult {
   warnings?: string[];
 }
 
+export interface PendingGroupSummary { groupId: string; createdAt: Date; titles: string[]; actions: ResolvedAction[] }
+
+/**
+ * The connection to PostgreSQL broke while the group's transaction was in flight. The commit
+ * may or may not have landed; the group stays in `applying` and boot recovery reconciles it.
+ * The user is told not to repeat the command rather than being retried into a duplicate.
+ */
 export class ActionStateUncertainError extends Error {
   constructor(readonly groupId: string) {
     super("action state could not be finalized safely");
@@ -255,6 +264,7 @@ export class ActionsService implements OnApplicationBootstrap {
         steps, now, undoExpiresAt: actionExpiry(now, ACTION_UNDO_TTL_MS),
       });
     } catch (error) {
+      if (isConnectionLevelError(error)) throw new ActionStateUncertainError(groupId);
       if (groupExists) await this.repository.markFailed(scope.workspaceId, groupId).catch(() => undefined);
       throw error;
     }
@@ -281,7 +291,7 @@ export class ActionsService implements OnApplicationBootstrap {
 
   async confirm(workspaceId: string, actorUserId: string, recipientUserId: string, groupId: string, now = new Date()): Promise<NonNullable<ProposedActionsResult["applied"]>> {
     const claimed = await this.repository.claimPendingGroup(workspaceId, actorUserId, groupId, now);
-    if (!claimed) throw new Error("confirmation expired or already handled");
+    if (!claimed) throw new DomainRuleError("confirmation expired or already handled");
     let actions: ResolvedAction[];
     try {
       actions = claimed.actions.map((row) => ResolvedActionSchema.parse(row.payload) as ResolvedAction);
@@ -306,19 +316,22 @@ export class ActionsService implements OnApplicationBootstrap {
   }
 
   /** The proposal a typed "да"/"нет" refers to, resolved from the card the bot actually sent. */
-  async pendingGroupSummary(workspaceId: string, actorUserId: string, groupId: string, now = new Date()): Promise<{ groupId: string; createdAt: Date; titles: string[] } | null> {
+  async pendingGroupSummary(workspaceId: string, actorUserId: string, groupId: string, now = new Date()): Promise<PendingGroupSummary | null> {
     const group = await this.repository.findPendingGroup(workspaceId, actorUserId, groupId, now);
     if (!group) return null;
+    const actions: ResolvedAction[] = [];
     const titles = group.actions.map((row) => {
       const parsed = ResolvedActionSchema.safeParse(row.payload);
-      return parsed.success ? describeAction(parsed.data) : row.actionType;
+      if (!parsed.success) return row.actionType;
+      actions.push(parsed.data as ResolvedAction);
+      return describeAction(parsed.data as ResolvedAction);
     });
-    return { groupId: group.groupId, createdAt: group.createdAt, titles };
+    return { groupId: group.groupId, createdAt: group.createdAt, titles, actions };
   }
 
   async undo(workspaceId: string, actorUserId: string, groupId: string, now = new Date()): Promise<void> {
     const claimed = await this.repository.claimUndo(workspaceId, actorUserId, groupId, now);
-    if (!claimed) throw new Error("undo expired or action already changed");
+    if (!claimed) throw new DomainRuleError("undo expired or action already changed");
     let result;
     try {
       result = await this.groups.undo({ workspaceId, groupId, now });

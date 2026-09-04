@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clarificationForCandidates, issueCode, renderValidationReply, unclearReply } from "../../dist/chat/turn-errors.js";
+import { clarificationForCandidates, hasExplanation, issueCode, renderValidationReply, unclearReply } from "../../dist/chat/turn-errors.js";
 import { bareConfirmationDecision } from "../../dist/core/conversation-control.js";
 
 const issue = (fields) => ({ kind: "domain", index: 0, code: "invalid_action", message: "", ...fields });
@@ -13,8 +13,13 @@ test("a rejected action names the failed rule and a concrete fix instead of a ge
   assert.match(stale, /изменились после того, как я прочитал/i);
   assert.match(renderValidationReply([issue({ kind: "reference", code: "stale", message: "target task is missing or stale" })], "en", 1), /changed after I read it/);
 
+  // An unmapped rule gets a plain sentence; its English text is for the log, never the user.
   const unmapped = renderValidationReply([issue({ message: "some brand new rule failed" })], "ru", 1);
-  assert.match(unmapped, /some brand new rule failed/);
+  assert.doesNotMatch(unmapped, /some brand new rule failed/);
+  assert.match(unmapped, /Не сохранил: не сработало одно из правил/);
+  assert.doesNotMatch(unmapped, /[A-Za-z]{4,}/);
+  assert.equal(hasExplanation("time_past"), true);
+  assert.equal(hasExplanation("brand_new"), false);
 });
 
 test("an unknown code still maps through the message when a known rule text matches", () => {

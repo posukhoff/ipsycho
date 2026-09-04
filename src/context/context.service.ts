@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { normalizeTopicDirective, type TopicDirective } from "../core/context-policy.js";
 import { ContextRepository } from "./context.repository.js";
 import { emptyWeeklyReviewState, mergeWeeklyReviewProgress, type WeeklyReviewProgress } from "../core/weekly-review-state.js";
+import { DomainRuleError } from "../core/errors.js";
 
 const TOPIC_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
@@ -64,7 +65,7 @@ export class ContextService {
       now,
       summaryExpiresAt,
     });
-    if (!updated) throw new Error("topic state changed");
+    if (!updated) throw new DomainRuleError("topic state changed");
     await this.repository.setMessageTopic(input.workspaceId, input.messageId, updated.id);
     return updated.id;
   }
@@ -117,10 +118,10 @@ export class ContextService {
 
   async mergeWeeklyReviewProgress(input: { workspaceId: string; userId: string; topicId: string; progress: WeeklyReviewProgress | null | undefined; now?: Date }) {
     const topic = await this.repository.findTopic(input.workspaceId, input.userId, input.topicId);
-    if (!topic || topic.reviewKind !== "weekly") throw new Error("weekly review topic is missing");
+    if (!topic || topic.reviewKind !== "weekly") throw new DomainRuleError("weekly review topic is missing");
     const state = mergeWeeklyReviewProgress(topic.reviewState, input.progress);
     const updated = await this.repository.updateReviewState({ workspaceId: input.workspaceId, userId: input.userId, topicId: input.topicId, reviewState: state, now: input.now ?? new Date() });
-    if (!updated) throw new Error("weekly review state changed");
+    if (!updated) throw new DomainRuleError("weekly review state changed");
     return state;
   }
 
