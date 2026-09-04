@@ -61,20 +61,31 @@ export function isUndoable(actions: readonly ResolvedAction[]): boolean {
 /** The task, goal, memory item or settings operation an action is about; null for a new entity. */
 function actionTarget(action: ResolvedAction): string | null {
   switch (action.type) {
-    case "update_task": return `task:${action.taskId}`;
+    case "update_task":
+      return `task:${action.taskId}`;
     case "set_task_state":
     case "reschedule":
-    case "set_reminder": return `task:${action.target.taskId}`;
-    case "goal": return action.goalId ? `goal:${action.goalId}` : action.taskId ? `task:${action.taskId}` : null;
-    case "memory": return action.memoryId ? `memory:${action.memoryId}` : null;
-    case "settings": return `settings:${action.operation}`;
-    case "create_task": return `new:${normalizeTitle(action.body.title)}`;
-    case "plan": return `new:${normalizeTitle(action.goal.title)}`;
+    case "set_reminder":
+      return `task:${action.target.taskId}`;
+    case "goal":
+      return action.goalId ? `goal:${action.goalId}` : action.taskId ? `task:${action.taskId}` : null;
+    case "memory":
+      return action.memoryId ? `memory:${action.memoryId}` : null;
+    case "settings":
+      return `settings:${action.operation}`;
+    case "create_task":
+      return `new:${normalizeTitle(action.body.title)}`;
+    case "plan":
+      return `new:${normalizeTitle(action.goal.title)}`;
   }
 }
 
 function normalizeTitle(title: string): string {
-  return title.toLocaleLowerCase().replace(/[«»"'`.,!?;:—–-]/gu, "").replace(/\s+/gu, " ").trim();
+  return title
+    .toLocaleLowerCase()
+    .replace(/[«»"'`.,!?;:—–-]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 /**
@@ -85,4 +96,3 @@ export function answersProposal(action: ResolvedAction, proposal: readonly Resol
   const target = actionTarget(action);
   return proposal.some((proposed) => proposed.type === action.type && actionTarget(proposed) === target);
 }
-

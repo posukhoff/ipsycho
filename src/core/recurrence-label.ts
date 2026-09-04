@@ -7,43 +7,76 @@ const WEEKDAYS: Record<LabelLocale, Record<string, string>> = {
   en: { MO: "Mon", TU: "Tue", WE: "Wed", TH: "Thu", FR: "Fri", SA: "Sat", SU: "Sun" },
 };
 
-const WORDS: Record<LabelLocale, {
-  daily: string; everyDays: (n: number) => string; weekly: string; everyWeeks: (n: number) => string; monthly: string; everyMonths: (n: number) => string; monthDay: (d: string) => string; until: string;
-}> = {
+const WORDS: Record<
+  LabelLocale,
+  {
+    daily: string;
+    everyDays: (n: number) => string;
+    weekly: string;
+    everyWeeks: (n: number) => string;
+    monthly: string;
+    everyMonths: (n: number) => string;
+    monthDay: (d: string) => string;
+    until: string;
+  }
+> = {
   ru: {
-    daily: "каждый день", everyDays: (n) => `каждые ${n} ${plural("ru", n, "день", "дня", "дней")}`,
-    weekly: "каждую неделю", everyWeeks: (n) => `каждые ${n} ${plural("ru", n, "неделю", "недели", "недель")}`,
-    monthly: "каждый месяц", everyMonths: (n) => `каждые ${n} ${plural("ru", n, "месяц", "месяца", "месяцев")}`, monthDay: (d) => `${d}-го`, until: "до",
+    daily: "каждый день",
+    everyDays: (n) => `каждые ${n} ${plural("ru", n, "день", "дня", "дней")}`,
+    weekly: "каждую неделю",
+    everyWeeks: (n) => `каждые ${n} ${plural("ru", n, "неделю", "недели", "недель")}`,
+    monthly: "каждый месяц",
+    everyMonths: (n) => `каждые ${n} ${plural("ru", n, "месяц", "месяца", "месяцев")}`,
+    monthDay: (d) => `${d}-го`,
+    until: "до",
   },
   uk: {
-    daily: "щодня", everyDays: (n) => `кожні ${n} ${plural("uk", n, "день", "дні", "днів")}`,
-    weekly: "щотижня", everyWeeks: (n) => `кожні ${n} ${plural("uk", n, "тиждень", "тижні", "тижнів")}`,
-    monthly: "щомісяця", everyMonths: (n) => `кожні ${n} ${plural("uk", n, "місяць", "місяці", "місяців")}`, monthDay: (d) => `${d}-го`, until: "до",
+    daily: "щодня",
+    everyDays: (n) => `кожні ${n} ${plural("uk", n, "день", "дні", "днів")}`,
+    weekly: "щотижня",
+    everyWeeks: (n) => `кожні ${n} ${plural("uk", n, "тиждень", "тижні", "тижнів")}`,
+    monthly: "щомісяця",
+    everyMonths: (n) => `кожні ${n} ${plural("uk", n, "місяць", "місяці", "місяців")}`,
+    monthDay: (d) => `${d}-го`,
+    until: "до",
   },
   en: {
-    daily: "every day", everyDays: (n) => `every ${n} days`,
-    weekly: "every week", everyWeeks: (n) => `every ${n} weeks`,
-    monthly: "every month", everyMonths: (n) => `every ${n} months`, monthDay: (d) => ordinal(Number(d)), until: "until",
+    daily: "every day",
+    everyDays: (n) => `every ${n} days`,
+    weekly: "every week",
+    everyWeeks: (n) => `every ${n} weeks`,
+    monthly: "every month",
+    everyMonths: (n) => `every ${n} months`,
+    monthDay: (d) => ordinal(Number(d)),
+    until: "until",
   },
 };
 
 export function recurrenceLabel(rule: string | null | undefined, endLocalDate?: string | null, locale: LabelLocale = "ru"): string | null {
   if (!rule) return null;
-  const parts = Object.fromEntries(rule.split(";").map((part) => {
-    const [key, value] = part.split("=");
-    return [key?.trim().toUpperCase() ?? "", value?.trim() ?? ""];
-  })) as Record<string, string>;
+  const parts = Object.fromEntries(
+    rule.split(";").map((part) => {
+      const [key, value] = part.split("=");
+      return [key?.trim().toUpperCase() ?? "", value?.trim() ?? ""];
+    }),
+  ) as Record<string, string>;
   const interval = Math.max(1, Number.parseInt(parts.INTERVAL ?? "1", 10) || 1);
   const frequency = parts.FREQ;
   const words = WORDS[locale];
   let text: string | null = null;
   if (frequency === "DAILY") text = interval === 1 ? words.daily : words.everyDays(interval);
   else if (frequency === "WEEKLY") {
-    const days = (parts.BYDAY ?? "").split(",").map((day) => WEEKDAYS[locale][day.trim().toUpperCase()]).filter(Boolean);
+    const days = (parts.BYDAY ?? "")
+      .split(",")
+      .map((day) => WEEKDAYS[locale][day.trim().toUpperCase()])
+      .filter(Boolean);
     const base = interval === 1 ? words.weekly : words.everyWeeks(interval);
     text = days.length ? `${base}: ${days.join(", ")}` : base;
   } else if (frequency === "MONTHLY") {
-    const days = (parts.BYMONTHDAY ?? "").split(",").map((day) => day.trim()).filter(Boolean);
+    const days = (parts.BYMONTHDAY ?? "")
+      .split(",")
+      .map((day) => day.trim())
+      .filter(Boolean);
     const base = interval === 1 ? words.monthly : words.everyMonths(interval);
     text = days.length ? `${base}, ${days.map(words.monthDay).join(", ")}` : base;
   }

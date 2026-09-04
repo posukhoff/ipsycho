@@ -1,4 +1,7 @@
-export interface HistoryMessage { role: "user" | "assistant"; content: string }
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
 
 /** Longest single history message the model receives; a digest-sized reply is not worth its tokens later. */
 export const HISTORY_MESSAGE_MAX_CHARS = 1_500;

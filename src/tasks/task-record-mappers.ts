@@ -1,7 +1,7 @@
 import type { ReminderRuleSpec, ReminderSettings } from "../core/reminder-planning.js";
 import type { OccurrenceProjection } from "../core/recurrence.js";
 import type { TaskDefinition } from "../core/types.js";
-import { reminderRules, taskOccurrences, tasks, userSettings } from "../database/schema.js";
+import type { reminderRules, taskOccurrences, tasks, userSettings } from "../database/schema.js";
 
 export function taskDefinitionFromRow(row: typeof tasks.$inferSelect, recurrenceExcludedLocalDates: readonly string[] = []): TaskDefinition {
   return {

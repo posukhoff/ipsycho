@@ -46,8 +46,7 @@ export function evaluateOccurrenceLifecycle(input: LifecycleInput): LifecycleDec
     if (input.plannedLocalDate && compareLocalDates(input.plannedLocalDate, localDateAt(input.now, input.timezone)) <= 0) {
       return { transitionTo: "open" };
     }
-    if (!input.plannedStartAt && !input.plannedLocalDate && input.recurrenceKey
-      && compareLocalDates(input.recurrenceKey, localDateAt(input.now, input.timezone)) <= 0) {
+    if (!input.plannedStartAt && !input.plannedLocalDate && input.recurrenceKey && compareLocalDates(input.recurrenceKey, localDateAt(input.now, input.timezone)) <= 0) {
       return { transitionTo: "open" };
     }
   }

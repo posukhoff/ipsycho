@@ -16,7 +16,12 @@ export interface OccurrenceScheduleView {
 export function formatLocalDateTime(at: Date, timezone: string, now?: Date, locale = "ru-RU"): string {
   const showYear = now !== undefined && localYear(at, timezone) !== localYear(now, timezone);
   return new Intl.DateTimeFormat(locale, {
-    timeZone: timezone, day: "2-digit", month: "2-digit", ...(showYear ? { year: "numeric" } : {}), hour: "2-digit", minute: "2-digit",
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+    ...(showYear ? { year: "numeric" } : {}),
+    hour: "2-digit",
+    minute: "2-digit",
   }).format(at);
 }
 
@@ -54,9 +59,10 @@ export function scheduleLabel(schedule: OccurrenceScheduleView, now: Date, local
   const tag = intlLocale(locale);
   const words = WORDS[locale];
   if (schedule.plannedStartAt && schedule.plannedEndAt) {
-    const end = localDateAt(schedule.plannedStartAt, schedule.timezone) === localDateAt(schedule.plannedEndAt, schedule.timezone)
-      ? formatLocalTime(schedule.plannedEndAt, schedule.timezone, tag)
-      : formatLocalDateTime(schedule.plannedEndAt, schedule.timezone, now, tag);
+    const end =
+      localDateAt(schedule.plannedStartAt, schedule.timezone) === localDateAt(schedule.plannedEndAt, schedule.timezone)
+        ? formatLocalTime(schedule.plannedEndAt, schedule.timezone, tag)
+        : formatLocalDateTime(schedule.plannedEndAt, schedule.timezone, now, tag);
     return `${formatLocalDateTime(schedule.plannedStartAt, schedule.timezone, now, tag)}–${end}`;
   }
   if (schedule.plannedStartAt) return formatLocalDateTime(schedule.plannedStartAt, schedule.timezone, now, tag);
@@ -118,9 +124,7 @@ export function formatWhenForModel(when: ModelWhenView, timezone: string, now: D
     const start = `${day(when.plannedStartAt)} ${formatLocalTime(when.plannedStartAt, timezone)}`;
     if (!when.plannedEndAt) return start;
     const sameDay = localDateAt(when.plannedStartAt, timezone) === localDateAt(when.plannedEndAt, timezone);
-    return sameDay
-      ? `${start}–${formatLocalTime(when.plannedEndAt, timezone)}`
-      : `${start} – ${day(when.plannedEndAt)} ${formatLocalTime(when.plannedEndAt, timezone)}`;
+    return sameDay ? `${start}–${formatLocalTime(when.plannedEndAt, timezone)}` : `${start} – ${day(when.plannedEndAt)} ${formatLocalTime(when.plannedEndAt, timezone)}`;
   }
   if (when.dueAt) return `${words.by} ${day(when.dueAt)}, ${formatLocalTime(when.dueAt, timezone)}`;
   if (when.plannedLocalDate) return relativeDayLabel(when.plannedLocalDate, timezone, now, locale);

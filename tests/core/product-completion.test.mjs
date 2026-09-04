@@ -12,13 +12,25 @@ test("digest separates priority from normal and evening decisions", () => {
     { id: "2", title: "r", importance: "required", status: "overdue" },
     { id: "3", title: "c", importance: "critical", status: "in_progress" },
   ];
-  assert.deepEqual(morningDigestSections(items).priority.map((x) => x.id), ["2", "3"]);
-  assert.deepEqual(eveningDigestSections(items).decisions.map((x) => x.id), ["2", "3"]);
+  assert.deepEqual(
+    morningDigestSections(items).priority.map((x) => x.id),
+    ["2", "3"],
+  );
+  assert.deepEqual(
+    eveningDigestSections(items).decisions.map((x) => x.id),
+    ["2", "3"],
+  );
 });
 
 test("weekly review bundles only on same enabled schedule", () => {
-  assert.equal(shouldBundleWeeklyReview({ eveningDigestEnabled: true, eveningTime: "20:00", weeklyReviewEnabled: true, weeklyTime: "20:00", localWeekday: 7, weeklyWeekday: 7 }), true);
-  assert.equal(shouldBundleWeeklyReview({ eveningDigestEnabled: true, eveningTime: "20:00", weeklyReviewEnabled: true, weeklyTime: "19:00", localWeekday: 7, weeklyWeekday: 7 }), false);
+  assert.equal(
+    shouldBundleWeeklyReview({ eveningDigestEnabled: true, eveningTime: "20:00", weeklyReviewEnabled: true, weeklyTime: "20:00", localWeekday: 7, weeklyWeekday: 7 }),
+    true,
+  );
+  assert.equal(
+    shouldBundleWeeklyReview({ eveningDigestEnabled: true, eveningTime: "20:00", weeklyReviewEnabled: true, weeklyTime: "19:00", localWeekday: 7, weeklyWeekday: 7 }),
+    false,
+  );
   assert.equal(briefingStillUseful("weekly", "2026-08-09", "2026-08-09"), true);
   assert.equal(briefingStillUseful("morning", "2026-08-09", "2026-08-10"), false);
 });

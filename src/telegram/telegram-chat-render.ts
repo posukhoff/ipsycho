@@ -62,9 +62,27 @@ function reviewHeader(review: { kind: "evening" | "weekly"; step?: number; total
 }
 
 const SUMMARY_COPY: Record<TelegramLocale, { nothingOne: string; nothingMany: string; one: string; many: string; more: string }> = {
-  ru: { nothingOne: "⏳ Пока ничего не изменил — нужно подтверждение", nothingMany: "⏳ Пока ничего не изменил — нужно подтвердить ({n})", one: "⏳ Нужно подтверждение", many: "⏳ Нужно подтвердить ({n})", more: "• … ещё {n}" },
-  uk: { nothingOne: "⏳ Поки нічого не змінив — потрібне підтвердження", nothingMany: "⏳ Поки нічого не змінив — потрібно підтвердити ({n})", one: "⏳ Потрібне підтвердження", many: "⏳ Потрібно підтвердити ({n})", more: "• … ще {n}" },
-  en: { nothingOne: "⏳ Nothing changed yet — needs your confirmation", nothingMany: "⏳ Nothing changed yet — {n} changes need your confirmation", one: "⏳ Needs confirmation", many: "⏳ {n} changes need confirmation", more: "• … {n} more" },
+  ru: {
+    nothingOne: "⏳ Пока ничего не изменил — нужно подтверждение",
+    nothingMany: "⏳ Пока ничего не изменил — нужно подтвердить ({n})",
+    one: "⏳ Нужно подтверждение",
+    many: "⏳ Нужно подтвердить ({n})",
+    more: "• … ещё {n}",
+  },
+  uk: {
+    nothingOne: "⏳ Поки нічого не змінив — потрібне підтвердження",
+    nothingMany: "⏳ Поки нічого не змінив — потрібно підтвердити ({n})",
+    one: "⏳ Потрібне підтвердження",
+    many: "⏳ Потрібно підтвердити ({n})",
+    more: "• … ще {n}",
+  },
+  en: {
+    nothingOne: "⏳ Nothing changed yet — needs your confirmation",
+    nothingMany: "⏳ Nothing changed yet — {n} changes need your confirmation",
+    one: "⏳ Needs confirmation",
+    many: "⏳ {n} changes need confirmation",
+    more: "• … {n} more",
+  },
 };
 
 export function actionSummary(pendingCount: number, pendingTitles: readonly string[] = [], appliedCount = 0, locale: TelegramLocale = "ru"): string {
@@ -74,7 +92,7 @@ export function actionSummary(pendingCount: number, pendingTitles: readonly stri
   const copy = SUMMARY_COPY[locale];
   const nothingApplied = appliedCount === 0;
   const titles = pendingTitles.filter((title) => title.trim()).slice(0, 8);
-  const header = (pendingCount === 1 ? (nothingApplied ? copy.nothingOne : copy.one) : (nothingApplied ? copy.nothingMany : copy.many)).replace("{n}", String(pendingCount));
+  const header = (pendingCount === 1 ? (nothingApplied ? copy.nothingOne : copy.one) : nothingApplied ? copy.nothingMany : copy.many).replace("{n}", String(pendingCount));
   if (!titles.length) return `${header}.`;
   const lines = [`${header}:`, ...titles.map((title) => `• ${title}`)];
   if (pendingCount > titles.length) lines.push(copy.more.replace("{n}", String(pendingCount - titles.length)));

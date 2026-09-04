@@ -11,7 +11,16 @@ test("critical escalation respects configurable >=15 minute interval", () => {
 test("deadline reminder yields to a same-slot digest, but not forever", () => {
   const scheduled = new Date("2026-08-09T17:00:00Z");
   assert.equal(reminderBriefingBundleDecision({ reminderScheduledFor: scheduled, briefingScheduledFor: scheduled, briefingStatus: "sent", now: scheduled }), "suppress");
-  assert.equal(reminderBriefingBundleDecision({ reminderScheduledFor: scheduled, briefingScheduledFor: scheduled, briefingStatus: "pending", now: new Date("2026-08-09T17:02:00Z") }), "wait");
-  assert.equal(reminderBriefingBundleDecision({ reminderScheduledFor: scheduled, briefingScheduledFor: scheduled, briefingStatus: "pending", now: new Date("2026-08-09T17:06:00Z") }), "none");
-  assert.equal(reminderBriefingBundleDecision({ reminderScheduledFor: scheduled, briefingScheduledFor: new Date("2026-08-09T17:10:00Z"), briefingStatus: "sent", now: scheduled }), "none");
+  assert.equal(
+    reminderBriefingBundleDecision({ reminderScheduledFor: scheduled, briefingScheduledFor: scheduled, briefingStatus: "pending", now: new Date("2026-08-09T17:02:00Z") }),
+    "wait",
+  );
+  assert.equal(
+    reminderBriefingBundleDecision({ reminderScheduledFor: scheduled, briefingScheduledFor: scheduled, briefingStatus: "pending", now: new Date("2026-08-09T17:06:00Z") }),
+    "none",
+  );
+  assert.equal(
+    reminderBriefingBundleDecision({ reminderScheduledFor: scheduled, briefingScheduledFor: new Date("2026-08-09T17:10:00Z"), briefingStatus: "sent", now: scheduled }),
+    "none",
+  );
 });

@@ -11,11 +11,7 @@ import { GrammyError, HttpError } from "grammy";
  * - `unknown`: anything else, treated like transient by callers that retry with a bounded attempt count.
  */
 export type TelegramSendOutcome =
-  | { kind: "rate_limited"; retryAfterSeconds: number }
-  | { kind: "rejected"; errorCode: number }
-  | { kind: "transient" }
-  | { kind: "ambiguous" }
-  | { kind: "unknown" };
+  { kind: "rate_limited"; retryAfterSeconds: number } | { kind: "rejected"; errorCode: number } | { kind: "transient" } | { kind: "ambiguous" } | { kind: "unknown" };
 
 const NOTHING_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"]);
 

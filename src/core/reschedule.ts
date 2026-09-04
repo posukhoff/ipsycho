@@ -14,14 +14,19 @@ export interface RescheduleFields {
 
 export function rescheduledDefinition(current: TaskDefinition, schedule: RescheduleFields, targetTimeMode?: TimeMode): TaskDefinition {
   const {
-    plannedStartAt: _plannedStartAt, plannedEndAt: _plannedEndAt, plannedLocalDate: _plannedLocalDate,
-    dueAt: _dueAt, dueLocalDate: _dueLocalDate, fuzzyHorizonText: _fuzzyHorizonText, reviewAt: _reviewAt,
+    plannedStartAt: _plannedStartAt,
+    plannedEndAt: _plannedEndAt,
+    plannedLocalDate: _plannedLocalDate,
+    dueAt: _dueAt,
+    dueLocalDate: _dueLocalDate,
+    fuzzyHorizonText: _fuzzyHorizonText,
+    reviewAt: _reviewAt,
     ...stable
   } = current;
   const becomesFuzzy = Boolean(schedule.fuzzyHorizonText || schedule.reviewAt);
   const next: TaskDefinition = {
     ...stable,
-    timeMode: becomesFuzzy ? "fuzzy" : targetTimeMode ?? current.timeMode,
+    timeMode: becomesFuzzy ? "fuzzy" : (targetTimeMode ?? current.timeMode),
     ...(schedule.plannedStartAt ? { plannedStartAt: schedule.plannedStartAt } : {}),
     ...(schedule.plannedEndAt ? { plannedEndAt: schedule.plannedEndAt } : {}),
     ...(schedule.plannedLocalDate ? { plannedLocalDate: schedule.plannedLocalDate } : {}),

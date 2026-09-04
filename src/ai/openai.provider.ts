@@ -34,9 +34,7 @@ export class OpenAiProvider implements AiProvider {
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         ...(request.maxOutputTokens !== undefined ? { max_output_tokens: request.maxOutputTokens } : {}),
       });
-      const refusal = response.output
-        .flatMap((item) => (item.type === "message" ? item.content : []))
-        .find((part) => part.type === "refusal");
+      const refusal = response.output.flatMap((item) => (item.type === "message" ? item.content : [])).find((part) => part.type === "refusal");
       return {
         text: response.output_text || null,
         refusal: refusal?.type === "refusal" ? refusal.refusal : null,

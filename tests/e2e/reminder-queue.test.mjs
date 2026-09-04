@@ -55,7 +55,11 @@ async function dueDelivery({ workspaceId, userId }) {
   const now = new Date();
   const tasksService = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});
   const result = await tasksService.createTask({
-    workspaceId, actorUserId: userId, recipientUserId: userId, title: "Позвонить врачу", now,
+    workspaceId,
+    actorUserId: userId,
+    recipientUserId: userId,
+    title: "Позвонить врачу",
+    now,
     definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date(now.getTime() + 20 * 60_000), habitMode: false },
     explicitReminder: { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -1200, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" },
   });
@@ -147,7 +151,9 @@ test("a 429 from Telegram is retried after retry_after without spending an attem
   const context = await fixture();
   const { deliveryId } = await dueDelivery(context);
   const telegram = fakeTelegram();
-  telegram.failures.push(new GrammyError("Call to 'sendMessage' failed!", { ok: false, error_code: 429, description: "Too Many Requests", parameters: { retry_after: 1 } }, "sendMessage", {}));
+  telegram.failures.push(
+    new GrammyError("Call to 'sendMessage' failed!", { ok: false, error_code: 429, description: "Too Many Requests", parameters: { retry_after: 1 } }, "sendMessage", {}),
+  );
 
   await startQueueService(telegram);
   await waitFor(async () => (await deliveryRow(deliveryId)).status === "sent");
@@ -160,7 +166,9 @@ test("a permanent Telegram rejection marks the delivery failed without retrying"
   const context = await fixture();
   const { deliveryId } = await dueDelivery(context);
   const telegram = fakeTelegram();
-  telegram.failures.push(new GrammyError("Call to 'sendMessage' failed!", { ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" }, "sendMessage", {}));
+  telegram.failures.push(
+    new GrammyError("Call to 'sendMessage' failed!", { ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" }, "sendMessage", {}),
+  );
 
   await startQueueService(telegram);
   await waitFor(async () => (await deliveryRow(deliveryId)).status === "failed");

@@ -12,7 +12,8 @@
 const MAX_TERMS = 12;
 const MIN_TERM_LENGTH = 3;
 
-const STOP_WORDS = new Set(`
+const STOP_WORDS = new Set(
+  `
 и в во на не что он она с со как а то все всё так его но да ты к у же вы за бы по только её ее мне было вот от меня ещё еще нет о из ему
 теперь когда даже ну вдруг ли если уже или ни быть был него до вас нибудь опять уж вам ведь там потом себя ничего ей может они тут где есть
 надо ней для мы тебя их чем была сам чтоб без будто чего раз тоже себе под будет ж тогда кто этот того потому этого какой совсем ним здесь
@@ -36,7 +37,10 @@ am is are was were be been being have has had do does did will would shall shoul
 just also now here there when where why how all any both each few more most other some such only own same up down off again further once
 today tomorrow yesterday morning evening night hour hours minute minutes week month monday tuesday wednesday thursday friday saturday sunday
 remind reminder reschedule move create add delete remove cancel make set note show change please need want task tasks
-`.split(/\s+/u).filter(Boolean));
+`
+    .split(/\s+/u)
+    .filter(Boolean),
+);
 
 /** Content words of a message: lowercase, no stop words, no numbers, no very short tokens. */
 export function searchTerms(text: string): string[] {

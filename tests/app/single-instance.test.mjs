@@ -9,8 +9,10 @@ function fakeClient(responses) {
     queries: [],
     async connect() {},
     async end() {},
-    on(event, listener) { listeners[event] = listener; },
-    async query(sql, params) {
+    on(event, listener) {
+      listeners[event] = listener;
+    },
+    async query(sql) {
       this.queries.push(sql);
       const next = responses.shift();
       if (next instanceof Error) throw next;
@@ -22,7 +24,13 @@ function fakeClient(responses) {
 function build(client) {
   const service = Object.create(SingleInstanceService.prototype);
   let lost = null;
-  Object.assign(service, { client, locked: false, onLost: (reason) => { lost = reason; } });
+  Object.assign(service, {
+    client,
+    locked: false,
+    onLost: (reason) => {
+      lost = reason;
+    },
+  });
   return { service, lostReason: () => lost };
 }
 

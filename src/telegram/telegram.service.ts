@@ -14,6 +14,7 @@ import { safeError } from "../observability/safe-error.js";
 import { t } from "./copy/index.js";
 import type { AppContext } from "./telegram-context.js";
 import { telegramLocale } from "./telegram-locale.js";
+import { logger, runWithLogContext } from "../observability/logger.js";
 
 /** Only these update kinds have handlers; asking Telegram for the rest is wasted traffic. */
 const ALLOWED_UPDATES = ["message", "callback_query"] as const;
@@ -42,7 +43,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     // screen refresh) surfaced as a failed call instead of a short wait.
     this.bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 60 }));
     this.bot.catch((error) => {
-      console.error("Telegram update failed", {
+      logger.error("Telegram update failed", {
         updateId: error.ctx.update.update_id,
         error: safeError(error.error),
       });
@@ -71,9 +72,10 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       const access = telegramUserId ? await this.access.resolveActiveUser(telegramUserId) : null;
       const settings = access ? await this.settings.get(access.user.id) : null;
       ctx.state = { access, settings, locale: telegramLocale(settings?.pinnedLanguage, ctx.from?.language_code) };
-      if (access && settings) return next();
+      // Every line logged while this update is handled carries the update id and the internal user id.
+      if (access && settings) return runWithLogContext({ updateId: ctx.update.update_id, userId: access.user.id }, () => next());
       if (access && !settings) {
-        console.error("active user without settings row", { userId: access.user.id });
+        logger.error("active user without settings row", { userId: access.user.id });
         if (ctx.callbackQuery) await ctx.answerCallbackQuery({ text: t(ctx.state.locale, "settings_missing") }).catch(() => undefined);
         else await ctx.reply(t(ctx.state.locale, "settings_missing")).catch(() => undefined);
         return;
@@ -87,12 +89,16 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     // Deduplicate redelivered updates only for users who passed the gate: an unknown sender
     // must not be able to grow this table.
     this.bot.use(async (ctx, next) => {
-      const inserted = await this.database.db.insert(telegramUpdates).values({
-        botIdentity: this.config.botIdentity,
-        telegramUpdateId: ctx.update.update_id,
-        chatId: ctx.chat?.id,
-        telegramMessageId: ctx.message?.message_id,
-      }).onConflictDoNothing().returning({ updateId: telegramUpdates.telegramUpdateId });
+      const inserted = await this.database.db
+        .insert(telegramUpdates)
+        .values({
+          botIdentity: this.config.botIdentity,
+          telegramUpdateId: ctx.update.update_id,
+          chatId: ctx.chat?.id,
+          telegramMessageId: ctx.message?.message_id,
+        })
+        .onConflictDoNothing()
+        .returning({ updateId: telegramUpdates.telegramUpdateId });
       if (!inserted.length) return;
       await next();
     });
@@ -109,18 +115,36 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     return `https://t.me/${bot.username}?start=join_${token}`;
   }
 
-  async sendReminder(telegramUserId: number, text: string, occurrenceId?: string, occurrenceStatus: TelegramOccurrenceStatus = "open", locale = telegramLocale(null, undefined), options: { mute?: boolean } = {}): Promise<number> {
+  async sendReminder(
+    telegramUserId: number,
+    text: string,
+    occurrenceId?: string,
+    occurrenceStatus: TelegramOccurrenceStatus = "open",
+    locale = telegramLocale(null, undefined),
+    options: { mute?: boolean } = {},
+  ): Promise<number> {
     const replyMarkup = occurrenceId ? taskKeyboard(occurrenceId, occurrenceStatus, locale, { snooze: true, ...(options.mute ? { mute: true } : {}) }) : undefined;
     const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), replyMarkup ? { reply_markup: replyMarkup } : {});
     return message.message_id;
   }
 
-  async sendBriefing(telegramUserId: number, kind: BriefingKind, text: string, decisionOccurrenceIds: readonly string[] = [], reviewKinds: readonly ("evening" | "weekly")[] = [], reviewDeliveryId?: string, locale = telegramLocale(null, undefined)): Promise<number> {
+  async sendBriefing(
+    telegramUserId: number,
+    kind: BriefingKind,
+    text: string,
+    decisionOccurrenceIds: readonly string[] = [],
+    reviewKinds: readonly ("evening" | "weekly")[] = [],
+    reviewDeliveryId?: string,
+    locale = telegramLocale(null, undefined),
+  ): Promise<number> {
     let keyboard: InlineKeyboard | undefined;
     if (decisionOccurrenceIds.length) {
       keyboard = new InlineKeyboard();
       for (const [index, id] of decisionOccurrenceIds.slice(0, 3).entries()) {
-        keyboard.text(`✅ ${index + 1}`, `occ:done:${id}`).text(`🕒 ${index + 1}`, `occ:resched:${id}`).row();
+        keyboard
+          .text(`✅ ${index + 1}`, `occ:done:${id}`)
+          .text(`🕒 ${index + 1}`, `occ:resched:${id}`)
+          .row();
       }
     }
     if (kind === "morning") {
@@ -141,7 +165,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     try {
       await this.publishCommandMenu();
     } catch (error) {
-      console.error("Telegram command menu setup failed", safeError(error));
+      logger.error("Telegram command menu setup failed", { error: safeError(error) });
     }
     await this.bot.init();
     this.runner = run(this.bot, {
@@ -150,13 +174,13 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
         concurrency: UPDATE_CONCURRENCY,
         timeout: {
           milliseconds: UPDATE_SLOW_MS,
-          handler: (update) => console.warn("Telegram update is taking unusually long", { updateId: update.update_id }),
+          handler: (update) => logger.warn("Telegram update is taking unusually long", { updateId: update.update_id }),
         },
       },
     });
-    console.log(`Telegram long polling started (${this.config.botIdentity})`);
+    logger.info("Telegram long polling started", { botIdentity: this.config.botIdentity });
     void this.runner.task()?.catch((error) => {
-      console.error("Telegram polling stopped with error", safeError(error));
+      logger.error("Telegram polling stopped with error", { error: safeError(error) });
       process.exitCode = 1;
       process.kill(process.pid, "SIGTERM");
     });
@@ -166,19 +190,46 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   private async publishCommandMenu(): Promise<void> {
     const menu = {
       ru: [
-        ["today", "План на сегодня"], ["tasks", "Задачи"], ["goals", "Цели"], ["reminders", "Ближайшие напоминания"],
-        ["settings", "Настройки"], ["timezone", "Часовой пояс"], ["language", "Язык интерфейса"], ["context", "Что мне учитывать"],
-        ["cancel", "Отменить текущий ввод"], ["status", "Статус"], ["clear", "Очистить AI-историю"], ["help", "Помощь"],
+        ["today", "План на сегодня"],
+        ["tasks", "Задачи"],
+        ["goals", "Цели"],
+        ["reminders", "Ближайшие напоминания"],
+        ["settings", "Настройки"],
+        ["timezone", "Часовой пояс"],
+        ["language", "Язык интерфейса"],
+        ["context", "Что мне учитывать"],
+        ["cancel", "Отменить текущий ввод"],
+        ["status", "Статус"],
+        ["clear", "Очистить AI-историю"],
+        ["help", "Помощь"],
       ],
       uk: [
-        ["today", "План на сьогодні"], ["tasks", "Завдання"], ["goals", "Цілі"], ["reminders", "Найближчі нагадування"],
-        ["settings", "Налаштування"], ["timezone", "Часовий пояс"], ["language", "Мова інтерфейсу"], ["context", "Що мені враховувати"],
-        ["cancel", "Скасувати поточне введення"], ["status", "Статус"], ["clear", "Очистити AI-історію"], ["help", "Допомога"],
+        ["today", "План на сьогодні"],
+        ["tasks", "Завдання"],
+        ["goals", "Цілі"],
+        ["reminders", "Найближчі нагадування"],
+        ["settings", "Налаштування"],
+        ["timezone", "Часовий пояс"],
+        ["language", "Мова інтерфейсу"],
+        ["context", "Що мені враховувати"],
+        ["cancel", "Скасувати поточне введення"],
+        ["status", "Статус"],
+        ["clear", "Очистити AI-історію"],
+        ["help", "Допомога"],
       ],
       en: [
-        ["today", "Today’s plan"], ["tasks", "Tasks"], ["goals", "Goals"], ["reminders", "Upcoming reminders"],
-        ["settings", "Settings"], ["timezone", "Timezone"], ["language", "Interface language"], ["context", "What I should know"],
-        ["cancel", "Cancel current input"], ["status", "Status"], ["clear", "Clear AI history"], ["help", "Help"],
+        ["today", "Today’s plan"],
+        ["tasks", "Tasks"],
+        ["goals", "Goals"],
+        ["reminders", "Upcoming reminders"],
+        ["settings", "Settings"],
+        ["timezone", "Timezone"],
+        ["language", "Interface language"],
+        ["context", "What I should know"],
+        ["cancel", "Cancel current input"],
+        ["status", "Status"],
+        ["clear", "Clear AI history"],
+        ["help", "Help"],
       ],
     } as const;
     const invite = { ru: "Пригласить нового пользователя", uk: "Запросити нового користувача", en: "Invite a new user" } as const;

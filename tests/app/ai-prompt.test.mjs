@@ -91,7 +91,10 @@ test("AI prompt makes every stored task field earn its line and keeps the reply 
 });
 
 test("AI prompt contains no vocabulary of the removed contract", () => {
-  assert.doesNotMatch(prompt, /occurrenceId|expectedVersion|task_batch|criticalExplicit|habitModeExplicit|quietBypassExplicit|localSchedule|plannedStartAt|topicId|goalResolution|goalAnalysisFocus|profileInvitation|reviewProgress|topicModeSuggestion|user_explicit|ai_inferred|missPolicy/);
+  assert.doesNotMatch(
+    prompt,
+    /occurrenceId|expectedVersion|task_batch|criticalExplicit|habitModeExplicit|quietBypassExplicit|localSchedule|plannedStartAt|topicId|goalResolution|goalAnalysisFocus|profileInvitation|reviewProgress|topicModeSuggestion|user_explicit|ai_inferred|missPolicy/,
+  );
   assert.doesNotMatch(prompt, /update_settings|update_occurrence|change_reminder|change_series|complete_task|link_task_to_goal|create_goal_plan|save_memory/);
   assert.doesNotMatch(prompt, /topic mode.*switch/);
 });
@@ -108,7 +111,13 @@ test("AI prompt ends with one local CURRENT_TIME line and the context when given
   assert.doesNotMatch(prompt, /CURRENT_CONTEXT=/);
   assert.doesNotMatch(prompt, /2026-08-11T12:00:00/);
 
-  const withContext = buildSystemPrompt({ timezone: "Europe/Kyiv", now: at, language: "ru", context: { tasks: [{ id: "t1", title: "Позвонить врачу", when: "сегодня 18:00" }] }, correction: "Return intent for every action." });
+  const withContext = buildSystemPrompt({
+    timezone: "Europe/Kyiv",
+    now: at,
+    language: "ru",
+    context: { tasks: [{ id: "t1", title: "Позвонить врачу", when: "сегодня 18:00" }] },
+    correction: "Return intent for every action.",
+  });
   assert.match(withContext, /The interface language ru is only a fallback/);
   assert.match(withContext, /CURRENT_CONTEXT=\{"tasks":\[\{"id":"t1","title":"Позвонить врачу","when":"сегодня 18:00"\}\]\}/);
   assert.match(withContext, /Correction required: Return intent for every action\.$/);

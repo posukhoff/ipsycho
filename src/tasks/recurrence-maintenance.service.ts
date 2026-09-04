@@ -8,6 +8,7 @@ import { reminderDeliveries, reminderRules, taskOccurrences, taskRecurrenceExclu
 import { reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "./task-record-mappers.js";
 import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 const REFILL_INTERVAL_MS = 6 * 60 * 60_000;
 
@@ -23,7 +24,7 @@ export class RecurrenceMaintenanceService implements OnApplicationBootstrap, OnA
 
   async onApplicationBootstrap(): Promise<void> {
     await this.refill();
-    this.timer = setInterval(() => void this.refill().catch((error) => console.error("recurrence refill tick failed", safeError(error))), REFILL_INTERVAL_MS);
+    this.timer = setInterval(() => void this.refill().catch((error) => logger.error("recurrence refill tick failed", { error: safeError(error) })), REFILL_INTERVAL_MS);
     this.timer.unref();
   }
 
@@ -48,7 +49,7 @@ export class RecurrenceMaintenanceService implements OnApplicationBootstrap, OnA
         try {
           await this.refillTask(row.task, row.recipientUserId, row.settings, now);
         } catch (error) {
-          console.error("recurrence refill failed", { taskId: row.task.id, error: safeError(error) });
+          logger.error("recurrence refill failed", { taskId: row.task.id, error: safeError(error) });
         }
       }
     } finally {
@@ -67,39 +68,30 @@ export class RecurrenceMaintenanceService implements OnApplicationBootstrap, OnA
     if (row) await this.refillTask(row.task, row.recipientUserId, row.settings, now);
   }
 
-  async refillTask(
-    taskRow: typeof tasks.$inferSelect,
-    recipientUserId: string,
-    settingsRow: typeof userSettings.$inferSelect,
-    now: Date,
-  ): Promise<void> {
-    const exclusions = await this.database.db.select({ localDate: taskRecurrenceExclusions.localDate })
+  async refillTask(taskRow: typeof tasks.$inferSelect, recipientUserId: string, settingsRow: typeof userSettings.$inferSelect, now: Date): Promise<void> {
+    const exclusions = await this.database.db
+      .select({ localDate: taskRecurrenceExclusions.localDate })
       .from(taskRecurrenceExclusions)
-      .where(and(
-        eq(taskRecurrenceExclusions.workspaceId, taskRow.workspaceId),
-        eq(taskRecurrenceExclusions.taskId, taskRow.id),
-      ));
-    const definition = taskDefinitionFromRow(taskRow, exclusions.map((row) => row.localDate));
+      .where(and(eq(taskRecurrenceExclusions.workspaceId, taskRow.workspaceId), eq(taskRecurrenceExclusions.taskId, taskRow.id)));
+    const definition = taskDefinitionFromRow(
+      taskRow,
+      exclusions.map((row) => row.localDate),
+    );
     const projections = buildRecurringOccurrences(definition, now);
     if (!projections.length) return;
 
-    const existing = await this.database.db.select({ recurrenceKey: taskOccurrences.recurrenceKey })
+    const existing = await this.database.db
+      .select({ recurrenceKey: taskOccurrences.recurrenceKey })
       .from(taskOccurrences)
-      .where(and(
-        eq(taskOccurrences.workspaceId, taskRow.workspaceId),
-        eq(taskOccurrences.taskId, taskRow.id),
-        eq(taskOccurrences.seriesRevision, taskRow.seriesRevision),
-      ));
-    const existingKeys = new Set(existing.flatMap((row) => row.recurrenceKey ? [row.recurrenceKey] : []));
+      .where(and(eq(taskOccurrences.workspaceId, taskRow.workspaceId), eq(taskOccurrences.taskId, taskRow.id), eq(taskOccurrences.seriesRevision, taskRow.seriesRevision)));
+    const existingKeys = new Set(existing.flatMap((row) => (row.recurrenceKey ? [row.recurrenceKey] : [])));
     const missing = projections.filter((projection) => projection.recurrenceKey && !existingKeys.has(projection.recurrenceKey));
     if (!missing.length) return;
 
-    const rules = await this.database.db.select().from(reminderRules).where(and(
-      eq(reminderRules.workspaceId, taskRow.workspaceId),
-      eq(reminderRules.taskId, taskRow.id),
-      eq(reminderRules.active, true),
-      isNull(reminderRules.occurrenceId),
-    ));
+    const rules = await this.database.db
+      .select()
+      .from(reminderRules)
+      .where(and(eq(reminderRules.workspaceId, taskRow.workspaceId), eq(reminderRules.taskId, taskRow.id), eq(reminderRules.active, true), isNull(reminderRules.occurrenceId)));
     const ruleSpecs = rules.map(reminderRuleSpecFromRow);
     const settings = reminderSettingsFromRow(settingsRow);
 
@@ -156,7 +148,7 @@ export class RecurrenceMaintenanceService implements OnApplicationBootstrap, OnA
       try {
         await this.queue.enqueue(delivery.id, delivery.scheduledFor);
       } catch (error) {
-        console.error("failed to enqueue refilled reminder; queue reconciliation will retry", { deliveryId: delivery.id, error: safeError(error) });
+        logger.error("failed to enqueue refilled reminder; queue reconciliation will retry", { deliveryId: delivery.id, error: safeError(error) });
       }
     }
   }

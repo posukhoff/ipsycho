@@ -8,12 +8,11 @@ export interface AiPricing {
 }
 
 export function estimateAiCostUsd(inputTokens: number | undefined, outputTokens: number | undefined, pricing: AiPricing | undefined, cachedInputTokens = 0): number | undefined {
-  if (!pricing || pricing.inputUsdPerMillion === undefined || pricing.outputUsdPerMillion === undefined || inputTokens === undefined || outputTokens === undefined) return undefined;
+  if (!pricing || pricing.inputUsdPerMillion === undefined || pricing.outputUsdPerMillion === undefined || inputTokens === undefined || outputTokens === undefined)
+    return undefined;
   const cached = Math.min(Math.max(cachedInputTokens, 0), inputTokens);
   const cachedPrice = pricing.cachedInputUsdPerMillion ?? pricing.inputUsdPerMillion;
-  const value = ((inputTokens - cached) / 1_000_000) * pricing.inputUsdPerMillion
-    + (cached / 1_000_000) * cachedPrice
-    + (outputTokens / 1_000_000) * pricing.outputUsdPerMillion;
+  const value = ((inputTokens - cached) / 1_000_000) * pricing.inputUsdPerMillion + (cached / 1_000_000) * cachedPrice + (outputTokens / 1_000_000) * pricing.outputUsdPerMillion;
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 

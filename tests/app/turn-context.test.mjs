@@ -9,19 +9,60 @@ const timezone = "Europe/Kyiv";
 const profileFact = { id: "00000000-0000-4000-8000-000000000001", version: 3, type: "context", content: "Обычно ложится около 23:30.", sensitive: false };
 const sensitiveProfileFact = { id: "00000000-0000-4000-8000-000000000099", version: 1, type: "context", content: "Секретный личный факт.", sensitive: true };
 const taskRow = {
-  id: "00000000-0000-4000-8000-00000000000a", version: 4, title: "Позвонить врачу", kind: "task", importance: "normal", status: "active", timeMode: "point", timezone,
-  plannedStartAt: null, plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null, fuzzyHorizonText: null, reviewAt: null,
-  recurrenceRule: null, recurrenceEndLocalDate: null, habitMode: false, habitOfferSentAt: null,
+  id: "00000000-0000-4000-8000-00000000000a",
+  version: 4,
+  title: "Позвонить врачу",
+  kind: "task",
+  importance: "normal",
+  status: "active",
+  timeMode: "point",
+  timezone,
+  plannedStartAt: null,
+  plannedEndAt: null,
+  plannedLocalDate: null,
+  dueAt: null,
+  dueLocalDate: null,
+  fuzzyHorizonText: null,
+  reviewAt: null,
+  recurrenceRule: null,
+  recurrenceEndLocalDate: null,
+  habitMode: false,
+  habitOfferSentAt: null,
 };
 const occurrenceRow = {
-  id: "00000000-0000-4000-8000-00000000000b", taskId: taskRow.id, status: "scheduled", timezone,
-  plannedStartAt: new Date("2026-09-04T15:00:00Z"), plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null, overdue: false,
+  id: "00000000-0000-4000-8000-00000000000b",
+  taskId: taskRow.id,
+  status: "scheduled",
+  timezone,
+  plannedStartAt: new Date("2026-09-04T15:00:00Z"),
+  plannedEndAt: null,
+  plannedLocalDate: null,
+  dueAt: null,
+  dueLocalDate: null,
+  overdue: false,
 };
 const settingsRow = {
-  timezone, pinnedLanguage: "ru", morningDigestEnabled: false, morningReferenceTime: "09:00", eveningDigestEnabled: false, eveningReferenceTime: "20:00",
-  weeklyReviewEnabled: false, weeklyReviewWeekday: 7, weeklyReviewTime: "20:00", quietHoursEnabled: false,
-  weekdayQuietStart: "22:00", weekdayQuietEnd: "08:00", weekendQuietStart: "23:00", weekendQuietEnd: "09:00", notificationsSnoozedUntil: null,
-  eventReminderOffsetsMinutes: [-60, -15], plannedTaskReminderOffsetMinutes: 0, criticalPostDueMinutes: 60, seenNormalMinutes: 60, seenRequiredMinutes: 30, seenCriticalMinutes: 15,
+  timezone,
+  pinnedLanguage: "ru",
+  morningDigestEnabled: false,
+  morningReferenceTime: "09:00",
+  eveningDigestEnabled: false,
+  eveningReferenceTime: "20:00",
+  weeklyReviewEnabled: false,
+  weeklyReviewWeekday: 7,
+  weeklyReviewTime: "20:00",
+  quietHoursEnabled: false,
+  weekdayQuietStart: "22:00",
+  weekdayQuietEnd: "08:00",
+  weekendQuietStart: "23:00",
+  weekendQuietEnd: "09:00",
+  notificationsSnoozedUntil: null,
+  eventReminderOffsetsMinutes: [-60, -15],
+  plannedTaskReminderOffsetMinutes: 0,
+  criticalPostDueMinutes: 60,
+  seenNormalMinutes: 60,
+  seenRequiredMinutes: 30,
+  seenCriticalMinutes: 15,
   version: 9,
 };
 
@@ -45,7 +86,12 @@ function makeService(overrides = {}) {
     listRecentBlockers: async () => [],
   };
   const settings = { get: async () => settingsRow };
-  const briefings = { build: async (input) => { calls.briefings.push(input); return { text: "СНИМОК НЕДЕЛИ" }; } };
+  const briefings = {
+    build: async (input) => {
+      calls.briefings.push(input);
+      return { text: "СНИМОК НЕДЕЛИ" };
+    },
+  };
   return { service: new TurnContextService(tasks, context, settings, briefings), calls };
 }
 
@@ -70,25 +116,58 @@ test("profile facts reach the model under short memory ids and sensitive facts a
 });
 
 test("an analysis topic or a weekly review switches the model mode to deep and adds the review frame", async () => {
-  const analysis = makeService({ topics: [{
-    id: "topic-1", title: "Стратегия", summary: "думаем о годе", status: "active", mode: "analysis", reviewKind: null, clarificationCount: 2, reviewState: null, lastMessageAt: now,
-  }] });
+  const analysis = makeService({
+    topics: [
+      {
+        id: "topic-1",
+        title: "Стратегия",
+        summary: "думаем о годе",
+        status: "active",
+        mode: "analysis",
+        reviewKind: null,
+        clarificationCount: 2,
+        reviewState: null,
+        lastMessageAt: now,
+      },
+    ],
+  });
   const deep = await analysis.service.build({ workspaceId: "workspace", userId: "user", timezone, query: "что дальше", now });
   assert.equal(deep.modelMode, "deep");
   assert.deepEqual(deep.activeTopic, { topicId: "topic-1", reviewKind: null, clarificationCount: 2, reviewState: null, mode: "analysis" });
   assert.deepEqual(deep.model.topic.active, { title: "Стратегия", summary: "думаем о годе" });
 
-  const weekly = makeService({ topics: [{
-    id: "topic-2", title: "Планирование недели", summary: "…", status: "active", mode: "normal", reviewKind: "weekly", clarificationCount: 1,
-    reviewState: { version: 1, outcome: { status: "provided", summary: "релиз" }, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
-    lastMessageAt: now,
-  }] });
+  const weekly = makeService({
+    topics: [
+      {
+        id: "topic-2",
+        title: "Планирование недели",
+        summary: "…",
+        status: "active",
+        mode: "normal",
+        reviewKind: "weekly",
+        clarificationCount: 1,
+        reviewState: {
+          version: 1,
+          outcome: { status: "provided", summary: "релиз" },
+          capacityEnergy: null,
+          risks: null,
+          minimumSuccess: null,
+          commitments: null,
+          conclusionRequested: false,
+        },
+        lastMessageAt: now,
+      },
+    ],
+  });
   const review = await weekly.service.build({ workspaceId: "workspace", userId: "user", timezone, query: "давай", now });
   assert.equal(review.modelMode, "deep");
   assert.equal(review.activeTopic.reviewKind, "weekly");
   assert.deepEqual(weekly.calls.briefings, [{ workspaceId: "workspace", kind: "weekly", localDate: "2026-09-04", timezone, now, locale: "ru" }]);
   assert.deepEqual(review.model.review, {
-    kind: "weekly", questionsAsked: 1, questionLimit: 5, snapshot: "СНИМОК НЕДЕЛИ",
+    kind: "weekly",
+    questionsAsked: 1,
+    questionLimit: 5,
+    snapshot: "СНИМОК НЕДЕЛИ",
     state: { outcome: { status: "provided", summary: "релиз" }, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
   });
   assert.deepEqual(review.model.topic.active, { title: "Планирование недели", summary: "…", review: "weekly" });
@@ -97,7 +176,11 @@ test("an analysis topic or a weekly review switches the model mode to deep and a
 test("a card focus and a pending proposal are rendered under the task's short id, never its UUID", async () => {
   const { service } = makeService();
   const result = await service.build({
-    workspaceId: "workspace", userId: "user", timezone, query: "завтра в 10", now,
+    workspaceId: "workspace",
+    userId: "user",
+    timezone,
+    query: "завтра в 10",
+    now,
     focus: { occurrenceId: occurrenceRow.id, action: "reschedule" },
     pendingGroup: { groupId: "group-1", createdAt: new Date("2026-09-04T10:30:00Z"), titles: ["Создать задачу «Купить билеты»"] },
   });

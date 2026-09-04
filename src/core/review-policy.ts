@@ -10,11 +10,7 @@ export function reviewQuestionLimit(kind: ReviewKind): number {
   return kind === "weekly" ? 5 : 3;
 }
 
-export function reviewClarificationDecision(input: {
-  kind: ReviewKind;
-  clarificationCountBeforeTurn: number;
-  askedQuestion: boolean;
-}): ReviewClarificationDecision {
+export function reviewClarificationDecision(input: { kind: ReviewKind; clarificationCountBeforeTurn: number; askedQuestion: boolean }): ReviewClarificationDecision {
   const questionLimit = reviewQuestionLimit(input.kind);
   const forceConclusion = input.clarificationCountBeforeTurn >= questionLimit;
   if (forceConclusion) return { checkpoint: false, forceConclusion: true, resolveAfterTurn: true };
@@ -47,11 +43,7 @@ export interface ReviewPresentation {
   completed: boolean;
 }
 
-export function reviewPresentation(input: {
-  kind: ReviewKind;
-  clarificationCountBeforeTurn: number;
-  askedQuestion: boolean;
-}): ReviewPresentation {
+export function reviewPresentation(input: { kind: ReviewKind; clarificationCountBeforeTurn: number; askedQuestion: boolean }): ReviewPresentation {
   const decision = reviewClarificationDecision(input);
   const totalSteps = reviewQuestionLimit(input.kind);
   return {

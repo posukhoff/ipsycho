@@ -37,7 +37,13 @@ const SETTINGS = { version: 11, timezone, morningReferenceTime: "09:00" };
 
 const refs = buildRefMap({
   tasks: Object.entries(TASKS).map(([shortId, task]) => ({
-    shortId, id: task.id, version: task.version, title: task.title, timeMode: task.timeMode, recurring: task.recurring, status: task.status,
+    shortId,
+    id: task.id,
+    version: task.version,
+    title: task.title,
+    timeMode: task.timeMode,
+    recurring: task.recurring,
+    status: task.status,
   })),
   goals: [{ shortId: "g1", id: GOAL, version: 2, title: "Запустить группу" }],
   memory: [{ shortId: "m1", id: MEMORY, version: 5, title: "Ложится в 23:30" }],
@@ -66,23 +72,54 @@ function makeDeps(overrides = {}) {
 
 const setState = (over = {}) => ({ type: "set_task_state", intent: "explicit", task: { id: "t1" }, state: "done", note: null, scope: null, ...over });
 const rescheduleTo = (over = {}) => ({
-  type: "reschedule", intent: "explicit", task: { id: "t1" },
+  type: "reschedule",
+  intent: "explicit",
+  task: { id: "t1" },
   when: { mode: "exact", date: "2026-09-10", time: "15:00", durationMinutes: null },
-  reason: null, scope: null, recurrence: null, timezone: null, ...over,
+  reason: null,
+  scope: null,
+  recurrence: null,
+  timezone: null,
+  ...over,
 });
 const setReminder = (over = {}) => ({
-  type: "set_reminder", intent: "explicit", task: { id: "t1" }, mode: "add",
-  reminder: { kind: "at", date: "2026-09-10", time: "09:00", quiet: "respect" }, ...over,
+  type: "set_reminder",
+  intent: "explicit",
+  task: { id: "t1" },
+  mode: "add",
+  reminder: { kind: "at", date: "2026-09-10", time: "09:00", quiet: "respect" },
+  ...over,
 });
 const goalAction = (over = {}) => ({
-  type: "goal", intent: "explicit", op: "link", goal: { id: "g1" }, task: { id: "t1" },
-  title: null, why: null, targetDate: null, status: null, reviewEnabled: null, ...over,
+  type: "goal",
+  intent: "explicit",
+  op: "link",
+  goal: { id: "g1" },
+  task: { id: "t1" },
+  title: null,
+  why: null,
+  targetDate: null,
+  status: null,
+  reviewEnabled: null,
+  ...over,
 });
 const createTask = (over = {}) => ({
-  type: "create_task", intent: "explicit", title: "Новая задача", why: null, nextAction: null, context: null,
-  checklist: null, importance: "normal", kind: "task",
+  type: "create_task",
+  intent: "explicit",
+  title: "Новая задача",
+  why: null,
+  nextAction: null,
+  context: null,
+  checklist: null,
+  importance: "normal",
+  kind: "task",
   when: { mode: "exact", date: "2026-09-10", time: "15:00", durationMinutes: null },
-  recurrence: null, reminder: null, habit: null, timezone: null, goal: null, ...over,
+  recurrence: null,
+  reminder: null,
+  habit: null,
+  timezone: null,
+  goal: null,
+  ...over,
 });
 
 async function resolve(actions, overrides = {}) {
@@ -119,7 +156,12 @@ test("a one-time task resolves to its current occurrence with the version read f
   const result = await resolve([setState({ task: { id: "t1" }, state: "done" })]);
   assert.deepEqual(result.issues, []);
   assert.deepEqual(result.resolved[0].target, {
-    kind: "occurrence", taskId: ONE_TIME, taskVersion: 4, occurrenceId: OCC_ONE_TIME, occurrenceVersion: 1, timezone,
+    kind: "occurrence",
+    taskId: ONE_TIME,
+    taskVersion: 4,
+    occurrenceId: OCC_ONE_TIME,
+    occurrenceVersion: 1,
+    timezone,
   });
   // Completing may land on an occurrence whose time has already passed.
   assert.deepEqual(result.calls.occurrence[0].opts, { includeElapsed: true });
@@ -139,14 +181,22 @@ test("cancelling a recurring task without a scope asks which one instead of choo
   const issue = onlyIssue(result);
   assert.equal(issue.kind, "ambiguous");
   assert.equal(issue.code, "scope_required");
-  assert.deepEqual(issue.candidates?.map((candidate) => candidate.id), ["occurrence", "series"]);
+  assert.deepEqual(
+    issue.candidates?.map((candidate) => candidate.id),
+    ["occurrence", "series"],
+  );
 });
 
 test("scope=occurrence on a recurring task resolves the current occurrence", async () => {
   const result = await resolve([setState({ task: { id: "t2" }, state: "cancelled", scope: "occurrence" })]);
   assert.deepEqual(result.issues, []);
   assert.deepEqual(result.resolved[0].target, {
-    kind: "occurrence", taskId: RECURRING, taskVersion: 7, occurrenceId: OCC_RECURRING, occurrenceVersion: 3, timezone,
+    kind: "occurrence",
+    taskId: RECURRING,
+    taskVersion: 7,
+    occurrenceId: OCC_RECURRING,
+    occurrenceVersion: 3,
+    timezone,
   });
 });
 
@@ -208,10 +258,28 @@ test("linking what is already linked and unlinking what is not are both refused 
 
 test("a settings action carries the version the server just read, never one the model supplied", async () => {
   const action = {
-    type: "settings", intent: "explicit", operation: "quiet_hours", timezone: null, applyTimezoneTo: null, language: null,
-    digestKind: null, enabled: true, time: null, weekday: null, weekdayStart: "22:00", weekdayEnd: "08:00",
-    weekendStart: null, weekendEnd: null, snoozeUntilDate: null, snoozeUntilTime: null, eventOffsets: null,
-    plannedTaskOffsetMinutes: null, criticalPostDueMinutes: null, seenNormalMinutes: null, seenRequiredMinutes: null, seenCriticalMinutes: null,
+    type: "settings",
+    intent: "explicit",
+    operation: "quiet_hours",
+    timezone: null,
+    applyTimezoneTo: null,
+    language: null,
+    digestKind: null,
+    enabled: true,
+    time: null,
+    weekday: null,
+    weekdayStart: "22:00",
+    weekdayEnd: "08:00",
+    weekendStart: null,
+    weekendEnd: null,
+    snoozeUntilDate: null,
+    snoozeUntilTime: null,
+    eventOffsets: null,
+    plannedTaskOffsetMinutes: null,
+    criticalPostDueMinutes: null,
+    seenNormalMinutes: null,
+    seenRequiredMinutes: null,
+    seenCriticalMinutes: null,
   };
   const result = await resolve([action]);
   assert.deepEqual(result.issues, []);
@@ -243,5 +311,11 @@ test("a package keeps resolving after one action fails, and every issue names it
     setState({ task: { id: "t1" }, state: "skipped" }),
   ]);
   assert.equal(result.resolved.length, 1);
-  assert.deepEqual(result.issues.map((issue) => [issue.index, issue.code]), [[0, "ref_not_found"], [2, "skip_one_time"]]);
+  assert.deepEqual(
+    result.issues.map((issue) => [issue.index, issue.code]),
+    [
+      [0, "ref_not_found"],
+      [2, "skip_one_time"],
+    ],
+  );
 });

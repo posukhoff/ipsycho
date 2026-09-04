@@ -17,6 +17,7 @@ import { deployedBuildLine } from "../telegram-ui.js";
 import { TelegramService } from "../telegram.service.js";
 import { OnboardingService } from "./onboarding.service.js";
 import { ScreensService } from "./screens.service.js";
+import { logger } from "../../observability/logger.js";
 
 const ACCOUNT_DELETE_CONFIRM = "account:delete_confirm";
 const GUIDE_CALLBACK = /^guide:(help|index|tasks|goals|reminders|reports|ai)$/;
@@ -73,11 +74,17 @@ export class SystemCommandsService {
 
   private async status(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
-    const database = await this.database.pool.query("select 1").then(() => true).catch(() => false);
+    const database = await this.database.pool
+      .query("select 1")
+      .then(() => true)
+      .catch(() => false);
     const queue = await this.reminderQueue.queueSummary().catch(() => null);
-    const ai = access.user.aiStatus !== "enabled"
-      ? t(locale, "status_ai_suspended")
-      : this.chat.isAiConfigured() ? t(locale, "status_ai_configured", { provider: this.chat.providerName }) : t(locale, "status_ai_missing");
+    const ai =
+      access.user.aiStatus !== "enabled"
+        ? t(locale, "status_ai_suspended")
+        : this.chat.isAiConfigured()
+          ? t(locale, "status_ai_configured", { provider: this.chat.providerName })
+          : t(locale, "status_ai_missing");
     const lines = [
       t(locale, "status_server"),
       t(locale, database ? "status_db_ok" : "status_db_failed"),
@@ -100,10 +107,10 @@ export class SystemCommandsService {
     const fallbackLocale = telegramLocale(null, ctx.from?.language_code);
     if (!ctx.state.access) {
       const token = registrationTokenFromStart(ctx.message?.text ?? "");
-      if (!token) return void await ctx.reply(t(fallbackLocale, "access_denied"));
+      if (!token) return void (await ctx.reply(t(fallbackLocale, "access_denied")));
       const registration = await this.access.registerFromInvite(token, ctx.from!.id);
-      if (registration.kind === "already_registered") return void await ctx.reply(t(fallbackLocale, "invite_already_registered"));
-      if (registration.kind !== "created") return void await ctx.reply(t(fallbackLocale, "invite_invalid"));
+      if (registration.kind === "already_registered") return void (await ctx.reply(t(fallbackLocale, "invite_already_registered")));
+      if (registration.kind !== "created") return void (await ctx.reply(t(fallbackLocale, "invite_invalid")));
       const access = await this.access.resolveActiveUser(ctx.from!.id);
       const settings = access ? await this.settings.get(access.user.id) : null;
       if (!access || !settings) throw new Error("invited user registration did not create active access");
@@ -116,13 +123,13 @@ export class SystemCommandsService {
 
   private async invite(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
-    if (!canCreateRegistrationInvite(this.config.ownerTelegramUserId, ctx.from!.id)) return void await ctx.reply(t(locale, "invite_not_allowed"));
+    if (!canCreateRegistrationInvite(this.config.ownerTelegramUserId, ctx.from!.id)) return void (await ctx.reply(t(locale, "invite_not_allowed")));
     try {
       const invite = await this.access.createRegistrationInvite(access.user.id);
       const link = await this.telegram.registrationLink(invite.token);
       await ctx.reply(t(locale, "invite_created", { link, days: REGISTRATION_INVITE_TTL_DAYS }));
     } catch (error) {
-      console.error("registration invite creation failed", { userId: access.user.id, error: safeError(error) });
+      logger.error("registration invite creation failed", { userId: access.user.id, error: safeError(error) });
       await ctx.reply(t(locale, "invite_failed"));
     }
   }
@@ -140,10 +147,9 @@ export class SystemCommandsService {
 
   private async deleteAccount(ctx: CommandContext<AppContext>): Promise<void> {
     const { locale } = activeState(ctx);
-    await ctx.reply(
-      t(locale, "delete_prompt", { days: DELETION_GRACE_DAYS, daily: BACKUP_RETENTION.daily, weekly: BACKUP_RETENTION.weekly }),
-      { reply_markup: new InlineKeyboard().text(t(locale, "delete_confirm_button"), ACCOUNT_DELETE_CONFIRM) },
-    );
+    await ctx.reply(t(locale, "delete_prompt", { days: DELETION_GRACE_DAYS, daily: BACKUP_RETENTION.daily, weekly: BACKUP_RETENTION.weekly }), {
+      reply_markup: new InlineKeyboard().text(t(locale, "delete_confirm_button"), ACCOUNT_DELETE_CONFIRM),
+    });
   }
 
   /** Open to a user whose account is locked for deletion: the access gate lets /restore through. */
@@ -163,22 +169,22 @@ export class SystemCommandsService {
     const { access, settings, locale } = activeState(ctx);
     try {
       const result = await this.chat.retryLatest({
-        workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus,
-        timezone: settings.timezone, language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null,
+        workspaceId: access.workspaceId,
+        userId: access.user.id,
+        aiStatus: access.user.aiStatus,
+        timezone: settings.timezone,
+        language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null,
       });
       await this.chatReply.reply(ctx, access, result);
     } catch (error) {
-      console.error("AI retry failed", { userId: access.user.id, error: safeError(error) });
+      logger.error("AI retry failed", { userId: access.user.id, error: safeError(error) });
       await ctx.reply(t(locale, "retry_failed"));
     }
   }
 
   private async cancel(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
-    await Promise.all([
-      this.settings.setPendingInput(access.user.id, null),
-      this.chat.pauseConversation(access.workspaceId, access.user.id),
-    ]);
+    await Promise.all([this.settings.setPendingInput(access.user.id, null), this.chat.pauseConversation(access.workspaceId, access.user.id)]);
     await ctx.reply(t(locale, "cancel_done"));
   }
 
@@ -190,7 +196,7 @@ export class SystemCommandsService {
       await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
       await ctx.reply(t(locale, "delete_scheduled", { days: DELETION_GRACE_DAYS }));
     } catch (error) {
-      console.error("account deletion request failed", { userId: access.user.id, error: safeError(error) });
+      logger.error("account deletion request failed", { userId: access.user.id, error: safeError(error) });
       await ctx.answerCallbackQuery({ text: t(locale, "delete_failed_toast") }).catch(() => undefined);
     }
   }
@@ -201,14 +207,19 @@ export class SystemCommandsService {
     await this.chat.grantConsent(access.user.id, access.workspaceId);
     await ctx.answerCallbackQuery({ text: t(locale, "consent_granted_toast") });
     await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
-    const result = await this.chat.retryLatest({
-      workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus,
-      timezone: settings.timezone, language: settings.pinnedLanguage ?? ctx.from.language_code ?? null,
-    }).catch((error) => {
-      console.error("replay after consent failed", { userId: access.user.id, error: safeError(error) });
-      return { kind: "nothing_to_retry" as const };
-    });
-    if (result.kind === "nothing_to_retry") return void await ctx.reply(t(locale, "consent_granted"));
+    const result = await this.chat
+      .retryLatest({
+        workspaceId: access.workspaceId,
+        userId: access.user.id,
+        aiStatus: access.user.aiStatus,
+        timezone: settings.timezone,
+        language: settings.pinnedLanguage ?? ctx.from.language_code ?? null,
+      })
+      .catch((error) => {
+        logger.error("replay after consent failed", { userId: access.user.id, error: safeError(error) });
+        return { kind: "nothing_to_retry" as const };
+      });
+    if (result.kind === "nothing_to_retry") return void (await ctx.reply(t(locale, "consent_granted")));
     await ctx.reply(t(locale, "consent_granted_replaying"));
     await this.chatReply.reply(ctx, access, result);
   }
@@ -223,7 +234,7 @@ export class SystemCommandsService {
   private async guide(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { locale } = activeState(ctx);
     const section = GUIDE_CALLBACK.exec(ctx.callbackQuery.data)?.[1] as GuideDestination | undefined;
-    if (!section) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (!section) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     await ctx.answerCallbackQuery();
     if (section === "help") return this.screens.present(ctx, helpText(this.config, locale), helpKeyboard(locale), true);
     if (section === "index") return this.screens.present(ctx, guideIndexText(locale), guideKeyboard(locale), true);
@@ -233,7 +244,7 @@ export class SystemCommandsService {
   private async navigate(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { locale } = activeState(ctx);
     const target = NAV_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (!target) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (!target) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     await ctx.answerCallbackQuery();
     if (target === "today") return this.screens.today(ctx, true);
     if (target === "today_all") return this.screens.today(ctx, true, true);
@@ -253,7 +264,12 @@ export class SystemCommandsService {
 }
 
 export function registrationTokenFromStart(text: string): string | null {
-  return text.replace(/^\/\S+(?:@\S+)?\s*/u, "").trim().match(/^join_([A-Za-z0-9_-]{32,64})$/u)?.[1] ?? null;
+  return (
+    text
+      .replace(/^\/\S+(?:@\S+)?\s*/u, "")
+      .trim()
+      .match(/^join_([A-Za-z0-9_-]{32,64})$/u)?.[1] ?? null
+  );
 }
 
 export function canCreateRegistrationInvite(ownerTelegramUserId: number | undefined, telegramUserId: number): boolean {

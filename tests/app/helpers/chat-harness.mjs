@@ -31,16 +31,7 @@ import { EMPTY_REFS } from "../../../dist/core/ai-refs.js";
  *   topics         directives passed to `context.applyTopicDirective`
  */
 export function createChatHarness(options = {}) {
-  const {
-    turns = [],
-    issues = [],
-    applied,
-    pending,
-    context: contextOverrides = {},
-    lastAssistant = null,
-    pendingSummary = null,
-    confirmResult,
-  } = options;
+  const { turns = [], issues = [], applied, pending, context: contextOverrides = {}, lastAssistant = null, pendingSummary = null, confirmResult } = options;
 
   const calls = [];
   const corrections = [];
@@ -178,7 +169,11 @@ export function createChatHarness(options = {}) {
     updateClarificationCount: async () => 1,
     resetClarificationCount: async () => undefined,
     mergeWeeklyReviewProgress: async () => ({
-      outcome: null, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null,
+      outcome: null,
+      capacityEnergy: null,
+      risks: null,
+      minimumSuccess: null,
+      commitments: null,
     }),
     pauseActiveTopics: async () => 0,
   };
@@ -194,20 +189,31 @@ export function createChatHarness(options = {}) {
  * them) and the server-side target/ids are added so code that reads `target.taskId` works.
  */
 export function resolveLikeServer(action) {
-  const taskTarget = (ref) => ref ? { kind: "occurrence", taskId: `task:${ref.id}`, taskVersion: 1, occurrenceId: `occurrence:${ref.id}`, occurrenceVersion: 1, timezone: "Europe/Kyiv" } : null;
+  const taskTarget = (ref) =>
+    ref ? { kind: "occurrence", taskId: `task:${ref.id}`, taskVersion: 1, occurrenceId: `occurrence:${ref.id}`, occurrenceVersion: 1, timezone: "Europe/Kyiv" } : null;
   const base = { ...action, resolved: true, timezone: "Europe/Kyiv", reviewTime: "09:00" };
   switch (action.type) {
     case "create_task": {
-      const { type, intent, goal, ...body } = action;
+      const { type: _type, intent: _intent, goal, ...body } = action;
       return { ...base, body, goal: goal ? { goalId: `goal:${goal.id}`, goalVersion: 1 } : null };
     }
-    case "update_task": return { ...base, taskId: `task:${action.task.id}`, taskVersion: 1 };
+    case "update_task":
+      return { ...base, taskId: `task:${action.task.id}`, taskVersion: 1 };
     case "set_task_state":
     case "reschedule":
-    case "set_reminder": return { ...base, target: taskTarget(action.task) };
-    case "goal": return { ...base, goalId: action.goal ? `goal:${action.goal.id}` : null, goalVersion: action.goal ? 1 : null, taskId: action.task ? `task:${action.task.id}` : null, taskVersion: action.task ? 1 : null };
-    case "memory": return { ...base, memoryId: action.item ? `memory:${action.item.id}` : null, memoryVersion: action.item ? 1 : null };
-    default: return base;
+    case "set_reminder":
+      return { ...base, target: taskTarget(action.task) };
+    case "goal":
+      return {
+        ...base,
+        goalId: action.goal ? `goal:${action.goal.id}` : null,
+        goalVersion: action.goal ? 1 : null,
+        taskId: action.task ? `task:${action.task.id}` : null,
+        taskVersion: action.task ? 1 : null,
+      };
+    case "memory":
+      return { ...base, memoryId: action.item ? `memory:${action.item.id}` : null, memoryVersion: action.item ? 1 : null };
+    default:
+      return base;
   }
 }
-

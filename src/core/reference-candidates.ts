@@ -20,7 +20,9 @@ export function withTaskCandidates(issues: readonly ActionIssue[], refs: RefMap,
     .slice(0, MAX_CANDIDATES)
     .map((task) => ({ id: task.id, title: task.title }));
   if (!candidates.length) return [...issues];
-  return issues.map((issue) => issue.kind === "reference" && issue.code === "ref_not_found" && /task/.test(issue.message)
-    ? { ...issue, kind: "ambiguous" as const, code: "task_candidates", candidates }
-    : issue);
+  return issues.map((issue) =>
+    issue.kind === "reference" && issue.code === "ref_not_found" && /task/.test(issue.message)
+      ? { ...issue, kind: "ambiguous" as const, code: "task_candidates", candidates }
+      : issue,
+  );
 }

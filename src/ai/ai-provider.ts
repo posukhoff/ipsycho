@@ -1,5 +1,6 @@
 import type { ZodError } from "zod";
 import { AiTurnSchema, type AiTurn } from "./ai-contracts.js";
+import { logger } from "../observability/logger.js";
 
 export interface AiMessage {
   role: "user" | "assistant";
@@ -87,7 +88,7 @@ export async function structuredTurn(providerName: string, attempt: (repairSuffi
     outputTokens += response.usage?.outputTokens ?? 0;
     cachedInputTokens += response.usage?.cachedInputTokens ?? 0;
     if (response.refusal) {
-      console.warn("AI provider refused the request", { provider: providerName, attempt: attempts });
+      logger.warn("AI provider refused the request", { provider: providerName, attempt: attempts });
       issues = ["(root): refusal"];
       continue;
     }
@@ -119,4 +120,3 @@ export async function structuredTurn(providerName: string, attempt: (repairSuffi
   }
   throw new AiStructuredOutputError(`${providerName} returned no valid structured output after one repair attempt`);
 }
-

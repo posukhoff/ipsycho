@@ -28,5 +28,5 @@ export function habitCompletionStats(statuses: readonly string[]): { done: numbe
   const relevant = statuses.filter((status) => ["done", "skipped", "elapsed"].includes(status));
   const done = relevant.filter((status) => status === "done").length;
   const missed = relevant.length - done;
-  return { done, total: relevant.length, missed, rate: relevant.length ? Math.round(done / relevant.length * 100) : null };
+  return { done, total: relevant.length, missed, rate: relevant.length ? Math.round((done / relevant.length) * 100) : null };
 }

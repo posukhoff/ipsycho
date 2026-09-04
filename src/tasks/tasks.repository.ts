@@ -38,7 +38,9 @@ export class TasksRepository {
    * The cap keeps one turn's retrieval bounded; the context layer selects the nearest ones anyway.
    */
   async listActiveTasksForAi(workspaceId: string, limit = AI_TASK_RETRIEVAL_LIMIT) {
-    return this.database.db.select().from(tasks)
+    return this.database.db
+      .select()
+      .from(tasks)
       .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.status, ["active", "paused"])))
       .orderBy(desc(tasks.updatedAt))
       .limit(limit);
@@ -53,11 +55,12 @@ export class TasksRepository {
     if (!tsQuery) return [];
     const vector = sql`to_tsvector('simple', ${tasks.title} || ' ' || coalesce(${tasks.context}, ''))`;
     const searchQuery = sql`to_tsquery('simple', ${tsQuery})`;
-    return this.database.db.select().from(tasks).where(and(
-      eq(tasks.workspaceId, workspaceId),
-      inArray(tasks.status, ["active", "paused"]),
-      sql`${vector} @@ ${searchQuery}`,
-    )).orderBy(desc(sql`ts_rank_cd(${vector}, ${searchQuery})`), desc(tasks.updatedAt)).limit(limit);
+    return this.database.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.status, ["active", "paused"]), sql`${vector} @@ ${searchQuery}`))
+      .orderBy(desc(sql`ts_rank_cd(${vector}, ${searchQuery})`), desc(tasks.updatedAt))
+      .limit(limit);
   }
 
   /**
@@ -65,33 +68,30 @@ export class TasksRepository {
    * one, then the nearest scheduled; elapsed only when the caller can still act on it (completion).
    */
   async findCurrentOccurrence(workspaceId: string, taskId: string, opts: { includeElapsed?: boolean } = {}) {
-    const statuses: Array<typeof taskOccurrences.$inferSelect["status"]> = opts.includeElapsed
+    const statuses: Array<(typeof taskOccurrences.$inferSelect)["status"]> = opts.includeElapsed
       ? ["in_progress", "open", "scheduled", "elapsed"]
       : ["in_progress", "open", "scheduled"];
-    const [row] = await this.database.db.select().from(taskOccurrences).where(and(
-      eq(taskOccurrences.workspaceId, workspaceId),
-      eq(taskOccurrences.taskId, taskId),
-      inArray(taskOccurrences.status, statuses),
-    )).orderBy(
-      sql`case ${taskOccurrences.status} when 'in_progress' then 0 when 'open' then 1 when 'scheduled' then 2 else 3 end`,
-      sql`coalesce(${taskOccurrences.plannedStartAt}, ${taskOccurrences.dueAt}) asc nulls last`,
-      asc(taskOccurrences.plannedLocalDate),
-      asc(taskOccurrences.dueLocalDate),
-      asc(taskOccurrences.id),
-    ).limit(1);
+    const [row] = await this.database.db
+      .select()
+      .from(taskOccurrences)
+      .where(and(eq(taskOccurrences.workspaceId, workspaceId), eq(taskOccurrences.taskId, taskId), inArray(taskOccurrences.status, statuses)))
+      .orderBy(
+        sql`case ${taskOccurrences.status} when 'in_progress' then 0 when 'open' then 1 when 'scheduled' then 2 else 3 end`,
+        sql`coalesce(${taskOccurrences.plannedStartAt}, ${taskOccurrences.dueAt}) asc nulls last`,
+        asc(taskOccurrences.plannedLocalDate),
+        asc(taskOccurrences.dueLocalDate),
+        asc(taskOccurrences.id),
+      )
+      .limit(1);
     return row ?? null;
   }
 
-
   async listActionableForTelegram(workspaceId: string, limit?: number) {
-    const query = this.database.db.select({ task: tasks, occurrence: taskOccurrences })
+    const query = this.database.db
+      .select({ task: tasks, occurrence: taskOccurrences })
       .from(taskOccurrences)
       .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
-      .where(and(
-        eq(taskOccurrences.workspaceId, workspaceId),
-        eq(tasks.status, "active"),
-        inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"]),
-      ))
+      .where(and(eq(taskOccurrences.workspaceId, workspaceId), eq(tasks.status, "active"), inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"])))
       .orderBy(
         sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`,
         desc(taskOccurrences.overdue),
@@ -103,51 +103,44 @@ export class TasksRepository {
   }
 
   async listFuzzyForTelegram(workspaceId: string, limit = 12) {
-    return this.database.db.select().from(tasks)
-      .where(and(
-        eq(tasks.workspaceId, workspaceId),
-        eq(tasks.status, "active"),
-        eq(tasks.timeMode, "fuzzy"),
-      ))
-      .orderBy(
-        sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`,
-        asc(tasks.reviewAt),
-        desc(tasks.updatedAt),
-      )
+    return this.database.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")))
+      .orderBy(sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`, asc(tasks.reviewAt), desc(tasks.updatedAt))
       .limit(limit);
   }
 
   async listFuzzyReviewsForLocalDate(workspaceId: string, localDate: string, limit = 20) {
-    return this.database.db.select().from(tasks)
-      .where(and(
-        eq(tasks.workspaceId, workspaceId),
-        eq(tasks.status, "active"),
-        eq(tasks.timeMode, "fuzzy"),
-        sql`(${tasks.reviewAt} AT TIME ZONE ${tasks.timezone})::date = ${localDate}::date`,
-      ))
-      .orderBy(
-        sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`,
-        asc(tasks.reviewAt),
-        desc(tasks.updatedAt),
+    return this.database.db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.workspaceId, workspaceId),
+          eq(tasks.status, "active"),
+          eq(tasks.timeMode, "fuzzy"),
+          sql`(${tasks.reviewAt} AT TIME ZONE ${tasks.timezone})::date = ${localDate}::date`,
+        ),
       )
+      .orderBy(sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`, asc(tasks.reviewAt), desc(tasks.updatedAt))
       .limit(limit);
   }
 
   async listRecentlyCompletedForTelegram(workspaceId: string, limit = 100) {
-    return this.database.db.select({ task: tasks, occurrence: taskOccurrences })
+    return this.database.db
+      .select({ task: tasks, occurrence: taskOccurrences })
       .from(taskOccurrences)
       .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
-      .where(and(
-        eq(taskOccurrences.workspaceId, workspaceId),
-        inArray(tasks.status, ["active", "closed"]),
-        eq(taskOccurrences.status, "done"),
-      ))
+      .where(and(eq(taskOccurrences.workspaceId, workspaceId), inArray(tasks.status, ["active", "closed"]), eq(taskOccurrences.status, "done")))
       .orderBy(desc(taskOccurrences.completedAt))
       .limit(limit);
   }
 
   async findGoalTitleForTask(workspaceId: string, taskId: string): Promise<string | null> {
-    const [row] = await this.database.db.select({ title: goals.title }).from(taskGoals)
+    const [row] = await this.database.db
+      .select({ title: goals.title })
+      .from(taskGoals)
       .innerJoin(goals, and(eq(goals.workspaceId, taskGoals.workspaceId), eq(goals.id, taskGoals.goalId)))
       .where(and(eq(taskGoals.workspaceId, workspaceId), eq(taskGoals.taskId, taskId)))
       .limit(1);
@@ -156,68 +149,81 @@ export class TasksRepository {
 
   async listChecklistForTasks(workspaceId: string, taskIds: readonly string[]) {
     if (!taskIds.length) return [];
-    return this.database.db.select().from(taskChecklistItems).where(and(
-      eq(taskChecklistItems.workspaceId, workspaceId),
-      inArray(taskChecklistItems.taskId, [...taskIds]),
-    )).orderBy(asc(taskChecklistItems.sortOrder));
+    return this.database.db
+      .select()
+      .from(taskChecklistItems)
+      .where(and(eq(taskChecklistItems.workspaceId, workspaceId), inArray(taskChecklistItems.taskId, [...taskIds])))
+      .orderBy(asc(taskChecklistItems.sortOrder));
   }
 
   async listRecurrenceExclusions(workspaceId: string, taskIds: readonly string[]) {
     if (!taskIds.length) return [];
-    return this.database.db.select().from(taskRecurrenceExclusions).where(and(
-      eq(taskRecurrenceExclusions.workspaceId, workspaceId),
-      inArray(taskRecurrenceExclusions.taskId, [...taskIds]),
-    )).orderBy(asc(taskRecurrenceExclusions.taskId), asc(taskRecurrenceExclusions.localDate));
+    return this.database.db
+      .select()
+      .from(taskRecurrenceExclusions)
+      .where(and(eq(taskRecurrenceExclusions.workspaceId, workspaceId), inArray(taskRecurrenceExclusions.taskId, [...taskIds])))
+      .orderBy(asc(taskRecurrenceExclusions.taskId), asc(taskRecurrenceExclusions.localDate));
   }
 
   async listActiveOccurrencesForTasks(workspaceId: string, taskIds: readonly string[]) {
     if (!taskIds.length) return [];
-    return this.database.db.select().from(taskOccurrences).where(and(
-      eq(taskOccurrences.workspaceId, workspaceId),
-      inArray(taskOccurrences.taskId, [...taskIds]),
-      inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"]),
-    )).orderBy(asc(taskOccurrences.plannedStartAt), asc(taskOccurrences.dueAt));
+    return this.database.db
+      .select()
+      .from(taskOccurrences)
+      .where(
+        and(eq(taskOccurrences.workspaceId, workspaceId), inArray(taskOccurrences.taskId, [...taskIds]), inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"])),
+      )
+      .orderBy(asc(taskOccurrences.plannedStartAt), asc(taskOccurrences.dueAt));
   }
 
   async findTask(workspaceId: string, taskId: string) {
-    const [row] = await this.database.db.select().from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId))).limit(1);
+    const [row] = await this.database.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)))
+      .limit(1);
     return row ?? null;
   }
 
   async countActiveCritical(workspaceId: string): Promise<number> {
-    const [row] = await this.database.db.select({ count: sql<number>`count(*)::int` }).from(tasks).where(and(
-      eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.importance, "critical"),
-    ));
+    const [row] = await this.database.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.importance, "critical")));
     return row?.count ?? 0;
   }
 
   async markHabitOfferSent(workspaceId: string, taskId: string, now = new Date()): Promise<boolean> {
-    const [row] = await this.database.db.update(tasks).set({ habitOfferSentAt: now }).where(and(
-      eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), sql`${tasks.habitOfferSentAt} IS NULL`,
-    )).returning({ id: tasks.id });
+    const [row] = await this.database.db
+      .update(tasks)
+      .set({ habitOfferSentAt: now })
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), sql`${tasks.habitOfferSentAt} IS NULL`))
+      .returning({ id: tasks.id });
     return Boolean(row);
   }
 
   async countOccurrenceEvents(workspaceId: string, occurrenceId: string, eventType: string): Promise<number> {
-    const [row] = await this.database.db.select({ count: sql<number>`count(*)::int` }).from(taskEvents).where(and(
-      eq(taskEvents.workspaceId, workspaceId), eq(taskEvents.occurrenceId, occurrenceId), eq(taskEvents.eventType, eventType),
-    ));
+    const [row] = await this.database.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.workspaceId, workspaceId), eq(taskEvents.occurrenceId, occurrenceId), eq(taskEvents.eventType, eventType)));
     return row?.count ?? 0;
   }
 
   async countReschedules(workspaceId: string, occurrenceId: string): Promise<number> {
-    const rows = await this.database.db.select({ id: taskEvents.id }).from(taskEvents).where(and(
-      eq(taskEvents.workspaceId, workspaceId),
-      eq(taskEvents.occurrenceId, occurrenceId),
-      eq(taskEvents.eventType, "occurrence:rescheduled"),
-    ));
+    const rows = await this.database.db
+      .select({ id: taskEvents.id })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.workspaceId, workspaceId), eq(taskEvents.occurrenceId, occurrenceId), eq(taskEvents.eventType, "occurrence:rescheduled")));
     return rows.length;
   }
 
   async findOccurrence(workspaceId: string, occurrenceId: string) {
-    const [row] = await this.database.db.select().from(taskOccurrences)
-      .where(and(eq(taskOccurrences.workspaceId, workspaceId), eq(taskOccurrences.id, occurrenceId))).limit(1);
+    const [row] = await this.database.db
+      .select()
+      .from(taskOccurrences)
+      .where(and(eq(taskOccurrences.workspaceId, workspaceId), eq(taskOccurrences.id, occurrenceId)))
+      .limit(1);
     return row ?? null;
   }
 
@@ -246,7 +252,9 @@ export class TasksRepository {
     if (!expected.length) return;
     await this.database.db.transaction(async (tx) => {
       const ids = expected.map((item) => item.id);
-      const rows = await tx.select({ id: tasks.id, version: tasks.version }).from(tasks)
+      const rows = await tx
+        .select({ id: tasks.id, version: tasks.version })
+        .from(tasks)
         .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids)));
       if (rows.length !== expected.length) throw new DomainRuleError("undo target missing");
       const versions = new Map(rows.map((row) => [row.id, row.version]));
@@ -258,18 +266,13 @@ export class TasksRepository {
   }
 
   async findTasksBySourceActionGroup(workspaceId: string, groupId: string) {
-    return this.database.db.select({ id: tasks.id, version: tasks.version, title: tasks.title }).from(tasks)
+    return this.database.db
+      .select({ id: tasks.id, version: tasks.version, title: tasks.title })
+      .from(tasks)
       .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.sourceActionGroupId, groupId)));
   }
 
-  async recordEvent(input: {
-    workspaceId: string;
-    taskId: string;
-    occurrenceId?: string;
-    actorUserId?: string;
-    eventType: string;
-    details?: string;
-  }): Promise<void> {
+  async recordEvent(input: { workspaceId: string; taskId: string; occurrenceId?: string; actorUserId?: string; eventType: string; details?: string }): Promise<void> {
     await this.database.db.insert(taskEvents).values({
       workspaceId: input.workspaceId,
       taskId: input.taskId,
@@ -281,34 +284,44 @@ export class TasksRepository {
   }
 
   async markIgnoredResultChecks(cutoff: Date, now = new Date(), limit = 200): Promise<number> {
-    const sentChecks = await this.database.db.select({
-      id: taskEvents.id, workspaceId: taskEvents.workspaceId, taskId: taskEvents.taskId,
-      occurrenceId: taskEvents.occurrenceId, createdAt: taskEvents.createdAt,
-    }).from(taskEvents).where(and(
-      eq(taskEvents.eventType, "occurrence:result_check_sent"),
-      lte(taskEvents.createdAt, cutoff),
-      isNotNull(taskEvents.occurrenceId),
-    )).orderBy(asc(taskEvents.createdAt)).limit(limit);
+    const sentChecks = await this.database.db
+      .select({
+        id: taskEvents.id,
+        workspaceId: taskEvents.workspaceId,
+        taskId: taskEvents.taskId,
+        occurrenceId: taskEvents.occurrenceId,
+        createdAt: taskEvents.createdAt,
+      })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.eventType, "occurrence:result_check_sent"), lte(taskEvents.createdAt, cutoff), isNotNull(taskEvents.occurrenceId)))
+      .orderBy(asc(taskEvents.createdAt))
+      .limit(limit);
 
     let marked = 0;
     for (const sent of sentChecks) {
       if (!sent.occurrenceId) continue;
-      const [occurrence] = await this.database.db.select({ status: taskOccurrences.status }).from(taskOccurrences).where(and(
-        eq(taskOccurrences.workspaceId, sent.workspaceId), eq(taskOccurrences.id, sent.occurrenceId),
-      )).limit(1);
+      const [occurrence] = await this.database.db
+        .select({ status: taskOccurrences.status })
+        .from(taskOccurrences)
+        .where(and(eq(taskOccurrences.workspaceId, sent.workspaceId), eq(taskOccurrences.id, sent.occurrenceId)))
+        .limit(1);
       if (occurrence?.status !== "in_progress") continue;
 
-      const later = await this.database.db.select({ eventType: taskEvents.eventType, actorUserId: taskEvents.actorUserId }).from(taskEvents).where(and(
-        eq(taskEvents.workspaceId, sent.workspaceId),
-        eq(taskEvents.occurrenceId, sent.occurrenceId),
-        gt(taskEvents.createdAt, sent.createdAt),
-      )).orderBy(asc(taskEvents.createdAt)).limit(50);
+      const later = await this.database.db
+        .select({ eventType: taskEvents.eventType, actorUserId: taskEvents.actorUserId })
+        .from(taskEvents)
+        .where(and(eq(taskEvents.workspaceId, sent.workspaceId), eq(taskEvents.occurrenceId, sent.occurrenceId), gt(taskEvents.createdAt, sent.createdAt)))
+        .orderBy(asc(taskEvents.createdAt))
+        .limit(50);
       if (later.some((event) => event.eventType === "occurrence:result_check_ignored")) continue;
       if (later.some((event) => event.actorUserId !== null)) continue;
 
       await this.database.db.insert(taskEvents).values({
-        workspaceId: sent.workspaceId, taskId: sent.taskId, occurrenceId: sent.occurrenceId,
-        eventType: "occurrence:result_check_ignored", createdAt: now,
+        workspaceId: sent.workspaceId,
+        taskId: sent.taskId,
+        occurrenceId: sent.occurrenceId,
+        eventType: "occurrence:result_check_ignored",
+        createdAt: now,
       });
       marked += 1;
     }
@@ -316,36 +329,36 @@ export class TasksRepository {
   }
 
   async clearEventDetailsOlderThan(cutoff: Date): Promise<number> {
-    const rows = await this.database.db.update(taskEvents).set({ details: null }).where(and(
-      lt(taskEvents.createdAt, cutoff),
-      isNotNull(taskEvents.details),
-    )).returning({ id: taskEvents.id });
+    const rows = await this.database.db
+      .update(taskEvents)
+      .set({ details: null })
+      .where(and(lt(taskEvents.createdAt, cutoff), isNotNull(taskEvents.details)))
+      .returning({ id: taskEvents.id });
     return rows.length;
   }
-
 
   async listLifecycleCandidates(limit = 1000) {
     return this.database.db
       .select({ task: tasks, occurrence: taskOccurrences })
       .from(taskOccurrences)
       .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
-      .where(and(
-        eq(tasks.status, "active"),
-        inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"]),
-      ))
+      .where(and(eq(tasks.status, "active"), inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"])))
       .limit(limit);
   }
 
   async markOccurrenceOverdue(input: { workspaceId: string; occurrenceId: string; expectedVersion: number }): Promise<boolean> {
     return this.database.db.transaction(async (tx) => {
-      const [updated] = await tx.update(taskOccurrences)
+      const [updated] = await tx
+        .update(taskOccurrences)
         .set({ overdue: true, version: sql`${taskOccurrences.version} + 1`, updatedAt: new Date() })
-        .where(and(
-          eq(taskOccurrences.workspaceId, input.workspaceId),
-          eq(taskOccurrences.id, input.occurrenceId),
-          eq(taskOccurrences.version, input.expectedVersion),
-          eq(taskOccurrences.overdue, false),
-        ))
+        .where(
+          and(
+            eq(taskOccurrences.workspaceId, input.workspaceId),
+            eq(taskOccurrences.id, input.occurrenceId),
+            eq(taskOccurrences.version, input.expectedVersion),
+            eq(taskOccurrences.overdue, false),
+          ),
+        )
         .returning({ taskId: taskOccurrences.taskId, id: taskOccurrences.id });
       if (!updated) return false;
       await tx.insert(taskEvents).values({
@@ -370,66 +383,74 @@ export class TasksRepository {
     patch?: Partial<typeof taskOccurrences.$inferInsert>;
   }) {
     return this.database.db.transaction(async (tx) => {
-      const [updated] = await tx.update(taskOccurrences)
+      const [updated] = await tx
+        .update(taskOccurrences)
         .set({
           ...input.patch,
           status: input.nextStatus,
           version: sql`${taskOccurrences.version} + 1`,
           updatedAt: new Date(),
         })
-        .where(and(
-          eq(taskOccurrences.workspaceId, input.workspaceId),
-          eq(taskOccurrences.id, input.occurrenceId),
-          eq(taskOccurrences.version, input.expectedVersion),
-        ))
+        .where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId), eq(taskOccurrences.version, input.expectedVersion)))
         .returning();
       if (!updated) throw new DomainRuleError("stale or missing occurrence");
 
       if (input.nextTaskStatus) {
-        const [updatedTask] = await tx.update(tasks)
+        const [updatedTask] = await tx
+          .update(tasks)
           .set({
             status: input.nextTaskStatus,
             version: sql`${tasks.version} + 1`,
             updatedAt: new Date(),
           })
-          .where(and(
-            eq(tasks.workspaceId, input.workspaceId),
-            eq(tasks.id, updated.taskId),
-            eq(tasks.version, input.expectedTaskVersion),
-          ))
+          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, updated.taskId), eq(tasks.version, input.expectedTaskVersion)))
           .returning({ id: tasks.id });
         if (!updatedTask) throw new DomainRuleError("stale or missing task");
       }
 
       if (input.nextStatus === "in_progress") {
-        const followUpRules = await tx.select({ id: reminderRules.id }).from(reminderRules).where(and(
-          eq(reminderRules.workspaceId, input.workspaceId),
-          eq(reminderRules.occurrenceId, updated.id),
-          eq(reminderRules.purpose, "follow_up"),
-          eq(reminderRules.active, true),
-        ));
+        const followUpRules = await tx
+          .select({ id: reminderRules.id })
+          .from(reminderRules)
+          .where(
+            and(
+              eq(reminderRules.workspaceId, input.workspaceId),
+              eq(reminderRules.occurrenceId, updated.id),
+              eq(reminderRules.purpose, "follow_up"),
+              eq(reminderRules.active, true),
+            ),
+          );
         const followUpRuleIds = followUpRules.map((item) => item.id);
         if (followUpRuleIds.length) {
-          await tx.update(reminderDeliveries)
+          await tx
+            .update(reminderDeliveries)
             .set({ status: "cancelled", suppressedReason: "superseded" })
-            .where(and(
-              eq(reminderDeliveries.workspaceId, input.workspaceId),
-              eq(reminderDeliveries.occurrenceId, updated.id),
-              inArray(reminderDeliveries.status, ["pending", "processing"]),
-              inArray(reminderDeliveries.reminderRuleId, followUpRuleIds),
-            ));
-          await tx.update(reminderRules).set({ active: false }).where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, followUpRuleIds)));
+            .where(
+              and(
+                eq(reminderDeliveries.workspaceId, input.workspaceId),
+                eq(reminderDeliveries.occurrenceId, updated.id),
+                inArray(reminderDeliveries.status, ["pending", "processing"]),
+                inArray(reminderDeliveries.reminderRuleId, followUpRuleIds),
+              ),
+            );
+          await tx
+            .update(reminderRules)
+            .set({ active: false })
+            .where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, followUpRuleIds)));
         }
       }
 
       if (["done", "skipped", "cancelled", "elapsed"].includes(input.nextStatus)) {
-        await tx.update(reminderDeliveries)
+        await tx
+          .update(reminderDeliveries)
           .set({ status: "suppressed", suppressedReason: "no_longer_applicable" })
-          .where(and(
-            eq(reminderDeliveries.workspaceId, input.workspaceId),
-            eq(reminderDeliveries.occurrenceId, updated.id),
-            inArray(reminderDeliveries.status, ["pending", "processing"]),
-          ));
+          .where(
+            and(
+              eq(reminderDeliveries.workspaceId, input.workspaceId),
+              eq(reminderDeliveries.occurrenceId, updated.id),
+              inArray(reminderDeliveries.status, ["pending", "processing"]),
+            ),
+          );
       }
 
       await tx.insert(taskEvents).values({

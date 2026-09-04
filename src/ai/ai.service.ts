@@ -63,8 +63,12 @@ export class AiService implements OnApplicationBootstrap {
     return this.repository.monthlySpendUsd(userId, monthStart);
   }
 
-  get maxCallsPerHour(): number { return this.config.aiMaxCallsPerHour; }
-  get maxMessagesPerHour(): number { return this.config.aiMaxMessagesPerHour; }
+  get maxCallsPerHour(): number {
+    return this.config.aiMaxCallsPerHour;
+  }
+  get maxMessagesPerHour(): number {
+    return this.config.aiMaxMessagesPerHour;
+  }
 
   async respond(input: {
     workspaceId: string;
@@ -95,9 +99,10 @@ export class AiService implements OnApplicationBootstrap {
         maxOutputTokens: this.config.aiMaxOutputTokens,
       });
       const pricing = this.config.aiPricing[model];
-      const estimatedCostUsd = pricing && result.inputTokens !== undefined && result.outputTokens !== undefined
-        ? estimateAiCostUsd(result.inputTokens, result.outputTokens, pricing, result.cachedInputTokens ?? 0)
-        : undefined;
+      const estimatedCostUsd =
+        pricing && result.inputTokens !== undefined && result.outputTokens !== undefined
+          ? estimateAiCostUsd(result.inputTokens, result.outputTokens, pricing, result.cachedInputTokens ?? 0)
+          : undefined;
       await this.repository.recordUsage({
         workspaceId: input.workspaceId,
         userId: input.userId,
@@ -116,15 +121,17 @@ export class AiService implements OnApplicationBootstrap {
       return result.turn;
     } catch (error) {
       // A failed call still made at least one request (two when the repair attempt failed too).
-      await this.repository.recordUsage({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        provider: this.provider.name,
-        model,
-        attempts: error instanceof AiStructuredOutputError ? STRUCTURED_ATTEMPTS : 1,
-        latencyMs: Date.now() - started,
-        status: "error",
-      }).catch(() => undefined);
+      await this.repository
+        .recordUsage({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          provider: this.provider.name,
+          model,
+          attempts: error instanceof AiStructuredOutputError ? STRUCTURED_ATTEMPTS : 1,
+          latencyMs: Date.now() - started,
+          status: "error",
+        })
+        .catch(() => undefined);
       throw error;
     }
   }

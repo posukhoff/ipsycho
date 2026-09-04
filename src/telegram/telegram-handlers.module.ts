@@ -22,10 +22,30 @@ import { TelegramHandlersService } from "./telegram-handlers.service.js";
 import { TelegramModule } from "./telegram.module.js";
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, AccessModule, TasksModule, RemindersModule, TelegramModule, ChatModule, ContextModule, ActionsModule, SettingsModule, BriefingsModule, AiModule],
+  imports: [
+    ConfigModule,
+    DatabaseModule,
+    AccessModule,
+    TasksModule,
+    RemindersModule,
+    TelegramModule,
+    ChatModule,
+    ContextModule,
+    ActionsModule,
+    SettingsModule,
+    BriefingsModule,
+    AiModule,
+  ],
   providers: [
-    TelegramChatReplyService, ScreensService, OnboardingService, SystemCommandsService, SettingsCommandsService, TaskCallbacksService, TextService,
-    TelegramConversationHandlersService, TelegramHandlersService,
+    TelegramChatReplyService,
+    ScreensService,
+    OnboardingService,
+    SystemCommandsService,
+    SettingsCommandsService,
+    TaskCallbacksService,
+    TextService,
+    TelegramConversationHandlersService,
+    TelegramHandlersService,
   ],
 })
 export class TelegramHandlersModule {}

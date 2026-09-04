@@ -16,9 +16,7 @@ test("historical goal movement excludes active goals and aggregates only meaning
     { goalId: "old", title: "Old", eventType: "occurrence:rescheduled" },
     { goalId: "old", title: "Old", eventType: "task:created" },
   ];
-  assert.deepEqual(aggregateHistoricalGoalMovement(rows, new Set(["active"])), [
-    { goalId: "old", title: "Old", done: 1, rescheduled: 1 },
-  ]);
+  assert.deepEqual(aggregateHistoricalGoalMovement(rows, new Set(["active"])), [{ goalId: "old", title: "Old", done: 1, rescheduled: 1 }]);
 });
 
 test("habit stats use only terminal habit occurrences", () => {
@@ -44,7 +42,6 @@ test("historical movement keeps independent counters for multiple goals", () => 
 test("habit stats report a real zero percent instead of missing data when all attempts were missed", () => {
   assert.deepEqual(habitCompletionStats(["skipped", "elapsed"]), { done: 0, total: 2, missed: 2, rate: 0 });
 });
-
 
 test("weekly review excludes cancelled goals from historical review semantics", () => {
   assert.equal(isWeeklyReviewGoalStatus("active"), true);

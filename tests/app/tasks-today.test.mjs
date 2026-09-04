@@ -14,28 +14,32 @@ const task = (id, overrides = {}) => ({
 
 test("Today includes fuzzy tasks whose planning review falls on the requested local date", async () => {
   const repository = {
-    listActionableForTelegram: async () => [{
-      task: task("exact-today"),
-      occurrence: {
-        status: "open",
-        timezone: "Europe/Kyiv",
-        plannedStartAt: new Date("2026-08-23T16:00:00Z"),
-        plannedEndAt: null,
-        plannedLocalDate: null,
-        dueAt: null,
-        dueLocalDate: null,
-        overdue: false,
+    listActionableForTelegram: async () => [
+      {
+        task: task("exact-today"),
+        occurrence: {
+          status: "open",
+          timezone: "Europe/Kyiv",
+          plannedStartAt: new Date("2026-08-23T16:00:00Z"),
+          plannedEndAt: null,
+          plannedLocalDate: null,
+          dueAt: null,
+          dueLocalDate: null,
+          overdue: false,
+        },
       },
-    }],
-    listFuzzyReviewsForLocalDate: async (_workspaceId, localDate) => localDate === "2026-08-23"
-      ? [task("fuzzy-today", { timeMode: "fuzzy", fuzzyHorizonText: "сегодня вечером", reviewAt: new Date("2026-08-23T15:00:00Z") })]
-      : [],
+    ],
+    listFuzzyReviewsForLocalDate: async (_workspaceId, localDate) =>
+      localDate === "2026-08-23" ? [task("fuzzy-today", { timeMode: "fuzzy", fuzzyHorizonText: "сегодня вечером", reviewAt: new Date("2026-08-23T15:00:00Z") })] : [],
   };
   const service = new TasksService(repository, {}, {});
 
   const rows = await service.listTodayForTelegram("workspace", "2026-08-23");
 
-  assert.deepEqual(rows.map(({ task: rowTask }) => rowTask.id), ["fuzzy-today", "exact-today"]);
+  assert.deepEqual(
+    rows.map(({ task: rowTask }) => rowTask.id),
+    ["fuzzy-today", "exact-today"],
+  );
   assert.equal(rows[0].occurrence, null);
 });
 

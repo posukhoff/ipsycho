@@ -1,0 +1,7 @@
+{
+  "all": true,
+  "src": ["dist"],
+  "exclude": ["dist/**/*.module.js", "dist/main.js", "dist/cli.js", "dist/database/migrate.js", "dist/database/schema.js"],
+  "reporter": ["text-summary", "lcov"],
+  "report-dir": "coverage"
+}

@@ -15,6 +15,7 @@ import { reminderSettingsFromRow } from "./task-record-mappers.js";
 import { RecurrenceMaintenanceService } from "./recurrence-maintenance.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { DomainRuleError } from "../core/errors.js";
+import { logger } from "../observability/logger.js";
 
 export interface CreateTaskInput {
   workspaceId: string;
@@ -79,7 +80,7 @@ export class TasksService {
         try {
           await this.reminderQueue.enqueue(delivery.id, delivery.scheduledFor);
         } catch (error) {
-          console.error("failed to enqueue reminder; queue reconciliation will retry", { deliveryId: delivery.id, error: safeError(error) });
+          logger.error("failed to enqueue reminder; queue reconciliation will retry", { deliveryId: delivery.id, error: safeError(error) });
         }
       }
     }
@@ -161,14 +162,18 @@ export class TasksService {
       dstAdjusted: projection.dstAdjusted ?? false,
     }));
     const checklistRows: Array<typeof taskChecklistItems.$inferInsert> = (input.checklist ?? []).map((item, index) => ({
-      id: randomUUID(), workspaceId: input.workspaceId, taskId, text: item.text.trim(), sortOrder: index, done: item.done,
+      id: randomUUID(),
+      workspaceId: input.workspaceId,
+      taskId,
+      text: item.text.trim(),
+      sortOrder: index,
+      done: item.done,
     }));
-    const recurrenceExclusionRows: Array<typeof taskRecurrenceExclusions.$inferInsert> =
-      (definition.recurrenceExcludedLocalDates ?? []).map((localDate) => ({
-        workspaceId: input.workspaceId,
-        taskId,
-        localDate,
-      }));
+    const recurrenceExclusionRows: Array<typeof taskRecurrenceExclusions.$inferInsert> = (definition.recurrenceExcludedLocalDates ?? []).map((localDate) => ({
+      workspaceId: input.workspaceId,
+      taskId,
+      localDate,
+    }));
 
     const ruleRows = reminderRuleRows({ workspaceId: input.workspaceId, taskId, specs: ruleSpecs, ruleIds });
 
@@ -176,9 +181,9 @@ export class TasksService {
     const deliveryIds: string[] = [];
     const targets: Array<{ occurrence: OccurrenceProjection | null; occurrenceId?: string }> = projections.length
       ? projections.map((occurrence, index) => {
-        const occurrenceId = occurrenceIds[index];
-        return { occurrence, ...(occurrenceId ? { occurrenceId } : {}) };
-      })
+          const occurrenceId = occurrenceIds[index];
+          return { occurrence, ...(occurrenceId ? { occurrenceId } : {}) };
+        })
       : [{ occurrence: null }];
 
     for (const target of targets) {
@@ -217,18 +222,24 @@ export class TasksService {
         taskId,
         occurrenceIds,
         deliveryIds,
-        reminderSchedules: deliveryRows.filter((delivery) => delivery.status === "pending").map((delivery) => ({
-          scheduledFor: delivery.scheduledFor,
-          purpose: ruleSpecs.find((rule, index) => ruleIds[index] === delivery.reminderRuleId)?.purpose ?? "user_reminder",
-        })),
-        ...(occurrenceRows[0] ? { occurrenceSchedule: {
-          timezone: occurrenceRows[0].timezone,
-          plannedStartAt: occurrenceRows[0].plannedStartAt ?? null,
-          plannedEndAt: occurrenceRows[0].plannedEndAt ?? null,
-          plannedLocalDate: occurrenceRows[0].plannedLocalDate ?? null,
-          dueAt: occurrenceRows[0].dueAt ?? null,
-          dueLocalDate: occurrenceRows[0].dueLocalDate ?? null,
-        } } : {}),
+        reminderSchedules: deliveryRows
+          .filter((delivery) => delivery.status === "pending")
+          .map((delivery) => ({
+            scheduledFor: delivery.scheduledFor,
+            purpose: ruleSpecs.find((rule, index) => ruleIds[index] === delivery.reminderRuleId)?.purpose ?? "user_reminder",
+          })),
+        ...(occurrenceRows[0]
+          ? {
+              occurrenceSchedule: {
+                timezone: occurrenceRows[0].timezone,
+                plannedStartAt: occurrenceRows[0].plannedStartAt ?? null,
+                plannedEndAt: occurrenceRows[0].plannedEndAt ?? null,
+                plannedLocalDate: occurrenceRows[0].plannedLocalDate ?? null,
+                dueAt: occurrenceRows[0].dueAt ?? null,
+                dueLocalDate: occurrenceRows[0].dueLocalDate ?? null,
+              },
+            }
+          : {}),
       },
     };
   }
@@ -241,16 +252,15 @@ export class TasksService {
       this.repository.listActionableForTelegram(workspaceId),
       this.repository.listFuzzyForTelegram(workspaceId, Math.max(limit, 20)),
     ]);
-    const rows = [
-      ...actionable,
-      ...fuzzy.map((task) => ({ task, occurrence: null })),
-    ].sort(compareTelegramTasks);
+    const rows = [...actionable, ...fuzzy.map((task) => ({ task, occurrence: null }))].sort(compareTelegramTasks);
     const seenTaskIds = new Set<string>();
-    return rows.filter((row) => {
-      if (seenTaskIds.has(row.task.id)) return false;
-      seenTaskIds.add(row.task.id);
-      return true;
-    }).slice(0, limit);
+    return rows
+      .filter((row) => {
+        if (seenTaskIds.has(row.task.id)) return false;
+        seenTaskIds.add(row.task.id);
+        return true;
+      })
+      .slice(0, limit);
   }
 
   async listTodayForTelegram(workspaceId: string, localDate: string, limit = 20) {
@@ -291,8 +301,11 @@ export class TasksService {
     ]);
     // A task the search found may sit outside the retrieval cap; it must still be addressable.
     const known = new Set(taskRows.map((task) => task.id));
-    const allTasks = [...taskRows, ...matches.filter((task) => !known.has(task.id)).map((task) => task as typeof taskRows[number])];
-    const occurrenceRows = await this.repository.listActiveOccurrencesForTasks(workspaceId, allTasks.map((task) => task.id));
+    const allTasks = [...taskRows, ...matches.filter((task) => !known.has(task.id)).map((task) => task as (typeof taskRows)[number])];
+    const occurrenceRows = await this.repository.listActiveOccurrencesForTasks(
+      workspaceId,
+      allTasks.map((task) => task.id),
+    );
     const occurrencesByTask = new Map<string, typeof occurrenceRows>();
     for (const occurrence of occurrenceRows) {
       const list = occurrencesByTask.get(occurrence.taskId) ?? [];
@@ -318,7 +331,9 @@ export class TasksService {
     return this.repository.findTask(workspaceId, taskId);
   }
 
-  countActiveCritical(workspaceId: string): Promise<number> { return this.repository.countActiveCritical(workspaceId); }
+  countActiveCritical(workspaceId: string): Promise<number> {
+    return this.repository.countActiveCritical(workspaceId);
+  }
 
   markHabitOfferSent(workspaceId: string, taskId: string, now = new Date()): Promise<boolean> {
     return this.repository.markHabitOfferSent(workspaceId, taskId, now);
@@ -398,12 +413,7 @@ export class TasksService {
     });
   }
 
-  async recordInteraction(input: {
-    workspaceId: string;
-    occurrenceId: string;
-    actorUserId: string;
-    eventType: "occurrence:seen" | "occurrence:cant_start";
-  }): Promise<void> {
+  async recordInteraction(input: { workspaceId: string; occurrenceId: string; actorUserId: string; eventType: "occurrence:seen" | "occurrence:cant_start" }): Promise<void> {
     const occurrence = await this.repository.findOccurrence(input.workspaceId, input.occurrenceId);
     if (!occurrence) throw new DomainRuleError("occurrence not found");
     await this.repository.recordEvent({
@@ -421,17 +431,18 @@ export class TasksService {
     const details = input.details.trim();
     if (!details) throw new DomainRuleError("blocker cannot be empty");
     await this.repository.recordEvent({
-      workspaceId: input.workspaceId, taskId: occurrence.taskId, occurrenceId: occurrence.id, actorUserId: input.actorUserId,
-      eventType: "occurrence:blocker", details,
+      workspaceId: input.workspaceId,
+      taskId: occurrence.taskId,
+      occurrenceId: occurrence.id,
+      actorUserId: input.actorUserId,
+      eventType: "occurrence:blocker",
+      details,
     });
   }
 
   /** Detail fields for a Telegram task card that are not on the task row itself. */
   async getTaskCardExtras(workspaceId: string, taskId: string): Promise<{ checklist: Array<{ text: string; done: boolean }>; goalTitle: string | null }> {
-    const [checklist, goalTitle] = await Promise.all([
-      this.repository.listChecklistForTasks(workspaceId, [taskId]),
-      this.repository.findGoalTitleForTask(workspaceId, taskId),
-    ]);
+    const [checklist, goalTitle] = await Promise.all([this.repository.listChecklistForTasks(workspaceId, [taskId]), this.repository.findGoalTitleForTask(workspaceId, taskId)]);
     return { checklist: checklist.map((item) => ({ text: item.text, done: item.done })), goalTitle };
   }
 
@@ -448,12 +459,11 @@ export class TasksService {
   }
 }
 
-
 function compareTelegramTasks(
   left: { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null },
   right: { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null },
 ): number {
-  const importance = (value: typeof tasks.$inferSelect["importance"]) => value === "critical" ? 0 : value === "required" ? 1 : 2;
+  const importance = (value: (typeof tasks.$inferSelect)["importance"]) => (value === "critical" ? 0 : value === "required" ? 1 : 2);
   const leftImportance = importance(left.task.importance);
   const rightImportance = importance(right.task.importance);
   if (leftImportance !== rightImportance) return leftImportance - rightImportance;

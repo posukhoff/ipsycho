@@ -33,10 +33,21 @@ test("a package that cannot be applied says so before naming the reason", () => 
 });
 
 test("an ambiguous scope asks which one instead of guessing", () => {
-  const reply = renderValidationReply([issue({
-    kind: "ambiguous", code: "scope_required", message: "cancel one occurrence or the whole series?",
-    candidates: [{ id: "occurrence", title: "только это повторение" }, { id: "series", title: "всю серию" }],
-  })], "ru", 1);
+  const reply = renderValidationReply(
+    [
+      issue({
+        kind: "ambiguous",
+        code: "scope_required",
+        message: "cancel one occurrence or the whole series?",
+        candidates: [
+          { id: "occurrence", title: "только это повторение" },
+          { id: "series", title: "всю серию" },
+        ],
+      }),
+    ],
+    "ru",
+    1,
+  );
   assert.match(reply, /только это повторение или всю серию\?/i);
 });
 
@@ -75,9 +86,21 @@ test("only a bare yes or no resolves a pending proposal", () => {
  */
 test("every resolver code the plan enumerates answers in the user's language, not in rule text", () => {
   const codes = [
-    "ref_not_found", "ref_kind_mismatch", "fuzzy_reminder", "fuzzy_no_occurrence", "no_current_occurrence",
-    "task_not_active", "skip_one_time", "series_state_unsupported", "not_recurring", "duplicate_action",
-    "already_linked", "not_linked", "recurring_fuzzy", "stale", "time_past",
+    "ref_not_found",
+    "ref_kind_mismatch",
+    "fuzzy_reminder",
+    "fuzzy_no_occurrence",
+    "no_current_occurrence",
+    "task_not_active",
+    "skip_one_time",
+    "series_state_unsupported",
+    "not_recurring",
+    "duplicate_action",
+    "already_linked",
+    "not_linked",
+    "recurring_fuzzy",
+    "stale",
+    "time_past",
   ];
   for (const code of codes) {
     const reply = renderValidationReply([issue({ code, message: `${code} rule text that must never be shown` })], "ru", 1);
@@ -103,13 +126,44 @@ test("a repeated action is reported as a repetition rather than applied twice in
 
 test("every resolver and conversion code has user-facing copy in all three languages", () => {
   const codes = [
-    "time_past", "recurring_fuzzy", "stale", "already_linked", "not_linked", "ref_not_found", "ref_kind_mismatch",
-    "fuzzy_reminder", "fuzzy_no_occurrence", "no_current_occurrence", "task_not_active", "skip_one_time",
-    "series_state_unsupported", "not_recurring", "duplicate_action", "quiet_hours", "reason_required",
-    "date_only_offset", "terminal_occurrence", "habit_not_eligible", "settings_stale", "series_time_mode",
-    "timezone", "ref_required", "goal_title", "empty_patch", "memory_shape", "blank_field", "reminder_shape",
-    "recurrence_scope", "note_not_allowed", "settings_shape", "plan_empty", "task_definition", "schedule",
-    "recurrence", "checklist", "reminder_anchor",
+    "time_past",
+    "recurring_fuzzy",
+    "stale",
+    "already_linked",
+    "not_linked",
+    "ref_not_found",
+    "ref_kind_mismatch",
+    "fuzzy_reminder",
+    "fuzzy_no_occurrence",
+    "no_current_occurrence",
+    "task_not_active",
+    "skip_one_time",
+    "series_state_unsupported",
+    "not_recurring",
+    "duplicate_action",
+    "quiet_hours",
+    "reason_required",
+    "date_only_offset",
+    "terminal_occurrence",
+    "habit_not_eligible",
+    "settings_stale",
+    "series_time_mode",
+    "timezone",
+    "ref_required",
+    "goal_title",
+    "empty_patch",
+    "memory_shape",
+    "blank_field",
+    "reminder_shape",
+    "recurrence_scope",
+    "note_not_allowed",
+    "settings_shape",
+    "plan_empty",
+    "task_definition",
+    "schedule",
+    "recurrence",
+    "checklist",
+    "reminder_anchor",
   ];
   for (const code of codes) {
     for (const language of ["ru", "uk", "en"]) {

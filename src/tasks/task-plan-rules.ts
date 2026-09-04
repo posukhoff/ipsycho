@@ -12,24 +12,23 @@ export function withExplicitReminder(defaults: ReminderRuleSpec[], explicit?: Re
 }
 
 /** The reminder rules a task gets at creation, derived from its definition and the recipient's settings. */
-export function defaultReminderRuleSpecs(
-  definition: TaskDefinition,
-  settingsRow: typeof userSettings.$inferSelect,
-  explicitReminder?: ReminderRuleSpec,
-): ReminderRuleSpec[] {
+export function defaultReminderRuleSpecs(definition: TaskDefinition, settingsRow: typeof userSettings.$inferSelect, explicitReminder?: ReminderRuleSpec): ReminderRuleSpec[] {
   const eventOffsetsMinutes = Array.isArray(settingsRow.eventReminderOffsetsMinutes)
     ? settingsRow.eventReminderOffsetsMinutes.filter((value): value is number => Number.isInteger(value))
     : undefined;
-  const templates = defaultReminderTemplates({
-    kind: definition.kind,
-    timeMode: definition.timeMode,
-    importance: definition.importance,
-    hasPlannedStart: Boolean(definition.plannedStartAt),
-  }, {
-    ...(eventOffsetsMinutes ? { eventOffsetsMinutes } : {}),
-    plannedTaskOffsetMinutes: settingsRow.plannedTaskReminderOffsetMinutes,
-    criticalPostDueMinutes: settingsRow.criticalPostDueMinutes,
-  });
+  const templates = defaultReminderTemplates(
+    {
+      kind: definition.kind,
+      timeMode: definition.timeMode,
+      importance: definition.importance,
+      hasPlannedStart: Boolean(definition.plannedStartAt),
+    },
+    {
+      ...(eventOffsetsMinutes ? { eventOffsetsMinutes } : {}),
+      plannedTaskOffsetMinutes: settingsRow.plannedTaskReminderOffsetMinutes,
+      criticalPostDueMinutes: settingsRow.criticalPostDueMinutes,
+    },
+  );
   return withExplicitReminder(defaultRuleSpecs(definition, templates, reminderSettingsFromRow(settingsRow)), explicitReminder);
 }
 

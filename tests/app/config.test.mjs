@@ -28,8 +28,17 @@ test("a default monthly spend warning is optional and positive", () => {
 
 test("silently disabled features are reported as warnings", () => {
   const warnings = configWarnings(loadConfig(base));
-  assert.ok(warnings.some((w) => /no text pricing for AI_MODEL=gpt-test/.test(w)), warnings.join("\n"));
-  const priced = loadConfig({ ...base, AI_PRICING_JSON: JSON.stringify({ "gpt-test": { inputUsdPerMillion: 1, outputUsdPerMillion: 2, revision: "r1" }, "gpt-4o-mini-transcribe": { audioUsdPerMinute: 0.01, revision: "r1" } }) });
+  assert.ok(
+    warnings.some((w) => /no text pricing for AI_MODEL=gpt-test/.test(w)),
+    warnings.join("\n"),
+  );
+  const priced = loadConfig({
+    ...base,
+    AI_PRICING_JSON: JSON.stringify({
+      "gpt-test": { inputUsdPerMillion: 1, outputUsdPerMillion: 2, revision: "r1" },
+      "gpt-4o-mini-transcribe": { audioUsdPerMinute: 0.01, revision: "r1" },
+    }),
+  });
   assert.deepEqual(configWarnings(priced), []);
   const deepseek = loadConfig({ ...base, AI_PROVIDER: "deepseek", DEEPSEEK_API_KEY: "deepseek-key-with-enough-length" });
   assert.ok(configWarnings(deepseek).some((w) => /voice transcription is unavailable/.test(w)));

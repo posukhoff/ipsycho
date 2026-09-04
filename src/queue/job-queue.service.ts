@@ -2,6 +2,7 @@ import { Inject, Injectable, type OnApplicationShutdown, type OnModuleInit } fro
 import { PgBoss } from "pg-boss";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 /**
  * One pg-boss instance for the whole process.
@@ -25,7 +26,7 @@ export class JobQueueService implements OnModuleInit, OnApplicationShutdown {
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
     this.boss = new PgBoss({ connectionString: config.databaseUrl, max: 5, application_name: "ipsycho-jobs" });
-    this.boss.on("error", (error) => console.error("pg-boss error", { error: safeError(error) }));
+    this.boss.on("error", (error) => logger.error("pg-boss error", { error: safeError(error) }));
   }
 
   async onModuleInit(): Promise<void> {
@@ -44,7 +45,7 @@ export class JobQueueService implements OnModuleInit, OnApplicationShutdown {
     const deadLetter = `${name}-dead`;
     const existing = await this.boss.getQueue(name);
     if (existing && existing.policy !== QUEUE_POLICY) {
-      console.warn("recreating queue under the short policy", { queue: name, previousPolicy: existing.policy });
+      logger.warn("recreating queue under the short policy", { queue: name, previousPolicy: existing.policy });
       await this.boss.deleteQueue(name);
     }
     if (!(await this.boss.getQueue(deadLetter))) {

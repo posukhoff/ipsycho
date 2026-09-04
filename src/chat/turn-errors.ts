@@ -248,7 +248,10 @@ function genericRejection(locale: Locale): string {
 
 export function clarificationForCandidates(candidates: ReadonlyArray<{ title: string }>, language: string | null | undefined, question?: string): string {
   const locale = rejectionLocale(language);
-  const titles = candidates.slice(0, 5).map((candidate) => `«${candidate.title.trim().replace(/[«»]/g, "")}»`).join(", ");
+  const titles = candidates
+    .slice(0, 5)
+    .map((candidate) => `«${candidate.title.trim().replace(/[«»]/g, "")}»`)
+    .join(", ");
   if (question) return `${question} ${titles}.`.replace(/\?\s/u, "? ");
   if (locale === "uk") return `Бачу кілька варіантів: ${titles}. Який саме?`;
   if (locale === "en") return `I see several options: ${titles}. Which one do you mean?`;
@@ -268,18 +271,24 @@ export function unclearReply(language: string | null | undefined): string {
  */
 export function renderValidationReply(issues: readonly ActionIssue[], language: string | null | undefined, actionCount: number): string {
   const locale = rejectionLocale(language);
-  const prefix = actionCount > 1
-    ? locale === "uk" ? "Нічого не застосував — дії з одного повідомлення застосовуються лише разом. "
-      : locale === "en" ? "Nothing applied: actions from one message are applied only together. "
-      : "Ничего не применил — действия из одного сообщения применяются только вместе. "
-    : "";
+  const prefix =
+    actionCount > 1
+      ? locale === "uk"
+        ? "Нічого не застосував — дії з одного повідомлення застосовуються лише разом. "
+        : locale === "en"
+          ? "Nothing applied: actions from one message are applied only together. "
+          : "Ничего не применил — действия из одного сообщения применяются только вместе. "
+      : "";
   const ambiguous = issues.find((issue) => issue.kind === "ambiguous" && issue.candidates?.length);
   if (ambiguous) {
-    const question = ambiguous.code === "scope_required"
-      ? locale === "uk" ? "Це повторюване завдання. Скасувати лише це повторення чи всю серію?"
-        : locale === "en" ? "That task repeats. Cancel only this occurrence or the whole series?"
-        : "Это повторяющаяся задача. Отменить только это повторение или всю серию?"
-      : undefined;
+    const question =
+      ambiguous.code === "scope_required"
+        ? locale === "uk"
+          ? "Це повторюване завдання. Скасувати лише це повторення чи всю серію?"
+          : locale === "en"
+            ? "That task repeats. Cancel only this occurrence or the whole series?"
+            : "Это повторяющаяся задача. Отменить только это повторение или всю серию?"
+        : undefined;
     return `${prefix}${question ?? clarificationForCandidates(ambiguous.candidates ?? [], language)}`;
   }
   const first = issues.find((issue) => issue.kind === "reference") ?? issues[0];

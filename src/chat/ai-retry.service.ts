@@ -5,6 +5,7 @@ import { renderChatResult } from "../telegram/telegram-chat-render.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { ChatService } from "./chat.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 const RETRY_TICK_MS = 60_000;
 
@@ -21,11 +22,13 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
 
   async onApplicationBootstrap(): Promise<void> {
     await this.tick();
-    this.timer = setInterval(() => void this.tick().catch((error) => console.error("automatic AI retry tick failed", safeError(error))), RETRY_TICK_MS);
+    this.timer = setInterval(() => void this.tick().catch((error) => logger.error("automatic AI retry tick failed", { error: safeError(error) })), RETRY_TICK_MS);
     this.timer.unref();
   }
 
-  onApplicationShutdown(): void { if (this.timer) clearInterval(this.timer); }
+  onApplicationShutdown(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
 
   private async tick(): Promise<void> {
     if (this.running) return;
@@ -62,7 +65,7 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
             ...(result.pendingGroupId ? { pendingGroupId: result.pendingGroupId } : {}),
           });
         } catch (error) {
-          console.error("automatic AI retry failed", { messageId: row.message.id, message: safeMessageMetadata(row.message.content), error: safeError(error) });
+          logger.error("automatic AI retry failed", { messageId: row.message.id, message: safeMessageMetadata(row.message.content), error: safeError(error) });
         }
       }
     } finally {

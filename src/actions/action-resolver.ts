@@ -19,10 +19,15 @@ export interface ResolverDeps {
   settings(): Promise<{ version: number; timezone: string; morningReferenceTime: string }>;
 }
 
-export interface ResolveResult { resolved: ResolvedAction[]; issues: ActionIssue[] }
+export interface ResolveResult {
+  resolved: ResolvedAction[];
+  issues: ActionIssue[];
+}
 
 class ResolveError extends Error {
-  constructor(readonly issue: Omit<ActionIssue, "index">) { super(issue.message); }
+  constructor(readonly issue: Omit<ActionIssue, "index">) {
+    super(issue.message);
+  }
 }
 
 const domain = (code: string, message: string): ResolveError => new ResolveError({ kind: "domain", code, message });
@@ -58,7 +63,12 @@ export async function resolveActions(actions: readonly AiAction[], refs: RefMap,
  */
 function reviewTimeFor(action: AiAction, timezone: string, morningReferenceTime: string, now: Date): string {
   const when = action.type === "create_task" ? action.when : action.type === "reschedule" ? action.when : null;
-  const dates = when?.mode === "fuzzy" ? [when.reviewDate] : action.type === "plan" ? action.tasks.filter((task) => task.when.mode === "fuzzy").map((task) => (task.when as { reviewDate: string }).reviewDate) : [];
+  const dates =
+    when?.mode === "fuzzy"
+      ? [when.reviewDate]
+      : action.type === "plan"
+        ? action.tasks.filter((task) => task.when.mode === "fuzzy").map((task) => (task.when as { reviewDate: string }).reviewDate)
+        : [];
   if (!dates.includes(localDateAt(now, timezone))) return morningReferenceTime;
   const parts = localDateTimeAt(now, timezone);
   const nowMinutes = parts.hour * 60 + parts.minute;
@@ -76,7 +86,13 @@ function timezoneFor(action: AiAction, fallback: string): string {
   return named;
 }
 
-async function resolveOne(action: AiAction, base: { intent: AiAction["intent"]; timezone: string; reviewTime: string }, refs: RefMap, deps: ResolverDeps, settingsVersion: number): Promise<ResolvedAction> {
+async function resolveOne(
+  action: AiAction,
+  base: { intent: AiAction["intent"]; timezone: string; reviewTime: string },
+  refs: RefMap,
+  deps: ResolverDeps,
+  settingsVersion: number,
+): Promise<ResolvedAction> {
   switch (action.type) {
     case "create_task": {
       const { type: _type, intent: _intent, goal, timezone: _timezone, ...body } = action;
@@ -118,7 +134,19 @@ async function resolveOne(action: AiAction, base: { intent: AiAction["intent"]; 
         if (action.title === null && action.why === null && action.targetDate === null && action.status === null && action.reviewEnabled === null) {
           throw domain("empty_patch", "update_goal patch must change at least one field");
         }
-        return { type: "goal", ...base, op: "update", ...empty, goalId: goal.goalId, goalVersion: goal.goalVersion, title: action.title, why: action.why, targetDate: action.targetDate, status: action.status, reviewEnabled: action.reviewEnabled };
+        return {
+          type: "goal",
+          ...base,
+          op: "update",
+          ...empty,
+          goalId: goal.goalId,
+          goalVersion: goal.goalVersion,
+          title: action.title,
+          why: action.why,
+          targetDate: action.targetDate,
+          status: action.status,
+          reviewEnabled: action.reviewEnabled,
+        };
       }
       if (!action.task) throw reference("ref_required", "task reference is required");
       const task = await taskRef(action.task.id, refs, deps);
@@ -131,13 +159,31 @@ async function resolveOne(action: AiAction, base: { intent: AiAction["intent"]; 
       if (action.op === "save") {
         if (!action.kind) throw domain("memory_shape", "memory kind is required");
         if (!action.content?.trim()) throw domain("memory_shape", "memory content is required");
-        return { type: "memory", ...base, op: "save", memoryId: null, memoryVersion: null, kind: action.kind, content: action.content.trim(), sensitive: action.sensitive ?? false };
+        return {
+          type: "memory",
+          ...base,
+          op: "save",
+          memoryId: null,
+          memoryVersion: null,
+          kind: action.kind,
+          content: action.content.trim(),
+          sensitive: action.sensitive ?? false,
+        };
       }
       if (!action.item) throw reference("ref_required", "memory reference is required");
       const memory = await memoryRef(action.item.id, refs, deps);
       if (action.op === "update" && action.content === null && action.sensitive === null) throw domain("empty_patch", "update_memory patch must change at least one field");
       if (action.op === "update" && action.content !== null && !action.content.trim()) throw domain("blank_field", "memory content cannot be blank");
-      return { type: "memory", ...base, op: action.op, memoryId: memory.id, memoryVersion: memory.version, kind: action.kind, content: action.content, sensitive: action.sensitive };
+      return {
+        type: "memory",
+        ...base,
+        op: action.op,
+        memoryId: memory.id,
+        memoryVersion: memory.version,
+        kind: action.kind,
+        content: action.content,
+        sensitive: action.sensitive,
+      };
     }
     case "settings": {
       const { type: _type, intent: _intent, timezone: namedTimezone, ...fields } = action;
@@ -205,8 +251,13 @@ async function taskTarget(
   if (recurring) {
     if (opts.purpose === "state" && opts.state === "cancelled" && scope === null) {
       throw new ResolveError({
-        kind: "ambiguous", code: "scope_required", message: "cancel one occurrence or the whole series?",
-        candidates: [{ id: "occurrence", title: "только это повторение" }, { id: "series", title: "всю серию" }],
+        kind: "ambiguous",
+        code: "scope_required",
+        message: "cancel one occurrence or the whole series?",
+        candidates: [
+          { id: "occurrence", title: "только это повторение" },
+          { id: "series", title: "всю серию" },
+        ],
       });
     }
     if (scope === "series") {
@@ -230,14 +281,23 @@ async function taskTarget(
 
 function identity(action: ResolvedAction): string {
   switch (action.type) {
-    case "create_task": return `create:${action.body.title.trim().toLocaleLowerCase()}:${JSON.stringify(action.body.when)}`;
-    case "plan": return `plan:${action.goal.title.trim().toLocaleLowerCase()}`;
-    case "update_task": return `update:${action.taskId}`;
-    case "set_task_state": return `state:${action.target.taskId}:${action.state}`;
-    case "reschedule": return `reschedule:${action.target.taskId}:${action.target.kind}`;
-    case "set_reminder": return `reminder:${action.target.taskId}:${action.mode}`;
-    case "goal": return `goal:${action.op}:${action.goalId ?? action.title ?? ""}:${action.taskId ?? ""}`;
-    case "memory": return `memory:${action.op}:${action.memoryId ?? action.content ?? ""}`;
-    case "settings": return `settings:${action.operation}`;
+    case "create_task":
+      return `create:${action.body.title.trim().toLocaleLowerCase()}:${JSON.stringify(action.body.when)}`;
+    case "plan":
+      return `plan:${action.goal.title.trim().toLocaleLowerCase()}`;
+    case "update_task":
+      return `update:${action.taskId}`;
+    case "set_task_state":
+      return `state:${action.target.taskId}:${action.state}`;
+    case "reschedule":
+      return `reschedule:${action.target.taskId}:${action.target.kind}`;
+    case "set_reminder":
+      return `reminder:${action.target.taskId}:${action.mode}`;
+    case "goal":
+      return `goal:${action.op}:${action.goalId ?? action.title ?? ""}:${action.taskId ?? ""}`;
+    case "memory":
+      return `memory:${action.op}:${action.memoryId ?? action.content ?? ""}`;
+    case "settings":
+      return `settings:${action.operation}`;
   }
 }

@@ -16,7 +16,10 @@ const ONBOARD_CALLBACK = /^onb:(tz|digests|quiet|weekly):([A-Za-z_/+-]+|on|off|d
  */
 @Injectable()
 export class OnboardingService {
-  constructor(private readonly settings: SettingsService, private readonly screens: ScreensService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly screens: ScreensService,
+  ) {}
 
   register(bot: Bot<AppContext>): void {
     bot.callbackQuery(ONBOARD_CALLBACK, (ctx) => this.step(ctx));
@@ -61,7 +64,7 @@ export class OnboardingService {
     const match = ONBOARD_CALLBACK.exec(ctx.callbackQuery.data);
     const step = match?.[1];
     const value = match?.[2];
-    if (!step || !value) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (!step || !value) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     const copy = deterministicCopy(locale);
     const stripButtons = () => ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
 
@@ -73,7 +76,7 @@ export class OnboardingService {
         return;
       }
       const zone = resolveTimezoneInput(value);
-      if (!zone) return void await ctx.answerCallbackQuery({ text: t(locale, "timezone_invalid") });
+      if (!zone) return void (await ctx.answerCallbackQuery({ text: t(locale, "timezone_invalid") }));
       await this.settings.setTimezone(access.user.id, zone, { applyTo: "both" });
       await ctx.answerCallbackQuery({ text: t(locale, "onb_timezone_saved_toast") });
       await stripButtons();
@@ -88,7 +91,10 @@ export class OnboardingService {
       return;
     }
     if (step === "quiet") {
-      await this.settings.setQuietHours(access.user.id, value === "off" ? { enabled: false } : { enabled: true, weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" });
+      await this.settings.setQuietHours(
+        access.user.id,
+        value === "off" ? { enabled: false } : { enabled: true, weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" },
+      );
       await ctx.answerCallbackQuery({ text: copy.saved });
       await stripButtons();
       await ctx.reply(copy.weeklyPrompt, { reply_markup: new InlineKeyboard().text(copy.yes, "onb:weekly:on").text(copy.no, "onb:weekly:off") });

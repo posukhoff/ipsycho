@@ -14,12 +14,27 @@ import {
 
 const ctx = { timezone: "Europe/Kyiv", reviewTime: "09:00" };
 const now = new Date("2026-08-20T09:00:00Z");
-const scope = { workspaceId: "00000000-0000-4000-8000-000000000001", actorUserId: "00000000-0000-4000-8000-000000000002", recipientUserId: "00000000-0000-4000-8000-000000000002", now };
+const scope = {
+  workspaceId: "00000000-0000-4000-8000-000000000001",
+  actorUserId: "00000000-0000-4000-8000-000000000002",
+  recipientUserId: "00000000-0000-4000-8000-000000000002",
+  now,
+};
 
 const exact = { mode: "exact", date: "2026-08-25", time: "09:30", durationMinutes: null };
 const body = (overrides = {}) => ({
-  title: "Тест", why: null, nextAction: null, context: null, checklist: null,
-  importance: "normal", kind: "task", when: exact, recurrence: null, reminder: null, habit: null, timezone: null,
+  title: "Тест",
+  why: null,
+  nextAction: null,
+  context: null,
+  checklist: null,
+  importance: "normal",
+  kind: "task",
+  when: exact,
+  recurrence: null,
+  reminder: null,
+  habit: null,
+  timezone: null,
   ...overrides,
 });
 const weekly = { frequency: "weekly", interval: 2, weekdays: ["MO"], monthDays: null, until: null, skipDates: null, missed: null };
@@ -106,20 +121,42 @@ test("an explicit reminder on a fuzzy task is rejected with fuzzy_reminder", () 
     withCode("date_only_offset"),
   );
   const input = createTaskInputFromBody(body({ reminder }), scope, ctx);
-  assert.deepEqual(input.explicitReminder, { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -1800, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" });
+  assert.deepEqual(input.explicitReminder, {
+    triggerKind: "relative_timestamp",
+    anchor: "planned_start",
+    offsetSeconds: -1800,
+    purpose: "user_reminder",
+    quietPolicy: "respect",
+    origin: "explicit",
+  });
   assert.equal(createTaskInputFromBody(body(), scope, ctx).explicitReminder, undefined);
 });
 
 test("reminderRuleFromReminder maps at, offset and day reminders", () => {
   assert.deepEqual(reminderRuleFromReminder({ kind: "at", date: "2026-08-25", time: "08:00", quiet: "bypass" }, "Europe/Kyiv"), {
-    triggerKind: "exact", exactAt: new Date("2026-08-25T05:00:00.000Z"), purpose: "user_reminder", quietPolicy: "bypass", origin: "explicit",
+    triggerKind: "exact",
+    exactAt: new Date("2026-08-25T05:00:00.000Z"),
+    purpose: "user_reminder",
+    quietPolicy: "bypass",
+    origin: "explicit",
   });
   assert.deepEqual(reminderRuleFromReminder({ kind: "offset", anchor: "due", minutes: -120, quiet: "respect" }, "Europe/Kyiv"), {
-    triggerKind: "relative_timestamp", anchor: "due_at", offsetSeconds: -7200, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit",
+    triggerKind: "relative_timestamp",
+    anchor: "due_at",
+    offsetSeconds: -7200,
+    purpose: "user_reminder",
+    quietPolicy: "respect",
+    origin: "explicit",
   });
   assert.equal(reminderRuleFromReminder({ kind: "offset", anchor: "end", minutes: 5, quiet: "respect" }, "Europe/Kyiv").anchor, "planned_end");
   assert.deepEqual(reminderRuleFromReminder({ kind: "day", anchor: "due", daysOffset: -1, time: "19:00", quiet: "respect" }, "Europe/Kyiv"), {
-    triggerKind: "local_date", anchor: "due_at", daysOffset: -1, localTime: "19:00", purpose: "user_reminder", quietPolicy: "respect", origin: "explicit",
+    triggerKind: "local_date",
+    anchor: "due_at",
+    daysOffset: -1,
+    localTime: "19:00",
+    purpose: "user_reminder",
+    quietPolicy: "respect",
+    origin: "explicit",
   });
   assert.equal(reminderRuleFromReminder({ kind: "day", anchor: "start", daysOffset: 0, time: "07:00", quiet: "respect" }, "Europe/Kyiv").anchor, "planned_start");
 });
@@ -128,7 +165,17 @@ test("validateUpdateTaskPatch rejects an empty patch and blank fields", () => {
   const empty = { title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null };
   assert.throws(() => validateUpdateTaskPatch(empty), withCode("empty_patch"));
   assert.throws(() => validateUpdateTaskPatch({ ...empty, title: "   " }), withCode("blank_field"));
-  assert.throws(() => validateUpdateTaskPatch({ ...empty, checklist: [{ text: "a", done: false }, { text: "A", done: false }] }), withCode("checklist"));
+  assert.throws(
+    () =>
+      validateUpdateTaskPatch({
+        ...empty,
+        checklist: [
+          { text: "a", done: false },
+          { text: "A", done: false },
+        ],
+      }),
+    withCode("checklist"),
+  );
   assert.doesNotThrow(() => validateUpdateTaskPatch({ ...empty, importance: "required" }));
   assert.doesNotThrow(() => validateUpdateTaskPatch({ ...empty, habit: { enabled: false } }));
 });
@@ -154,9 +201,14 @@ test("whenFromRescheduleFields round-trips every When mode", () => {
 test("seriesDefinitionFromReschedule keeps the current rule when recurrence is null and rejects a time-mode change", () => {
   const current = taskDefinitionFromBody(body({ when: { ...exact, date: "2026-08-24" }, recurrence: { ...weekly, skipDates: ["2026-09-07"] } }), ctx, now);
   const action = (when, recurrence = null) => ({
-    type: "reschedule", intent: "explicit", timezone: "Europe/Kyiv", reviewTime: "09:00",
+    type: "reschedule",
+    intent: "explicit",
+    timezone: "Europe/Kyiv",
+    reviewTime: "09:00",
     target: { kind: "series", taskId: "00000000-0000-4000-8000-000000000004", taskVersion: 1 },
-    when, recurrence, reason: null,
+    when,
+    recurrence,
+    reason: null,
   });
   const moved = seriesDefinitionFromReschedule(action({ ...exact, date: "2026-08-31", time: "11:00" }), current);
   assert.equal(moved.recurrenceRule, "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO");

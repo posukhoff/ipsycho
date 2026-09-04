@@ -13,7 +13,7 @@ const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
  */
 export const DEEPSEEK_JSON_INSTRUCTION = [
   "Return only one JSON object that is valid against the JSON Schema below. No markdown, no prose outside the JSON. Every listed property must be present; use null where a nullable property does not apply.",
-  "Entities are referenced by the short ids from CURRENT_CONTEXT as {\"id\":\"t1\"} (tasks t*, goals g*, memory m*, a task created earlier in the same message n*). intent is \"explicit\" when the user asked for exactly this action or accepted your proposal, \"inferred\" when you propose it yourself.",
+  'Entities are referenced by the short ids from CURRENT_CONTEXT as {"id":"t1"} (tasks t*, goals g*, memory m*, a task created earlier in the same message n*). intent is "explicit" when the user asked for exactly this action or accepted your proposal, "inferred" when you propose it yourself.',
   JSON.stringify(z.toJSONSchema(AiTurnSchema)),
 ].join("\n");
 
@@ -22,9 +22,7 @@ export class DeepSeekProvider implements AiProvider {
   private readonly client: OpenAI | null;
 
   constructor(config: AppConfig) {
-    this.client = config.deepSeekApiKey
-      ? createOpenAiCompatibleClient({ apiKey: config.deepSeekApiKey, baseURL: DEEPSEEK_BASE_URL })
-      : null;
+    this.client = config.deepSeekApiKey ? createOpenAiCompatibleClient({ apiKey: config.deepSeekApiKey, baseURL: DEEPSEEK_BASE_URL }) : null;
   }
 
   isConfigured(): boolean {

@@ -4,6 +4,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { taskOccurrences } from "../database/schema.js";
 import { ReminderSchedulingService } from "./reminder-scheduling.service.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 const TICK_MS = 60_000;
 
@@ -19,7 +20,7 @@ export class ReminderRebuildService implements OnApplicationBootstrap, OnApplica
 
   async onApplicationBootstrap(): Promise<void> {
     await this.tick();
-    this.timer = setInterval(() => void this.tick().catch((error) => console.error("reminder rebuild tick failed", safeError(error))), TICK_MS);
+    this.timer = setInterval(() => void this.tick().catch((error) => logger.error("reminder rebuild tick failed", { error: safeError(error) })), TICK_MS);
     this.timer.unref();
   }
 
@@ -31,13 +32,16 @@ export class ReminderRebuildService implements OnApplicationBootstrap, OnApplica
     if (this.running) return;
     this.running = true;
     try {
-      const rows = await this.database.db.select({ workspaceId: taskOccurrences.workspaceId, id: taskOccurrences.id })
-        .from(taskOccurrences).where(eq(taskOccurrences.needsReminderRebuild, true)).limit(100);
+      const rows = await this.database.db
+        .select({ workspaceId: taskOccurrences.workspaceId, id: taskOccurrences.id })
+        .from(taskOccurrences)
+        .where(eq(taskOccurrences.needsReminderRebuild, true))
+        .limit(100);
       for (const row of rows) {
         try {
           await this.scheduling.rebuildOccurrence(row.workspaceId, row.id);
         } catch (error) {
-          console.error("reminder rebuild failed", { occurrenceId: row.id, error: safeError(error) });
+          logger.error("reminder rebuild failed", { occurrenceId: row.id, error: safeError(error) });
         }
       }
     } finally {

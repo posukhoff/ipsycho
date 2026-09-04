@@ -33,7 +33,6 @@ test("reschedule preserves recurrence metadata while deriving occurrence status"
   assert.equal(rescheduledOccurrenceStatus(next, new Date("2026-08-10T10:00:00Z")), "scheduled");
 });
 
-
 test("one-time concrete task may return to fuzzy planning", () => {
   const next = rescheduledDefinition(task, { fuzzyHorizonText: "в течение осени", reviewAt: new Date("2026-09-01T07:00:00Z") });
   assert.equal(next.timeMode, "fuzzy");

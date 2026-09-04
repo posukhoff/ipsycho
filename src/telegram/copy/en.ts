@@ -26,7 +26,8 @@ export const en: Record<keyof typeof ru, string> = {
   history_cleared_toast: "AI history cleared ({count})",
   cancel_done: "Current input and review stopped. Tasks and decisions already saved are unchanged.",
 
-  delete_prompt: "Deletion stops AI, briefings and reminders immediately. Data is removed for good after {days} days; until then the account can be restored with /restore. Residual data may remain in encrypted backups: {daily} daily and {weekly} weekly copies.",
+  delete_prompt:
+    "Deletion stops AI, briefings and reminders immediately. Data is removed for good after {days} days; until then the account can be restored with /restore. Residual data may remain in encrypted backups: {daily} daily and {weekly} weekly copies.",
   delete_confirm_button: "Confirm deletion",
   delete_scheduled_toast: "Deletion scheduled",
   delete_scheduled: "The account is locked. It can be restored with /restore within {days} days.",
@@ -37,7 +38,8 @@ export const en: Record<keyof typeof ru, string> = {
   ai_revoked: "Consent for external AI processing is revoked. Reminders, briefings and buttons keep working.",
   retry_failed: "The retry did not succeed yet. The message is saved.",
 
-  consent_prompt: "For AI chat, message text will be sent to the external provider {provider}. With OpenAI, voice messages are sent only for transcription and are not stored as audio. Allow this processing?",
+  consent_prompt:
+    "For AI chat, message text will be sent to the external provider {provider}. With OpenAI, voice messages are sent only for transcription and are not stored as audio. Allow this processing?",
   consent_yes_button: "I agree",
   consent_no_button: "Not now",
   consent_granted_toast: "Consent saved",
@@ -45,7 +47,8 @@ export const en: Record<keyof typeof ru, string> = {
   consent_granted: "Done. Tell me what to do.",
   consent_declined_toast: "AI not enabled",
   consent_declined: "All right, AI stays off. Buttons, reminders and briefings keep working; I will not process free text. Enable it any time by simply writing to me again.",
-  voice_consent_prompt: "For AI processing, text is sent to the external provider, and voice goes to OpenAI only for transcription. Audio is not stored; the recognised text is processed and kept like an ordinary message. Allow?",
+  voice_consent_prompt:
+    "For AI processing, text is sent to the external provider, and voice goes to OpenAI only for transcription. Audio is not stored; the recognised text is processed and kept like an ordinary message. Allow?",
   voice_consent_granted: "Voice input is on. Send the voice message again: audio is not resent automatically.",
   voice_consent_declined_toast: "Voice input not enabled",
 

@@ -9,19 +9,27 @@ import type { Importance } from "./types.js";
  */
 export type AppliedReportItem =
   | {
-    kind: "task_created";
-    title: string;
-    timezone: string;
-    importance?: Importance;
-    recurring?: boolean;
-    schedule: OccurrenceScheduleView | null;
-    fuzzyHorizonText?: string | null;
-    reviewAt?: Date | null;
-    reminderAt: Date | null;
-    goalTitle?: string | null;
-  }
+      kind: "task_created";
+      title: string;
+      timezone: string;
+      importance?: Importance;
+      recurring?: boolean;
+      schedule: OccurrenceScheduleView | null;
+      fuzzyHorizonText?: string | null;
+      reviewAt?: Date | null;
+      reminderAt: Date | null;
+      goalTitle?: string | null;
+    }
   | { kind: "task_updated"; title: string; changes: TaskFieldChange[] }
-  | { kind: "task_rescheduled"; title: string; before: OccurrenceScheduleView | null; after: OccurrenceScheduleView | null; reminderAt: Date | null; reason?: string | null; fromFuzzy?: string | null }
+  | {
+      kind: "task_rescheduled";
+      title: string;
+      before: OccurrenceScheduleView | null;
+      after: OccurrenceScheduleView | null;
+      reminderAt: Date | null;
+      reason?: string | null;
+      fromFuzzy?: string | null;
+    }
   | { kind: "occurrence"; title: string; operation: "done" | "start" | "skip" | "cancel" | "seen" | "record_blocker"; details?: string | null }
   | { kind: "reminder"; title: string; mode: "add" | "replace" | "clear"; schedule: OccurrenceScheduleView | null; reminderAt: Date | null }
   | { kind: "series"; title: string; operation: "pause" | "resume" | "stop" | "cancel" | "edit" }
@@ -43,9 +51,42 @@ export interface TaskFieldChange {
 export type ReportLocale = "ru" | "uk" | "en";
 
 const FIELD_LABELS: Record<ReportLocale, Record<TaskFieldChange["field"], string>> = {
-  ru: { title: "Название", why: "Зачем", nextAction: "Следующий шаг", context: "Контекст", importance: "Важность", checklist: "Чеклист", habitMode: "Режим привычки", minimumAction: "Минимальное действие", desiredAction: "Желаемое действие", habitTrigger: "Триггер привычки" },
-  uk: { title: "Назва", why: "Навіщо", nextAction: "Наступний крок", context: "Контекст", importance: "Важливість", checklist: "Чекліст", habitMode: "Режим звички", minimumAction: "Мінімальна дія", desiredAction: "Бажана дія", habitTrigger: "Тригер звички" },
-  en: { title: "Title", why: "Why", nextAction: "Next step", context: "Context", importance: "Importance", checklist: "Checklist", habitMode: "Habit mode", minimumAction: "Minimum action", desiredAction: "Desired action", habitTrigger: "Habit trigger" },
+  ru: {
+    title: "Название",
+    why: "Зачем",
+    nextAction: "Следующий шаг",
+    context: "Контекст",
+    importance: "Важность",
+    checklist: "Чеклист",
+    habitMode: "Режим привычки",
+    minimumAction: "Минимальное действие",
+    desiredAction: "Желаемое действие",
+    habitTrigger: "Триггер привычки",
+  },
+  uk: {
+    title: "Назва",
+    why: "Навіщо",
+    nextAction: "Наступний крок",
+    context: "Контекст",
+    importance: "Важливість",
+    checklist: "Чекліст",
+    habitMode: "Режим звички",
+    minimumAction: "Мінімальна дія",
+    desiredAction: "Бажана дія",
+    habitTrigger: "Тригер звички",
+  },
+  en: {
+    title: "Title",
+    why: "Why",
+    nextAction: "Next step",
+    context: "Context",
+    importance: "Importance",
+    checklist: "Checklist",
+    habitMode: "Habit mode",
+    minimumAction: "Minimum action",
+    desiredAction: "Desired action",
+    habitTrigger: "Habit trigger",
+  },
 };
 
 const IMPORTANCE_LABELS: Record<ReportLocale, Record<Importance, string>> = {
@@ -67,37 +108,154 @@ const SERIES_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { ki
 };
 
 const SETTINGS_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "settings" }>["operation"], string>> = {
-  ru: { timezone: "часовой пояс", language: "язык интерфейса", digest: "сводка", weekly_review: "недельный обзор", quiet_hours: "тихие часы", snooze: "пауза уведомлений", reminder_defaults: "напоминания по умолчанию" },
-  uk: { timezone: "часовий пояс", language: "мова інтерфейсу", digest: "зведення", weekly_review: "тижневий огляд", quiet_hours: "тихі години", snooze: "пауза сповіщень", reminder_defaults: "нагадування за замовчуванням" },
-  en: { timezone: "timezone", language: "interface language", digest: "briefing", weekly_review: "weekly review", quiet_hours: "quiet hours", snooze: "notification pause", reminder_defaults: "default reminders" },
-};
-
-const COPY: Record<ReportLocale, {
-  tasksCreated: string; taskCreated: string; taskUpdated: string; taskUpdatedNoChanges: string; rescheduled: string; reason: string; noReminders: string; reminder: string; reminderAdded: string;
-  series: string; goalCreated: string; goalUpdated: string; goalPlan: string; goalUnlinked: string; memorySaved: string; memoryUpdated: string; memoryDeleted: string;
-  settings: string; goal: string; review: string; noReminder: string; atStart: string; removed: string; itemsDone: string; habitOn: string; habitOff: string;
-}> = {
   ru: {
-    tasksCreated: "✅ Создано задач: {n}", taskCreated: "✅ Создана задача «{title}»", taskUpdated: "✏️ Задача «{title}»", taskUpdatedNoChanges: "✏️ Задача «{title}» обновлена", rescheduled: "📅 Перенесено «{title}»", reason: "Причина", noReminders: "🔕 Напоминаний для «{title}» больше нет",
-    reminder: "🔔 Напоминание «{title}»", reminderAdded: " (добавлено к остальным)", series: "🔁 Серия «{title}»", goalCreated: "🎯 Цель создана: «{title}»", goalUpdated: "🎯 Цель обновлена: «{title}»",
-    goalPlan: "🎯 Цель «{title}» и задач к ней: {n}", goalUnlinked: "🎯 Отвязано от цели «{goal}»: «{task}»", memorySaved: "🧠 Запомнил", memoryUpdated: "🧠 Обновил в памяти", memoryDeleted: "🧠 Убрал из памяти",
-    settings: "⚙️ Настройки обновлены", goal: "🎯 Цель", review: "пересмотр", noReminder: "🔕 без напоминания", atStart: "в момент начала", removed: "убрано", itemsDone: "выполнено", habitOn: "включён", habitOff: "выключен",
+    timezone: "часовой пояс",
+    language: "язык интерфейса",
+    digest: "сводка",
+    weekly_review: "недельный обзор",
+    quiet_hours: "тихие часы",
+    snooze: "пауза уведомлений",
+    reminder_defaults: "напоминания по умолчанию",
   },
   uk: {
-    tasksCreated: "✅ Створено завдань: {n}", taskCreated: "✅ Створено завдання «{title}»", taskUpdated: "✏️ Завдання «{title}»", taskUpdatedNoChanges: "✏️ Завдання «{title}» оновлено", rescheduled: "📅 Перенесено «{title}»", reason: "Причина", noReminders: "🔕 Нагадувань для «{title}» більше немає",
-    reminder: "🔔 Нагадування «{title}»", reminderAdded: " (додано до решти)", series: "🔁 Серія «{title}»", goalCreated: "🎯 Ціль створено: «{title}»", goalUpdated: "🎯 Ціль оновлено: «{title}»",
-    goalPlan: "🎯 Ціль «{title}» і завдань до неї: {n}", goalUnlinked: "🎯 Відв'язано від цілі «{goal}»: «{task}»", memorySaved: "🧠 Запам'ятав", memoryUpdated: "🧠 Оновив у пам'яті", memoryDeleted: "🧠 Прибрав із пам'яті",
-    settings: "⚙️ Налаштування оновлено", goal: "🎯 Ціль", review: "перегляд", noReminder: "🔕 без нагадування", atStart: "у момент початку", removed: "прибрано", itemsDone: "виконано", habitOn: "увімкнено", habitOff: "вимкнено",
+    timezone: "часовий пояс",
+    language: "мова інтерфейсу",
+    digest: "зведення",
+    weekly_review: "тижневий огляд",
+    quiet_hours: "тихі години",
+    snooze: "пауза сповіщень",
+    reminder_defaults: "нагадування за замовчуванням",
   },
   en: {
-    tasksCreated: "✅ Tasks created: {n}", taskCreated: "✅ Task created: “{title}”", taskUpdated: "✏️ Task “{title}”", taskUpdatedNoChanges: "✏️ Task “{title}” updated", rescheduled: "📅 Moved “{title}”", reason: "Reason", noReminders: "🔕 No more reminders for “{title}”",
-    reminder: "🔔 Reminder for “{title}”", reminderAdded: " (added to the others)", series: "🔁 Series “{title}”", goalCreated: "🎯 Goal created: “{title}”", goalUpdated: "🎯 Goal updated: “{title}”",
-    goalPlan: "🎯 Goal “{title}” with {n} tasks", goalUnlinked: "🎯 Unlinked from goal “{goal}”: “{task}”", memorySaved: "🧠 Remembered", memoryUpdated: "🧠 Updated in memory", memoryDeleted: "🧠 Removed from memory",
-    settings: "⚙️ Settings updated", goal: "🎯 Goal", review: "review", noReminder: "🔕 no reminder", atStart: "at the start", removed: "removed", itemsDone: "done", habitOn: "on", habitOff: "off",
+    timezone: "timezone",
+    language: "interface language",
+    digest: "briefing",
+    weekly_review: "weekly review",
+    quiet_hours: "quiet hours",
+    snooze: "notification pause",
+    reminder_defaults: "default reminders",
   },
 };
 
-const fill = (template: string, params: Record<string, string | number>) => template.replace(/\{(\w+)\}/gu, (match, name: string) => name in params ? String(params[name]) : match);
+const COPY: Record<
+  ReportLocale,
+  {
+    tasksCreated: string;
+    taskCreated: string;
+    taskUpdated: string;
+    taskUpdatedNoChanges: string;
+    rescheduled: string;
+    reason: string;
+    noReminders: string;
+    reminder: string;
+    reminderAdded: string;
+    series: string;
+    goalCreated: string;
+    goalUpdated: string;
+    goalPlan: string;
+    goalUnlinked: string;
+    memorySaved: string;
+    memoryUpdated: string;
+    memoryDeleted: string;
+    settings: string;
+    goal: string;
+    review: string;
+    noReminder: string;
+    atStart: string;
+    removed: string;
+    itemsDone: string;
+    habitOn: string;
+    habitOff: string;
+  }
+> = {
+  ru: {
+    tasksCreated: "✅ Создано задач: {n}",
+    taskCreated: "✅ Создана задача «{title}»",
+    taskUpdated: "✏️ Задача «{title}»",
+    taskUpdatedNoChanges: "✏️ Задача «{title}» обновлена",
+    rescheduled: "📅 Перенесено «{title}»",
+    reason: "Причина",
+    noReminders: "🔕 Напоминаний для «{title}» больше нет",
+    reminder: "🔔 Напоминание «{title}»",
+    reminderAdded: " (добавлено к остальным)",
+    series: "🔁 Серия «{title}»",
+    goalCreated: "🎯 Цель создана: «{title}»",
+    goalUpdated: "🎯 Цель обновлена: «{title}»",
+    goalPlan: "🎯 Цель «{title}» и задач к ней: {n}",
+    goalUnlinked: "🎯 Отвязано от цели «{goal}»: «{task}»",
+    memorySaved: "🧠 Запомнил",
+    memoryUpdated: "🧠 Обновил в памяти",
+    memoryDeleted: "🧠 Убрал из памяти",
+    settings: "⚙️ Настройки обновлены",
+    goal: "🎯 Цель",
+    review: "пересмотр",
+    noReminder: "🔕 без напоминания",
+    atStart: "в момент начала",
+    removed: "убрано",
+    itemsDone: "выполнено",
+    habitOn: "включён",
+    habitOff: "выключен",
+  },
+  uk: {
+    tasksCreated: "✅ Створено завдань: {n}",
+    taskCreated: "✅ Створено завдання «{title}»",
+    taskUpdated: "✏️ Завдання «{title}»",
+    taskUpdatedNoChanges: "✏️ Завдання «{title}» оновлено",
+    rescheduled: "📅 Перенесено «{title}»",
+    reason: "Причина",
+    noReminders: "🔕 Нагадувань для «{title}» більше немає",
+    reminder: "🔔 Нагадування «{title}»",
+    reminderAdded: " (додано до решти)",
+    series: "🔁 Серія «{title}»",
+    goalCreated: "🎯 Ціль створено: «{title}»",
+    goalUpdated: "🎯 Ціль оновлено: «{title}»",
+    goalPlan: "🎯 Ціль «{title}» і завдань до неї: {n}",
+    goalUnlinked: "🎯 Відв'язано від цілі «{goal}»: «{task}»",
+    memorySaved: "🧠 Запам'ятав",
+    memoryUpdated: "🧠 Оновив у пам'яті",
+    memoryDeleted: "🧠 Прибрав із пам'яті",
+    settings: "⚙️ Налаштування оновлено",
+    goal: "🎯 Ціль",
+    review: "перегляд",
+    noReminder: "🔕 без нагадування",
+    atStart: "у момент початку",
+    removed: "прибрано",
+    itemsDone: "виконано",
+    habitOn: "увімкнено",
+    habitOff: "вимкнено",
+  },
+  en: {
+    tasksCreated: "✅ Tasks created: {n}",
+    taskCreated: "✅ Task created: “{title}”",
+    taskUpdated: "✏️ Task “{title}”",
+    taskUpdatedNoChanges: "✏️ Task “{title}” updated",
+    rescheduled: "📅 Moved “{title}”",
+    reason: "Reason",
+    noReminders: "🔕 No more reminders for “{title}”",
+    reminder: "🔔 Reminder for “{title}”",
+    reminderAdded: " (added to the others)",
+    series: "🔁 Series “{title}”",
+    goalCreated: "🎯 Goal created: “{title}”",
+    goalUpdated: "🎯 Goal updated: “{title}”",
+    goalPlan: "🎯 Goal “{title}” with {n} tasks",
+    goalUnlinked: "🎯 Unlinked from goal “{goal}”: “{task}”",
+    memorySaved: "🧠 Remembered",
+    memoryUpdated: "🧠 Updated in memory",
+    memoryDeleted: "🧠 Removed from memory",
+    settings: "⚙️ Settings updated",
+    goal: "🎯 Goal",
+    review: "review",
+    noReminder: "🔕 no reminder",
+    atStart: "at the start",
+    removed: "removed",
+    itemsDone: "done",
+    habitOn: "on",
+    habitOff: "off",
+  },
+};
+
+const fill = (template: string, params: Record<string, string | number>) =>
+  template.replace(/\{(\w+)\}/gu, (match, name: string) => (name in params ? String(params[name]) : match));
 
 /** Diff of the stored mutable task fields, in the order the user reads them. */
 /**
@@ -133,7 +291,9 @@ export function renderAppliedReport(items: readonly AppliedReportItem[], now: Da
   const createdTasks = items.filter((item): item is Extract<AppliedReportItem, { kind: "task_created" }> => item.kind === "task_created");
   if (createdTasks.length === 1) blocks.push(renderCreatedTask(createdTasks[0]!, now, locale));
   if (createdTasks.length > 1) {
-    blocks.push([fill(copy.tasksCreated, { n: createdTasks.length }), ...createdTasks.map((task, index) => `${index + 1}. ${renderCreatedTaskLine(task, now, locale)}`)].join("\n"));
+    blocks.push(
+      [fill(copy.tasksCreated, { n: createdTasks.length }), ...createdTasks.map((task, index) => `${index + 1}. ${renderCreatedTaskLine(task, now, locale)}`)].join("\n"),
+    );
   }
   for (const item of items) {
     if (item.kind === "task_created") continue;
@@ -167,7 +327,9 @@ function renderItem(item: Exclude<AppliedReportItem, { kind: "task_created" }>, 
     case "reminder": {
       if (item.mode === "clear" || !item.reminderAt) return fill(copy.noReminders, { title: item.title });
       const timezone = item.schedule?.timezone;
-      const when = item.schedule ? reminderLabel(item.reminderAt, item.schedule, now, locale, true) : formatLocalDateTime(item.reminderAt, timezone ?? "UTC", now, intlLocale(locale));
+      const when = item.schedule
+        ? reminderLabel(item.reminderAt, item.schedule, now, locale, true)
+        : formatLocalDateTime(item.reminderAt, timezone ?? "UTC", now, intlLocale(locale));
       return `${fill(copy.reminder, { title: item.title })}: ${when}${timezone ? ` (${timezone})` : ""}${item.mode === "add" ? copy.reminderAdded : ""}`;
     }
     case "series":
@@ -256,7 +418,7 @@ function renderValue(field: TaskFieldChange["field"], value: string, locale: Rep
 function reminderLabel(reminderAt: Date, schedule: OccurrenceScheduleView, now: Date, locale: ReportLocale, alwaysFull = false): string {
   const anchor = schedule.plannedStartAt ?? schedule.dueAt ?? schedule.plannedEndAt;
   if (!alwaysFull && anchor && Math.floor(anchor.getTime() / 60_000) === Math.floor(reminderAt.getTime() / 60_000)) return COPY[locale].atStart;
-  const anchorDate = anchor ? localDateAt(anchor, schedule.timezone) : schedule.plannedLocalDate ?? schedule.dueLocalDate;
+  const anchorDate = anchor ? localDateAt(anchor, schedule.timezone) : (schedule.plannedLocalDate ?? schedule.dueLocalDate);
   if (!alwaysFull && anchorDate && localDateAt(reminderAt, schedule.timezone) === anchorDate) return formatLocalTime(reminderAt, schedule.timezone, intlLocale(locale));
   return formatLocalDateTime(reminderAt, schedule.timezone, now, intlLocale(locale));
 }
@@ -266,7 +428,18 @@ function truncate(value: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function plural(locale: ReportLocale, count: number, ruOne: string, ruFew: string, ruMany: string, ukOne: string, ukFew: string, ukMany: string, enOne: string, enMany: string): string {
+function plural(
+  locale: ReportLocale,
+  count: number,
+  ruOne: string,
+  ruFew: string,
+  ruMany: string,
+  ukOne: string,
+  ukFew: string,
+  ukMany: string,
+  enOne: string,
+  enMany: string,
+): string {
   if (locale === "en") return count === 1 ? enOne : enMany;
   const [one, few, many] = locale === "uk" ? [ukOne, ukFew, ukMany] : [ruOne, ruFew, ruMany];
   const mod10 = count % 10;

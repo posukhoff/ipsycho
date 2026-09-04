@@ -3,13 +3,23 @@ import assert from "node:assert/strict";
 import { TelegramService } from "../../dist/telegram/telegram.service.js";
 
 const config = { telegramBotToken: "123456:test-token-with-enough-length-abcdef", botIdentity: "test" };
-const botInfo = { id: 1, is_bot: true, first_name: "b", username: "b", can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false, can_connect_to_business: false, has_main_web_app: false };
+const botInfo = {
+  id: 1,
+  is_bot: true,
+  first_name: "b",
+  username: "b",
+  can_join_groups: false,
+  can_read_all_group_messages: false,
+  supports_inline_queries: false,
+  can_connect_to_business: false,
+  has_main_web_app: false,
+};
 
 function fakeDatabase() {
   return { db: { insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [{ updateId: 1 }] }) }) }) } };
 }
 const known = new Set([100, 200]);
-const fakeAccess = { resolveActiveUser: async (id) => known.has(id) ? { user: { id: `u${id}`, aiStatus: "enabled", telegramUserId: id }, workspaceId: `w${id}` } : null };
+const fakeAccess = { resolveActiveUser: async (id) => (known.has(id) ? { user: { id: `u${id}`, aiStatus: "enabled", telegramUserId: id }, workspaceId: `w${id}` } : null) };
 const fakeSettings = { get: async (userId) => ({ userId, timezone: "Europe/Kyiv", pinnedLanguage: userId === "u200" ? "en" : null }) };
 
 function service() {
@@ -27,7 +37,16 @@ function messageUpdate(updateId, chatId, text, chatType = "private") {
 
 function callbackUpdate(updateId, chatId, data) {
   const from = { id: chatId, is_bot: false, first_name: "u", language_code: "ru" };
-  return { update_id: updateId, callback_query: { id: String(updateId), from, chat_instance: "x", data, message: { message_id: 1, date: 1, chat: { id: chatId, type: "private", first_name: "u" }, text: "card" } } };
+  return {
+    update_id: updateId,
+    callback_query: {
+      id: String(updateId),
+      from,
+      chat_instance: "x",
+      data,
+      message: { message_id: 1, date: 1, chat: { id: chatId, type: "private", first_name: "u" }, text: "card" },
+    },
+  };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -64,7 +83,9 @@ test("updates from different chats overlap while one chat stays strictly in orde
 test("access and locale are resolved once per update and handed to the handler", async () => {
   const telegram = service();
   let seen;
-  telegram.bot.on("message:text", async (ctx) => { seen = ctx.state; });
+  telegram.bot.on("message:text", async (ctx) => {
+    seen = ctx.state;
+  });
   await telegram.bot.handleUpdate(messageUpdate(4, 200, "hi"));
   assert.equal(seen.access.workspaceId, "w200");
   assert.equal(seen.settings.timezone, "Europe/Kyiv");
@@ -75,9 +96,15 @@ test("an unknown user gets one consistent refusal on every command, text and but
   const telegram = service();
   const calls = captureApi(telegram.bot);
   let handled = 0;
-  telegram.bot.command("help", async () => { handled += 1; });
-  telegram.bot.on("message:text", async () => { handled += 1; });
-  telegram.bot.callbackQuery(/.*/, async () => { handled += 1; });
+  telegram.bot.command("help", async () => {
+    handled += 1;
+  });
+  telegram.bot.on("message:text", async () => {
+    handled += 1;
+  });
+  telegram.bot.callbackQuery(/.*/, async () => {
+    handled += 1;
+  });
 
   await telegram.bot.handleUpdate(messageUpdate(5, 999, "/help"));
   await telegram.bot.handleUpdate(messageUpdate(6, 999, "привет"));
@@ -86,15 +113,22 @@ test("an unknown user gets one consistent refusal on every command, text and but
   assert.equal(handled, 0);
   const replies = calls.filter((call) => call.method === "sendMessage").map((call) => call.payload.text);
   assert.equal(replies.length, 2);
-  assert.ok(replies.every((text) => /закрытый|приглашение/.test(text)), replies.join(" | "));
+  assert.ok(
+    replies.every((text) => /закрытый|приглашение/.test(text)),
+    replies.join(" | "),
+  );
   assert.equal(calls.filter((call) => call.method === "answerCallbackQuery").length, 1);
 });
 
 test("/start with an invitation and /restore reach their handlers without access", async () => {
   const telegram = service();
   const reached = [];
-  telegram.bot.command("start", async (ctx) => { reached.push(`start:${ctx.state.access === null}`); });
-  telegram.bot.command("restore", async (ctx) => { reached.push(`restore:${ctx.state.access === null}`); });
+  telegram.bot.command("start", async (ctx) => {
+    reached.push(`start:${ctx.state.access === null}`);
+  });
+  telegram.bot.command("restore", async (ctx) => {
+    reached.push(`restore:${ctx.state.access === null}`);
+  });
   await telegram.bot.handleUpdate(messageUpdate(8, 999, "/start join_" + "A".repeat(43)));
   await telegram.bot.handleUpdate(messageUpdate(9, 999, "/restore"));
   assert.deepEqual(reached, ["start:true", "restore:true"]);
@@ -104,7 +138,9 @@ test("a group chat gets one sentence for a command and silence otherwise", async
   const telegram = service();
   const calls = captureApi(telegram.bot);
   let handled = 0;
-  telegram.bot.on("message:text", async () => { handled += 1; });
+  telegram.bot.on("message:text", async () => {
+    handled += 1;
+  });
   await telegram.bot.handleUpdate(messageUpdate(10, -500, "hello", "group"));
   await telegram.bot.handleUpdate(messageUpdate(11, -500, "/start", "group"));
   assert.equal(handled, 0);

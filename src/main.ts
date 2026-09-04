@@ -4,11 +4,12 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
 import { APP_CONFIG, configWarnings, type AppConfig } from "./config.js";
 import { safeError } from "./observability/safe-error.js";
+import { logger } from "./observability/logger.js";
 
 let fatalShutdownRequested = false;
 
 function stopAfterFatalError(event: "Unhandled promise rejection" | "Uncaught application exception", error: unknown): void {
-  console.error(event, { error: safeError(error) });
+  logger.error(event, { error: safeError(error) });
   if (fatalShutdownRequested) return;
   fatalShutdownRequested = true;
   process.exitCode = 1;
@@ -21,6 +22,6 @@ process.on("uncaughtException", (error) => stopAfterFatalError("Uncaught applica
 const app = await NestFactory.create(AppModule, { logger: ["log", "warn", "error"] });
 app.enableShutdownHooks();
 const config = app.get<AppConfig>(APP_CONFIG);
-for (const warning of configWarnings(config)) console.warn("configuration", { warning });
+for (const warning of configWarnings(config)) logger.warn("configuration", { warning });
 await app.listen(config.port, config.host);
-console.log(`IPsycho health endpoint: http://${config.host}:${config.port}/health`);
+logger.info("IPsycho listening", { host: config.host, port: config.port });

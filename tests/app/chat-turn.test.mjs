@@ -19,17 +19,32 @@ let messageId = 5000;
 function send(harness, text, extra = {}) {
   messageId += 1;
   return harness.chat.processText({
-    workspaceId, userId, aiStatus: "enabled", timezone, language: "ru", text,
-    telegramChatId: 4242, telegramMessageId: messageId, ...extra,
+    workspaceId,
+    userId,
+    aiStatus: "enabled",
+    timezone,
+    language: "ru",
+    text,
+    telegramChatId: 4242,
+    telegramMessageId: messageId,
+    ...extra,
   });
 }
 
 function taskBody(over = {}) {
   return {
-    title: "Задача", why: null, nextAction: null, context: null, checklist: null,
-    importance: "normal", kind: "task",
+    title: "Задача",
+    why: null,
+    nextAction: null,
+    context: null,
+    checklist: null,
+    importance: "normal",
+    kind: "task",
     when: { mode: "date", date: "2026-09-05" },
-    recurrence: null, reminder: null, habit: null, timezone: null,
+    recurrence: null,
+    reminder: null,
+    habit: null,
+    timezone: null,
     ...over,
   };
 }
@@ -41,21 +56,40 @@ function createTask(over = {}) {
 
 function reschedule(over = {}) {
   return {
-    type: "reschedule", intent: "explicit", task: { id: "t1" },
+    type: "reschedule",
+    intent: "explicit",
+    task: { id: "t1" },
     when: { mode: "exact", date: "2026-09-07", time: "16:00", durationMinutes: null },
-    reason: null, scope: null, recurrence: null, timezone: null, ...over,
+    reason: null,
+    scope: null,
+    recurrence: null,
+    timezone: null,
+    ...over,
   };
 }
 
 function goalAction(over = {}) {
   return {
-    type: "goal", intent: "explicit", op: "link", goal: { id: "g1" }, task: { id: "t1" },
-    title: null, why: null, targetDate: null, status: null, reviewEnabled: null, ...over,
+    type: "goal",
+    intent: "explicit",
+    op: "link",
+    goal: { id: "g1" },
+    task: { id: "t1" },
+    title: null,
+    why: null,
+    targetDate: null,
+    status: null,
+    reviewEnabled: null,
+    ...over,
   };
 }
 
 const turn = (reply, actions, over = {}) => ({
-  reply, question: null, actions, topic: { mode: "none", title: null, summary: null }, ...over,
+  reply,
+  question: null,
+  actions,
+  topic: { mode: "none", title: null, summary: null },
+  ...over,
 });
 
 /** The user never sees an internal rule: those are English and belong in the log. */
@@ -65,8 +99,13 @@ function assertNoRuleText(text) {
 }
 
 const weekdayHabit = {
-  frequency: "weekly", interval: 1, weekdays: ["MO", "TU", "WE", "TH", "FR"],
-  monthDays: null, until: "2026-09-30", skipDates: null, missed: null,
+  frequency: "weekly",
+  interval: 1,
+  weekdays: ["MO", "TU", "WE", "TH", "FR"],
+  monthDays: null,
+  until: "2026-09-30",
+  skipDates: null,
+  missed: null,
 };
 
 const DIALOGS = [
@@ -106,7 +145,8 @@ const DIALOGS = [
     text: "Закинь мне на понедельник в полдесятого утра созвон с дизайнером минут на сорок.",
     turn: turn("Поставил созвон с дизайнером на понедельник в 09:30, сорок минут.", [
       createTask({
-        title: "Созвон с дизайнером", kind: "event",
+        title: "Созвон с дизайнером",
+        kind: "event",
         when: { mode: "exact", date: "2026-09-07", time: "09:30", durationMinutes: 40 },
       }),
     ]),
@@ -125,7 +165,10 @@ const DIALOGS = [
     check: (result, harness) => {
       assert.equal(harness.handled.length, 1);
       assert.equal(harness.handled[0].resolved.length, 2);
-      assert.deepEqual(harness.handled[0].resolved.map((action) => action.task.id), ["t1", "t2"]);
+      assert.deepEqual(
+        harness.handled[0].resolved.map((action) => action.task.id),
+        ["t1", "t2"],
+      );
       assert.equal(result.appliedCount, 2);
     },
   },
@@ -154,7 +197,10 @@ const DIALOGS = [
     ]),
     check: (result, harness) => {
       assert.equal(harness.handled.length, 1);
-      assert.deepEqual(harness.handled[0].resolved.map((action) => action.type), ["reschedule", "create_task", "goal"]);
+      assert.deepEqual(
+        harness.handled[0].resolved.map((action) => action.type),
+        ["reschedule", "create_task", "goal"],
+      );
       assert.equal(result.appliedCount, 3);
     },
   },
@@ -163,7 +209,8 @@ const DIALOGS = [
     text: "Поставь с сентября каждый второй понедельник в 9:15 финансовый обзор на 30 минут, до конца ноября.",
     turn: turn("Завёл финансовый обзор каждый второй понедельник в 9:15 до конца ноября.", [
       createTask({
-        title: "Финансовый обзор", kind: "event",
+        title: "Финансовый обзор",
+        kind: "event",
         when: { mode: "exact", date: "2026-09-07", time: "09:15", durationMinutes: 30 },
         recurrence: { frequency: "weekly", interval: 2, weekdays: ["MO"], monthDays: null, until: "2026-11-30", skipDates: null, missed: null },
       }),
@@ -171,7 +218,13 @@ const DIALOGS = [
     check: (result, harness) => {
       assert.equal(result.appliedCount, 1);
       assert.deepEqual(harness.handled[0].resolved[0].recurrence, {
-        frequency: "weekly", interval: 2, weekdays: ["MO"], monthDays: null, until: "2026-11-30", skipDates: null, missed: null,
+        frequency: "weekly",
+        interval: 2,
+        weekdays: ["MO"],
+        monthDays: null,
+        until: "2026-11-30",
+        skipDates: null,
+        missed: null,
       });
     },
   },
@@ -214,9 +267,7 @@ const DIALOGS = [
   {
     label: "«точного часа не знаю» becomes a day without a time instead of an invented checkpoint",
     text: "Не дай забыть: завтра после обеда надо забрать посылку. Точного часа не знаю, не придумывай его сам.",
-    turn: turn("Поставил на завтра без точного часа — напомню утром.", [
-      createTask({ title: "Забрать посылку", when: { mode: "date", date: "2026-09-05" } }),
-    ]),
+    turn: turn("Поставил на завтра без точного часа — напомню утром.", [createTask({ title: "Забрать посылку", when: { mode: "date", date: "2026-09-05" } })]),
     check: (result, harness) => {
       assert.equal(result.appliedCount, 1);
       assert.deepEqual(harness.handled[0].resolved[0].when, { mode: "date", date: "2026-09-05" });
@@ -343,7 +394,23 @@ test("an explicit action that answers the live card replaces it: apply first, th
 test("an unrelated explicit command leaves the live card on its buttons", async () => {
   const proposal = { type: "set_task_state", intent: "inferred", task: { id: "t1" }, state: "cancelled", note: null, scope: "occurrence" };
   const scripted = turn("Записал.", [
-    { type: "create_task", intent: "explicit", title: "Купить молоко", why: null, nextAction: null, context: null, checklist: null, importance: "normal", kind: "task", when: { mode: "date", date: "2026-09-05" }, recurrence: null, reminder: null, habit: null, timezone: null, goal: null },
+    {
+      type: "create_task",
+      intent: "explicit",
+      title: "Купить молоко",
+      why: null,
+      nextAction: null,
+      context: null,
+      checklist: null,
+      importance: "normal",
+      kind: "task",
+      when: { mode: "date", date: "2026-09-05" },
+      recurrence: null,
+      reminder: null,
+      habit: null,
+      timezone: null,
+      goal: null,
+    },
   ]);
   const harness = createChatHarness({
     turns: [scripted],
@@ -374,9 +441,7 @@ test("a rejected turn does not cost the user the live card", async () => {
 });
 
 test("a new pending card supersedes the old one so only one card is ever live", async () => {
-  const scripted = turn("Предлагаю отменить серию.", [
-    { type: "set_task_state", intent: "inferred", task: { id: "t1" }, state: "cancelled", note: null, scope: "series" },
-  ]);
+  const scripted = turn("Предлагаю отменить серию.", [{ type: "set_task_state", intent: "inferred", task: { id: "t1" }, state: "cancelled", note: null, scope: "series" }]);
   const harness = createChatHarness({
     turns: [scripted],
     pending: { groupId: "group-new", count: 1, titles: ["Отменить серию"] },

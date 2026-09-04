@@ -89,17 +89,29 @@ export class TurnContextService {
     }
 
     const activeRow = topics.find((topic) => topic.status === "active") ?? null;
-    const activeTopic: ActiveTopicState | null = activeRow ? {
-      topicId: activeRow.id,
-      reviewKind: activeRow.reviewKind === "evening" || activeRow.reviewKind === "weekly" ? activeRow.reviewKind : null,
-      clarificationCount: activeRow.clarificationCount,
-      reviewState: activeRow.reviewKind === "weekly" ? parseWeeklyReviewState(activeRow.reviewState) : null,
-      mode: activeRow.mode,
-    } : null;
-    const reviewKind = input.review ?? activeTopic?.reviewKind ?? null;
-    const snapshot = reviewKind === "weekly"
-      ? (await this.briefings.build({ workspaceId, kind: "weekly", localDate: localDateAt(now, input.timezone), timezone: input.timezone, now, locale: interfaceLocale(input.language) })).text
+    const activeTopic: ActiveTopicState | null = activeRow
+      ? {
+          topicId: activeRow.id,
+          reviewKind: activeRow.reviewKind === "evening" || activeRow.reviewKind === "weekly" ? activeRow.reviewKind : null,
+          clarificationCount: activeRow.clarificationCount,
+          reviewState: activeRow.reviewKind === "weekly" ? parseWeeklyReviewState(activeRow.reviewState) : null,
+          mode: activeRow.mode,
+        }
       : null;
+    const reviewKind = input.review ?? activeTopic?.reviewKind ?? null;
+    const snapshot =
+      reviewKind === "weekly"
+        ? (
+            await this.briefings.build({
+              workspaceId,
+              kind: "weekly",
+              localDate: localDateAt(now, input.timezone),
+              timezone: input.timezone,
+              now,
+              locale: interfaceLocale(input.language),
+            })
+          ).text
+        : null;
 
     const locale = interfaceLocale(input.language);
     const composed = composeTurnContext({
@@ -121,12 +133,14 @@ export class TurnContextService {
       blockers,
       pendingProposal: input.pendingGroup ? { createdAt: input.pendingGroup.createdAt, titles: input.pendingGroup.titles } : null,
       focus: focusTaskId && input.focus ? { taskId: focusTaskId, action: input.focus.action } : null,
-      review: reviewKind ? {
-        kind: reviewKind,
-        questionsAsked: activeTopic?.reviewKind === reviewKind ? activeTopic.clarificationCount : 0,
-        ...(snapshot ? { snapshot } : {}),
-        ...(reviewKind === "weekly" && activeTopic?.reviewState ? { state: activeTopic.reviewState } : {}),
-      } : null,
+      review: reviewKind
+        ? {
+            kind: reviewKind,
+            questionsAsked: activeTopic?.reviewKind === reviewKind ? activeTopic.clarificationCount : 0,
+            ...(snapshot ? { snapshot } : {}),
+            ...(reviewKind === "weekly" && activeTopic?.reviewState ? { state: activeTopic.reviewState } : {}),
+          }
+        : null,
     });
 
     return {

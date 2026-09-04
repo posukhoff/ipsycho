@@ -37,10 +37,7 @@ export function shouldBundleWeeklyReview(input: {
   localWeekday: number;
   weeklyWeekday: number;
 }): boolean {
-  return input.eveningDigestEnabled
-    && input.weeklyReviewEnabled
-    && input.localWeekday === input.weeklyWeekday
-    && input.eveningTime === input.weeklyTime;
+  return input.eveningDigestEnabled && input.weeklyReviewEnabled && input.localWeekday === input.weeklyWeekday && input.eveningTime === input.weeklyTime;
 }
 
 export function briefingStillUseful(kind: BriefingKind, scheduledLocalDate: string, currentLocalDate: string): boolean {

@@ -17,17 +17,20 @@ export function safeError(error: unknown): SafeError {
   const name = error instanceof Error ? error.name : "UnknownError";
   if (!error || typeof error !== "object") return { name };
   const source = error as {
-    message?: unknown; description?: unknown; detail?: unknown; code?: unknown;
-    status?: unknown; constraint?: unknown; routine?: unknown;
+    message?: unknown;
+    description?: unknown;
+    detail?: unknown;
+    code?: unknown;
+    status?: unknown;
+    constraint?: unknown;
+    routine?: unknown;
   };
   const message = typeof source.message === "string" ? redactMessage(source.message) : undefined;
   const detail = redactMessage(typeof source.description === "string" ? source.description : typeof source.detail === "string" ? source.detail : "");
   const code = safeIdentifier(source.code);
   const constraint = safeIdentifier(source.constraint);
   const routine = safeIdentifier(source.routine);
-  const status = typeof source.status === "number" && Number.isInteger(source.status) && source.status >= 100 && source.status <= 599
-    ? source.status
-    : undefined;
+  const status = typeof source.status === "number" && Number.isInteger(source.status) && source.status >= 100 && source.status <= 599 ? source.status : undefined;
   return {
     name,
     ...(message ? { message } : {}),

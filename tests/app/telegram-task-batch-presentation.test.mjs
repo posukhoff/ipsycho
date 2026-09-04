@@ -8,11 +8,17 @@ test("task batch presentation shows step count with one confirmation control", (
   assert.equal(actionSummary(2, ["Создать «Зарядка»", "Перенести «Созвон»"], 1), "⏳ Нужно подтвердить (2):\n• Создать «Зарядка»\n• Перенести «Созвон»");
   assert.equal(actionSummary(1, ["Изменить задачу"]), "⏳ Пока ничего не изменил — нужно подтверждение:\n• Изменить задачу");
   const keyboard = chatResultKeyboard(undefined, "group-id");
-  assert.deepEqual(keyboard.inline_keyboard.flat().map((button) => button.text), ["Подтвердить", "Не надо"]);
+  assert.deepEqual(
+    keyboard.inline_keyboard.flat().map((button) => button.text),
+    ["Подтвердить", "Не надо"],
+  );
   assert.equal(JSON.stringify(keyboard).includes("step"), false);
 });
 
 test("applied task batch presentation exposes one Undo control", () => {
   const keyboard = chatResultKeyboard("group-id");
-  assert.deepEqual(keyboard.inline_keyboard.flat().map((button) => button.text), ["↩️ Вернуть как было"]);
+  assert.deepEqual(
+    keyboard.inline_keyboard.flat().map((button) => button.text),
+    ["↩️ Вернуть как было"],
+  );
 });

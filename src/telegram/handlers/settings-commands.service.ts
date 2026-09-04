@@ -16,6 +16,7 @@ import { t } from "../copy/index.js";
 import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { ScreensService } from "./screens.service.js";
+import { logger } from "../../observability/logger.js";
 
 const TIMEZONE_APPLY_CALLBACK = /^tzapply:(digests|quiet|both|keep)$/;
 const PREFS_CALLBACK = /^prefs:(morning|evening|weekly|quiet|snooze):(toggle|morning)$/;
@@ -37,16 +38,46 @@ export class SettingsCommandsService {
    * one journaled action with Undo, validated by the same rules. Returns false when the
    * change was refused (the user already got the reason).
    */
-  private async applySettings(ctx: AppContext, operation: SettingsFields["operation"], fields: Partial<Omit<SettingsFields, "operation">>, doneKey: Parameters<typeof t>[1] | null): Promise<boolean> {
+  private async applySettings(
+    ctx: AppContext,
+    operation: SettingsFields["operation"],
+    fields: Partial<Omit<SettingsFields, "operation">>,
+    doneKey: Parameters<typeof t>[1] | null,
+  ): Promise<boolean> {
     const { access, settings, locale } = activeState(ctx);
     const action: ResolvedActionOf<"settings"> = {
-      type: "settings", intent: "explicit", timezone: settings.timezone, reviewTime: settings.morningReferenceTime, expectedVersion: settings.version,
-      operation, applyTimezoneTo: null, language: null, digestKind: null, enabled: null, time: null, weekday: null,
-      weekdayStart: null, weekdayEnd: null, weekendStart: null, weekendEnd: null, snoozeUntilDate: null, snoozeUntilTime: null,
-      eventOffsets: null, plannedTaskOffsetMinutes: null, criticalPostDueMinutes: null, seenNormalMinutes: null, seenRequiredMinutes: null, seenCriticalMinutes: null,
+      type: "settings",
+      intent: "explicit",
+      timezone: settings.timezone,
+      reviewTime: settings.morningReferenceTime,
+      expectedVersion: settings.version,
+      operation,
+      applyTimezoneTo: null,
+      language: null,
+      digestKind: null,
+      enabled: null,
+      time: null,
+      weekday: null,
+      weekdayStart: null,
+      weekdayEnd: null,
+      weekendStart: null,
+      weekendEnd: null,
+      snoozeUntilDate: null,
+      snoozeUntilTime: null,
+      eventOffsets: null,
+      plannedTaskOffsetMinutes: null,
+      criticalPostDueMinutes: null,
+      seenNormalMinutes: null,
+      seenRequiredMinutes: null,
+      seenCriticalMinutes: null,
       ...fields,
     };
-    const scope = { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id, language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null };
+    const scope = {
+      workspaceId: access.workspaceId,
+      actorUserId: access.user.id,
+      recipientUserId: access.user.id,
+      language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null,
+    };
     try {
       const issues = await this.actions.validateResolved([action], scope);
       if (issues.length) {
@@ -62,7 +93,7 @@ export class SettingsCommandsService {
       return true;
     } catch (error) {
       if (!isDomainRuleError(error)) throw error;
-      console.warn("settings command refused", { userId: access.user.id, operation, error: safeError(error) });
+      logger.warn("settings command refused", { userId: access.user.id, operation, error: safeError(error) });
       await ctx.reply(t(locale, error.code === "time_invalid" ? "time_invalid" : "rd_failed"));
       return false;
     }
@@ -82,68 +113,101 @@ export class SettingsCommandsService {
   }
 
   private async timezone(ctx: CommandContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
+    const { locale } = activeState(ctx);
     const value = commandArgs(ctx.msg.text ?? "");
-    if (!value) return void await ctx.reply(t(locale, "timezone_usage"));
+    if (!value) return void (await ctx.reply(t(locale, "timezone_usage")));
     const zone = resolveTimezoneInput(value);
-    if (!zone) return void await ctx.reply(t(locale, "timezone_invalid"));
-    if (!await this.applySettings(ctx, "timezone", { timezone: zone, applyTimezoneTo: "profile_only" }, null)) return;
+    if (!zone) return void (await ctx.reply(t(locale, "timezone_invalid")));
+    if (!(await this.applySettings(ctx, "timezone", { timezone: zone, applyTimezoneTo: "profile_only" }, null))) return;
     await ctx.reply(t(locale, "timezone_set", { timezone: zone }), {
       reply_markup: new InlineKeyboard()
-        .text(t(locale, "tz_apply_both"), "tzapply:both").text(t(locale, "tz_keep"), "tzapply:keep").row()
-        .text(t(locale, "tz_apply_digests"), "tzapply:digests").text(t(locale, "tz_apply_quiet"), "tzapply:quiet"),
+        .text(t(locale, "tz_apply_both"), "tzapply:both")
+        .text(t(locale, "tz_keep"), "tzapply:keep")
+        .row()
+        .text(t(locale, "tz_apply_digests"), "tzapply:digests")
+        .text(t(locale, "tz_apply_quiet"), "tzapply:quiet"),
     });
   }
 
   private async language(ctx: CommandContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
+    const { locale } = activeState(ctx);
     const value = commandArgs(ctx.msg.text ?? "").trim();
     const automatic = value.toLowerCase() === "auto";
-    if (!value || (!automatic && !/^[a-z]{2}(?:-[a-z]{2})?$/iu.test(value))) return void await ctx.reply(t(locale, "language_usage"));
+    if (!value || (!automatic && !/^[a-z]{2}(?:-[a-z]{2})?$/iu.test(value))) return void (await ctx.reply(t(locale, "language_usage")));
     await this.applySettings(ctx, "language", { language: automatic ? null : value }, automatic ? "language_auto" : null);
   }
 
   private async digest(ctx: CommandContext<AppContext>, kind: "morning" | "evening"): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
-    const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
+    const parts = commandArgs(ctx.msg.text ?? "")
+      .split(/\s+/u)
+      .filter(Boolean);
     if (!parts.length) {
       const now = new Date();
-      const briefing = await this.briefings.build({ workspaceId: access.workspaceId, kind, localDate: localDateAt(now, settings.timezone), timezone: settings.timezone, now, locale });
+      const briefing = await this.briefings.build({
+        workspaceId: access.workspaceId,
+        kind,
+        localDate: localDateAt(now, settings.timezone),
+        timezone: settings.timezone,
+        now,
+        locale,
+      });
       await ctx.reply(briefing.text);
       return;
     }
     const enabled = parts[0] === "on";
-    if ((enabled && parts.length !== 2) || (!enabled && (parts[0] !== "off" || parts.length !== 1))) return void await ctx.reply(t(locale, "digest_usage", { kind }));
-    await this.applySettings(ctx, "digest", { digestKind: kind, enabled, time: enabled ? parts[1]! : null }, enabled ? (kind === "morning" ? "digest_on_morning" : "digest_on_evening") : "digest_off");
+    if ((enabled && parts.length !== 2) || (!enabled && (parts[0] !== "off" || parts.length !== 1))) return void (await ctx.reply(t(locale, "digest_usage", { kind })));
+    await this.applySettings(
+      ctx,
+      "digest",
+      { digestKind: kind, enabled, time: enabled ? parts[1]! : null },
+      enabled ? (kind === "morning" ? "digest_on_morning" : "digest_on_evening") : "digest_off",
+    );
   }
 
   private async weekly(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
-    const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
+    const parts = commandArgs(ctx.msg.text ?? "")
+      .split(/\s+/u)
+      .filter(Boolean);
     if (!parts.length) {
       const now = new Date();
-      const briefing = await this.briefings.build({ workspaceId: access.workspaceId, kind: "weekly", localDate: localDateAt(now, settings.timezone), timezone: settings.timezone, now, locale });
+      const briefing = await this.briefings.build({
+        workspaceId: access.workspaceId,
+        kind: "weekly",
+        localDate: localDateAt(now, settings.timezone),
+        timezone: settings.timezone,
+        now,
+        locale,
+      });
       await ctx.reply(briefing.text);
       return;
     }
     if (parts[0] === "review") {
       const result = await this.chat.startReview({
-        workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus,
-        timezone: settings.timezone, digestTimezone: settings.digestTimezone, language: settings.pinnedLanguage, kind: "weekly",
+        workspaceId: access.workspaceId,
+        userId: access.user.id,
+        aiStatus: access.user.aiStatus,
+        timezone: settings.timezone,
+        digestTimezone: settings.digestTimezone,
+        language: settings.pinnedLanguage,
+        kind: "weekly",
       });
       await this.chatReply.reply(ctx, access, result);
       return;
     }
     const enabled = parts[0] === "on";
-    if ((enabled && parts.length !== 3) || (!enabled && (parts[0] !== "off" || parts.length !== 1))) return void await ctx.reply(t(locale, "weekly_usage"));
+    if ((enabled && parts.length !== 3) || (!enabled && (parts[0] !== "off" || parts.length !== 1))) return void (await ctx.reply(t(locale, "weekly_usage")));
     const weekday = enabled ? Number(parts[1]) : null;
-    if (enabled && (!Number.isInteger(weekday) || weekday! < 1 || weekday! > 7)) return void await ctx.reply(t(locale, "weekly_invalid"));
+    if (enabled && (!Number.isInteger(weekday) || weekday! < 1 || weekday! > 7)) return void (await ctx.reply(t(locale, "weekly_invalid")));
     await this.applySettings(ctx, "weekly_review", { enabled, weekday, time: enabled ? parts[2]! : null }, enabled ? "weekly_on" : "weekly_off");
   }
 
   private async quiet(ctx: CommandContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
-    const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
+    const { locale } = activeState(ctx);
+    const parts = commandArgs(ctx.msg.text ?? "")
+      .split(/\s+/u)
+      .filter(Boolean);
     if (!parts.length || parts[0] === "default") {
       await this.applySettings(ctx, "quiet_hours", { enabled: true, ...DEFAULT_QUIET_HOURS }, "quiet_default");
       return;
@@ -176,19 +240,31 @@ export class SettingsCommandsService {
       return;
     }
     const minutes = Number(value);
-    if (!Number.isInteger(minutes) || minutes < 15 || minutes > 7 * 24 * 60) return void await ctx.reply(t(locale, "snooze_usage"));
+    if (!Number.isInteger(minutes) || minutes < 15 || minutes > 7 * 24 * 60) return void (await ctx.reply(t(locale, "snooze_usage")));
     until = new Date(Date.now() + minutes * 60_000);
     const local = localDateTimeAt(until, settings.timezone);
     const pad = (n: number) => String(n).padStart(2, "0");
-    const applied = await this.applySettings(ctx, "snooze", { snoozeUntilDate: `${local.year}-${pad(local.month)}-${pad(local.day)}`, snoozeUntilTime: `${pad(local.hour)}:${pad(local.minute)}` }, null);
+    const applied = await this.applySettings(
+      ctx,
+      "snooze",
+      { snoozeUntilDate: `${local.year}-${pad(local.month)}-${pad(local.day)}`, snoozeUntilTime: `${pad(local.hour)}:${pad(local.minute)}` },
+      null,
+    );
     if (applied) await ctx.reply(t(locale, "snooze_until", { until: formatLocalDateTime(until, settings.timezone, new Date()) }));
   }
 
   private async reminderDefaults(ctx: CommandContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
-    const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
+    const { locale } = activeState(ctx);
+    const parts = commandArgs(ctx.msg.text ?? "")
+      .split(/\s+/u)
+      .filter(Boolean);
     if (parts[0] === "seen" && parts.length === 4) {
-      await this.applySettings(ctx, "reminder_defaults", { seenNormalMinutes: Number(parts[1]), seenRequiredMinutes: Number(parts[2]), seenCriticalMinutes: Number(parts[3]) }, "rd_seen");
+      await this.applySettings(
+        ctx,
+        "reminder_defaults",
+        { seenNormalMinutes: Number(parts[1]), seenRequiredMinutes: Number(parts[2]), seenCriticalMinutes: Number(parts[3]) },
+        "rd_seen",
+      );
       return;
     }
     if (parts[0] === "event" && parts[1]) {
@@ -213,7 +289,7 @@ export class SettingsCommandsService {
   private async applyTimezone(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
     const target = TIMEZONE_APPLY_CALLBACK.exec(ctx.callbackQuery.data)?.[1] as "digests" | "quiet" | "both" | "keep" | undefined;
-    if (!target) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (!target) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     if (target !== "keep") await this.settings.applyProfileTimezone(access.user.id, target);
     await ctx.answerCallbackQuery({ text: t(locale, target === "keep" ? "saved_toast" : "tz_applied_toast") });
     await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
@@ -224,12 +300,18 @@ export class SettingsCommandsService {
     const match = PREFS_CALLBACK.exec(ctx.callbackQuery.data);
     const key = match?.[1];
     const action = match?.[2];
-    if (!key || !action) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (!key || !action) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     try {
       if (key === "morning") await this.settings.setDigest({ userId: access.user.id, kind: "morning", enabled: !settings.morningDigestEnabled });
       else if (key === "evening") await this.settings.setDigest({ userId: access.user.id, kind: "evening", enabled: !settings.eveningDigestEnabled });
       else if (key === "weekly") await this.settings.setWeekly({ userId: access.user.id, enabled: !settings.weeklyReviewEnabled });
-      else if (key === "quiet") await this.settings.setQuietHours(access.user.id, { enabled: !settings.quietHoursEnabled, ...(settings.quietHoursEnabled ? {} : { weekdayStart: settings.weekdayQuietStart, weekdayEnd: settings.weekdayQuietEnd, weekendStart: settings.weekendQuietStart, weekendEnd: settings.weekendQuietEnd }) });
+      else if (key === "quiet")
+        await this.settings.setQuietHours(access.user.id, {
+          enabled: !settings.quietHoursEnabled,
+          ...(settings.quietHoursEnabled
+            ? {}
+            : { weekdayStart: settings.weekdayQuietStart, weekdayEnd: settings.weekdayQuietEnd, weekendStart: settings.weekendQuietStart, weekendEnd: settings.weekendQuietEnd }),
+        });
       else if (key === "snooze" && action === "morning") await this.settings.snoozeUntilMorning(access.user.id);
       const updated = await this.settings.get(access.user.id);
       if (!updated) throw new Error("settings missing after update");
@@ -237,7 +319,7 @@ export class SettingsCommandsService {
       await ctx.answerCallbackQuery({ text: t(locale, key === "snooze" ? "prefs_snooze_toast" : "saved_toast") });
       await this.screens.settings_(ctx, true);
     } catch (error) {
-      console.error("settings callback failed", { userId: access.user.id, key, error: safeError(error) });
+      logger.error("settings callback failed", { userId: access.user.id, key, error: safeError(error) });
       await ctx.answerCallbackQuery({ text: t(locale, "prefs_failed_toast") }).catch(() => undefined);
     }
   }
@@ -248,4 +330,3 @@ export function commandArgs(text: string): string {
 }
 
 type SettingsFields = ResolvedActionOf<"settings">;
-

@@ -9,7 +9,9 @@ export class AiRepository {
 
   async recordProviderActivation(provider: string, consentVersion: string): Promise<void> {
     const metadata = JSON.stringify({ provider, consentVersion });
-    const [latest] = await this.database.db.select({ metadata: adminAuditLog.metadata }).from(adminAuditLog)
+    const [latest] = await this.database.db
+      .select({ metadata: adminAuditLog.metadata })
+      .from(adminAuditLog)
       .where(eq(adminAuditLog.action, "ai:provider-active"))
       .orderBy(desc(adminAuditLog.createdAt))
       .limit(1);
@@ -18,18 +20,24 @@ export class AiRepository {
   }
 
   async hasConsent(userId: string, provider: string, consentVersion: string): Promise<boolean> {
-    const [row] = await this.database.db.select({ id: aiProviderConsents.id }).from(aiProviderConsents)
-      .where(and(
-        eq(aiProviderConsents.userId, userId),
-        eq(aiProviderConsents.provider, provider),
-        eq(aiProviderConsents.consentVersion, consentVersion),
-        isNull(aiProviderConsents.revokedAt),
-      )).limit(1);
+    const [row] = await this.database.db
+      .select({ id: aiProviderConsents.id })
+      .from(aiProviderConsents)
+      .where(
+        and(
+          eq(aiProviderConsents.userId, userId),
+          eq(aiProviderConsents.provider, provider),
+          eq(aiProviderConsents.consentVersion, consentVersion),
+          isNull(aiProviderConsents.revokedAt),
+        ),
+      )
+      .limit(1);
     return Boolean(row);
   }
 
   async grantConsent(userId: string, provider: string, consentVersion: string): Promise<void> {
-    await this.database.db.insert(aiProviderConsents)
+    await this.database.db
+      .insert(aiProviderConsents)
       .values({ userId, provider, consentVersion, revokedAt: null })
       .onConflictDoUpdate({
         target: [aiProviderConsents.userId, aiProviderConsents.provider, aiProviderConsents.consentVersion],
@@ -38,12 +46,17 @@ export class AiRepository {
   }
 
   async revokeConsent(userId: string, provider: string, consentVersion: string): Promise<void> {
-    await this.database.db.update(aiProviderConsents).set({ revokedAt: new Date() }).where(and(
-      eq(aiProviderConsents.userId, userId),
-      eq(aiProviderConsents.provider, provider),
-      eq(aiProviderConsents.consentVersion, consentVersion),
-      isNull(aiProviderConsents.revokedAt),
-    ));
+    await this.database.db
+      .update(aiProviderConsents)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(aiProviderConsents.userId, userId),
+          eq(aiProviderConsents.provider, provider),
+          eq(aiProviderConsents.consentVersion, consentVersion),
+          isNull(aiProviderConsents.revokedAt),
+        ),
+      );
   }
 
   async recordUsage(input: {
@@ -80,13 +93,17 @@ export class AiRepository {
 
   /** Provider requests, not AiService calls: a repaired turn counts twice against the hourly limit. */
   async countCallsSince(userId: string, since: Date): Promise<number> {
-    const [row] = await this.database.db.select({ count: sql<number>`coalesce(sum(${aiUsage.attempts}), 0)::int` }).from(aiUsage)
+    const [row] = await this.database.db
+      .select({ count: sql<number>`coalesce(sum(${aiUsage.attempts}), 0)::int` })
+      .from(aiUsage)
       .where(and(eq(aiUsage.userId, userId), gte(aiUsage.createdAt, since)));
     return row?.count ?? 0;
   }
 
   async monthlySpendUsd(userId: string, since: Date): Promise<number> {
-    const [row] = await this.database.db.select({ total: sql<string>`coalesce(sum(${aiUsage.estimatedCostUsd}), 0)::text` }).from(aiUsage)
+    const [row] = await this.database.db
+      .select({ total: sql<string>`coalesce(sum(${aiUsage.estimatedCostUsd}), 0)::text` })
+      .from(aiUsage)
       .where(and(eq(aiUsage.userId, userId), gte(aiUsage.createdAt, since)));
     return Number(row?.total ?? 0);
   }

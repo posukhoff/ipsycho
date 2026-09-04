@@ -14,7 +14,8 @@ import { TranscriptionService } from "./transcription.service.js";
   imports: [ConfigModule, DatabaseModule],
   providers: [
     AiRepository,
-    AiService, TranscriptionService,
+    AiService,
+    TranscriptionService,
     {
       provide: AI_PROVIDER,
       inject: [APP_CONFIG],

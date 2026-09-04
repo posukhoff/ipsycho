@@ -49,9 +49,7 @@ export function quickRescheduleSchedule(input: {
   if (input.timeMode === "window" && !input.occurrence.plannedStartAt && input.occurrence.plannedLocalDate) return { plannedLocalDate: tomorrow };
   if (input.timeMode === "point" && !input.occurrence.plannedStartAt && input.occurrence.plannedLocalDate) return { plannedLocalDate: tomorrow };
 
-  const source = input.timeMode === "deadline"
-    ? input.occurrence.dueAt
-    : input.occurrence.plannedStartAt;
+  const source = input.timeMode === "deadline" ? input.occurrence.dueAt : input.occurrence.plannedStartAt;
   const localTime = source ? formatLocalTime(source, timezone) : morning;
   const target = localDateAndTimeToUtc(tomorrow, localTime, timezone).date;
   return scheduleAt(target, input.timeMode, input.occurrence);
@@ -60,9 +58,8 @@ export function quickRescheduleSchedule(input: {
 function scheduleAt(target: Date, timeMode: TimeMode, occurrence: QuickRescheduleOccurrence): QuickRescheduleSchedule {
   if (timeMode === "deadline") return { dueAt: target };
   if (timeMode === "window") {
-    const duration = occurrence.plannedStartAt && occurrence.plannedEndAt
-      ? Math.max(15 * 60_000, occurrence.plannedEndAt.getTime() - occurrence.plannedStartAt.getTime())
-      : 60 * 60_000;
+    const duration =
+      occurrence.plannedStartAt && occurrence.plannedEndAt ? Math.max(15 * 60_000, occurrence.plannedEndAt.getTime() - occurrence.plannedStartAt.getTime()) : 60 * 60_000;
     return { plannedStartAt: target, plannedEndAt: new Date(target.getTime() + duration) };
   }
   return { plannedStartAt: target };

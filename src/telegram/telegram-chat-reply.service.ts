@@ -6,6 +6,7 @@ import { safeError } from "../observability/safe-error.js";
 import { t } from "./copy/index.js";
 import { renderChatResult } from "./telegram-chat-render.js";
 import type { ActiveAccess, AppContext } from "./telegram-context.js";
+import { logger } from "../observability/logger.js";
 
 export type { ActiveAccess } from "./telegram-context.js";
 export { actionSummary, chatResultKeyboard, renderChatResult, MAX_REPLY_LENGTH, type RenderedChatResult } from "./telegram-chat-render.js";
@@ -18,12 +19,12 @@ export class TelegramChatReplyService {
   async reply(ctx: AppContext, access: ActiveAccess, result: ChatProcessResult): Promise<void> {
     const locale = ctx.state.locale;
     if (result.kind === "duplicate") return;
-    if (result.kind === "nothing_to_retry") return void await ctx.reply(t(locale, "chat_nothing_to_retry"));
-    if (result.kind === "ai_suspended") return void await ctx.reply(t(locale, "chat_ai_suspended"));
-    if (result.kind === "ai_unavailable") return void await ctx.reply(t(locale, "chat_ai_unavailable"));
+    if (result.kind === "nothing_to_retry") return void (await ctx.reply(t(locale, "chat_nothing_to_retry")));
+    if (result.kind === "ai_suspended") return void (await ctx.reply(t(locale, "chat_ai_suspended")));
+    if (result.kind === "ai_unavailable") return void (await ctx.reply(t(locale, "chat_ai_unavailable")));
     if (result.kind === "rate_limited") {
       const timezone = ctx.state.settings?.timezone ?? "UTC";
-      return void await ctx.reply(t(locale, "chat_rate_limited", { limit: this.chat.maxMessagesPerHour, until: formatLocalTime(new Date(Date.now() + 60 * 60_000), timezone) }));
+      return void (await ctx.reply(t(locale, "chat_rate_limited", { limit: this.chat.maxMessagesPerHour, until: formatLocalTime(new Date(Date.now() + 60 * 60_000), timezone) })));
     }
     if (result.kind === "consent_required") {
       await ctx.reply(t(locale, "consent_prompt", { provider: result.provider }), {
@@ -37,17 +38,19 @@ export class TelegramChatReplyService {
       if (result.supersededPendingGroupId) await this.dropCardButtons(ctx, access, result.supersededPendingGroupId);
       const sent = await ctx.reply(responseText, keyboard ? { reply_markup: keyboard } : {});
       if (result.skipAssistantHistory) return;
-      await this.chat.recordAssistantMessage({
-        workspaceId: access.workspaceId,
-        userId: access.user.id,
-        content: persistedText,
-        telegramChatId: ctx.chat?.id ?? access.user.telegramUserId,
-        telegramMessageId: sent.message_id,
-        ...(result.topicId ? { topicId: result.topicId } : {}),
-        ...(result.pendingGroupId ? { pendingGroupId: result.pendingGroupId } : {}),
-      }).catch((error) => console.error("assistant message persistence failed", { userId: access.user.id, error: safeError(error) }));
+      await this.chat
+        .recordAssistantMessage({
+          workspaceId: access.workspaceId,
+          userId: access.user.id,
+          content: persistedText,
+          telegramChatId: ctx.chat?.id ?? access.user.telegramUserId,
+          telegramMessageId: sent.message_id,
+          ...(result.topicId ? { topicId: result.topicId } : {}),
+          ...(result.pendingGroupId ? { pendingGroupId: result.pendingGroupId } : {}),
+        })
+        .catch((error) => logger.error("assistant message persistence failed", { userId: access.user.id, error: safeError(error) }));
     } catch (error) {
-      console.error("telegram reply failed after processing", { userId: access.user.id, error: safeError(error) });
+      logger.error("telegram reply failed after processing", { userId: access.user.id, error: safeError(error) });
     }
   }
 

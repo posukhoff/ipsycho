@@ -25,13 +25,7 @@ export class ContextService {
    * instead of failing, so the topic layer never blocks a turn whose actions already ran.
    * Returns the topic id the message now belongs to.
    */
-  async applyTopicDirective(input: {
-    workspaceId: string;
-    userId: string;
-    messageId: string;
-    directive: TopicDirective;
-    now?: Date;
-  }): Promise<string | null> {
+  async applyTopicDirective(input: { workspaceId: string; userId: string; messageId: string; directive: TopicDirective; now?: Date }): Promise<string | null> {
     const now = input.now ?? new Date();
     const summaryExpiresAt = new Date(now.getTime() + TOPIC_RETENTION_MS);
     const active = await this.repository.findActiveTopic(input.workspaceId, input.userId);
@@ -84,7 +78,8 @@ export class ContextService {
       workspaceId: input.workspaceId,
       userId: input.userId,
       title: "Контекст пользователя",
-      summary: "Пользователь заполняет или редактирует свой устойчивый контекст: предпочтения, режим, ограничения и полезные рабочие нюансы. Сохранять только явно сообщённые факты.",
+      summary:
+        "Пользователь заполняет или редактирует свой устойчивый контекст: предпочтения, режим, ограничения и полезные рабочие нюансы. Сохранять только явно сообщённые факты.",
       mode: "normal",
       now,
       summaryExpiresAt: new Date(now.getTime() + TOPIC_RETENTION_MS),
@@ -101,9 +96,10 @@ export class ContextService {
       workspaceId: input.workspaceId,
       userId: input.userId,
       title: input.kind === "evening" ? "Вечерний разбор" : "Планирование недели",
-      summary: input.kind === "evening"
-        ? "Разбор незавершённых дел за текущий вечер."
-        : "Совместное планирование следующей недели: приоритеты, незавершённые задачи и реалистичные сроки. Ничего не переносить без явного выбора пользователя.",
+      summary:
+        input.kind === "evening"
+          ? "Разбор незавершённых дел за текущий вечер."
+          : "Совместное планирование следующей недели: приоритеты, незавершённые задачи и реалистичные сроки. Ничего не переносить без явного выбора пользователя.",
       mode: "normal",
       reviewKind: input.kind,
       ...(input.kind === "weekly" ? { reviewState: emptyWeeklyReviewState() } : {}),
@@ -120,7 +116,13 @@ export class ContextService {
     const topic = await this.repository.findTopic(input.workspaceId, input.userId, input.topicId);
     if (!topic || topic.reviewKind !== "weekly") throw new DomainRuleError("weekly review topic is missing");
     const state = mergeWeeklyReviewProgress(topic.reviewState, input.progress);
-    const updated = await this.repository.updateReviewState({ workspaceId: input.workspaceId, userId: input.userId, topicId: input.topicId, reviewState: state, now: input.now ?? new Date() });
+    const updated = await this.repository.updateReviewState({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      topicId: input.topicId,
+      reviewState: state,
+      now: input.now ?? new Date(),
+    });
     if (!updated) throw new DomainRuleError("weekly review state changed");
     return state;
   }

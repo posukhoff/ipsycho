@@ -14,11 +14,12 @@ test("repeated reschedule or seen detects avoidance pattern", () => {
 });
 
 test("starting resets pending Seen/start-check friction", async () => {
-  assert.deepEqual(deriveAvoidanceSignals([
-    "occurrence:seen", "occurrence:seen", "occurrence:in_progress", "occurrence:seen",
-  ]), { reschedules: 0, seenWithoutStart: 1, ignoredStartChecks: 0 });
+  assert.deepEqual(deriveAvoidanceSignals(["occurrence:seen", "occurrence:seen", "occurrence:in_progress", "occurrence:seen"]), {
+    reschedules: 0,
+    seenWithoutStart: 1,
+    ignoredStartChecks: 0,
+  });
 });
-
 
 test("ignored result checks contribute to avoidance only after repetition", () => {
   const once = assessAvoidance(deriveAvoidanceSignals(["occurrence:result_check_ignored"]));

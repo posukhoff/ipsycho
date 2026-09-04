@@ -65,7 +65,10 @@ export function resolveTimezoneInput(value: string): string | null {
   const raw = value.trim();
   if (!raw) return null;
   if (/^[A-Za-z_]+\/[A-Za-z_+-]+(?:\/[A-Za-z_+-]+)?$/u.test(raw) && isIanaTimezone(raw)) return raw;
-  const needle = raw.toLowerCase().replace(/ё/gu, "е").replace(/[\s-]+/gu, " ");
+  const needle = raw
+    .toLowerCase()
+    .replace(/ё/gu, "е")
+    .replace(/[\s-]+/gu, " ");
   for (const [zone, names] of CITY_ZONES) {
     if (names.split(" ").includes(needle) || names.includes(` ${needle} `) || names.startsWith(`${needle} `) || names.endsWith(` ${needle}`)) return zone;
   }

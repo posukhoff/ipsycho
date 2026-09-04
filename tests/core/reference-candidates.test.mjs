@@ -17,7 +17,10 @@ test("an unknown task id becomes a choice among the tasks the message could mean
   const [issue] = withTaskCandidates([notFound], refs, "перенеси созвон на пятницу");
   assert.equal(issue.kind, "ambiguous");
   assert.equal(issue.code, "task_candidates");
-  assert.deepEqual(issue.candidates.map((c) => c.title), ["Созвон с дизайнером", "Созвон с Антоном"]);
+  assert.deepEqual(
+    issue.candidates.map((c) => c.title),
+    ["Созвон с дизайнером", "Созвон с Антоном"],
+  );
 });
 
 test("without a matching title the issue is left as it was", () => {

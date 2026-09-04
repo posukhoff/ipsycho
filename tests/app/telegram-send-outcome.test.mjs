@@ -24,7 +24,9 @@ test("a connection that never opened is transient; a timeout mid-request is ambi
   const abort = new Error("The operation was aborted");
   abort.name = "AbortError";
   assert.deepEqual(classifyTelegramSendError(new HttpError("Network request for 'sendMessage' failed!", abort)), { kind: "ambiguous" });
-  assert.deepEqual(classifyTelegramSendError(new HttpError("Network request for 'sendMessage' failed!", Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }))), { kind: "ambiguous" });
+  assert.deepEqual(classifyTelegramSendError(new HttpError("Network request for 'sendMessage' failed!", Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }))), {
+    kind: "ambiguous",
+  });
 });
 
 test("anything else is unknown and left to the bounded retry policy", () => {

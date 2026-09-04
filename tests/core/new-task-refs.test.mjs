@@ -3,8 +3,22 @@ import assert from "node:assert/strict";
 import { foldNewTaskRefs, isNewTaskRef } from "../../.core-dist/new-task-refs.js";
 
 const create = (title, extra = {}) => ({
-  type: "create_task", intent: "explicit", title, why: null, nextAction: null, context: null, checklist: null, importance: "normal", kind: "task",
-  when: { mode: "date", date: "2026-09-05" }, recurrence: null, reminder: null, habit: null, timezone: null, goal: null, ...extra,
+  type: "create_task",
+  intent: "explicit",
+  title,
+  why: null,
+  nextAction: null,
+  context: null,
+  checklist: null,
+  importance: "normal",
+  kind: "task",
+  when: { mode: "date", date: "2026-09-05" },
+  recurrence: null,
+  reminder: null,
+  habit: null,
+  timezone: null,
+  goal: null,
+  ...extra,
 });
 
 test("a goal link and a reminder addressed to n1 fold into the create_task itself", () => {
@@ -28,8 +42,22 @@ test("n2 names the second create_task; an update and a reschedule rewrite its fi
   const folded = foldNewTaskRefs([
     create("Первая"),
     create("Вторая"),
-    { type: "update_task", intent: "explicit", task: { id: "n2" }, patch: { title: null, why: "потому что", nextAction: null, context: null, checklist: null, importance: "critical", habit: null } },
-    { type: "reschedule", intent: "explicit", task: { id: "n2" }, when: { mode: "exact", date: "2026-09-06", time: "10:00", durationMinutes: null }, reason: null, scope: null, recurrence: null, timezone: null },
+    {
+      type: "update_task",
+      intent: "explicit",
+      task: { id: "n2" },
+      patch: { title: null, why: "потому что", nextAction: null, context: null, checklist: null, importance: "critical", habit: null },
+    },
+    {
+      type: "reschedule",
+      intent: "explicit",
+      task: { id: "n2" },
+      when: { mode: "exact", date: "2026-09-06", time: "10:00", durationMinutes: null },
+      reason: null,
+      scope: null,
+      recurrence: null,
+      timezone: null,
+    },
   ]);
   assert.deepEqual(folded.issues, []);
   assert.equal(folded.actions.length, 2);
@@ -45,7 +73,13 @@ test("a state change on a task that does not exist yet, or an n beyond the creat
     { type: "set_task_state", intent: "explicit", task: { id: "n1" }, state: "done", note: null, scope: null },
     { type: "set_reminder", intent: "explicit", task: { id: "n5" }, mode: "clear", reminder: null },
   ]);
-  assert.deepEqual(folded.issues.map((issue) => [issue.index, issue.code]), [[1, "new_task_state"], [2, "ref_not_found"]]);
+  assert.deepEqual(
+    folded.issues.map((issue) => [issue.index, issue.code]),
+    [
+      [1, "new_task_state"],
+      [2, "ref_not_found"],
+    ],
+  );
   assert.equal(folded.actions.length, 1);
   assert.equal(isNewTaskRef("n1"), true);
   assert.equal(isNewTaskRef("t1"), false);

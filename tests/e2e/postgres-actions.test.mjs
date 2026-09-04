@@ -12,7 +12,7 @@ import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
 import { TasksRepository } from "../../dist/tasks/tasks.repository.js";
 import { TasksService } from "../../dist/tasks/tasks.service.js";
-import { actionEvents, actionGroups, conversationTopics, memoryItems, messages, reminderDeliveries, reminderRules, taskEvents, taskGoals, taskOccurrences, tasks, userSettings } from "../../dist/database/schema.js";
+import { actionEvents, actionGroups, conversationTopics, memoryItems, messages, taskEvents, taskGoals, taskOccurrences, tasks, userSettings } from "../../dist/database/schema.js";
 import { composeTurnContext } from "../../dist/core/turn-context.js";
 import { and, eq } from "drizzle-orm";
 
@@ -44,10 +44,12 @@ async function fixture() {
 
 async function createMemory(workspaceId, userId, content = "Обычно ложусь в 23:00") {
   const id = randomUUID();
-  await database.pool.query(
-    "insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'context', $4, false, 'user_explicit')",
-    [id, workspaceId, userId, content],
-  );
+  await database.pool.query("insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'context', $4, false, 'user_explicit')", [
+    id,
+    workspaceId,
+    userId,
+    content,
+  ]);
   return id;
 }
 
@@ -66,12 +68,20 @@ test("profile update is transactional and undo restores the prior fact", async (
   const now = new Date("2026-08-12T09:00:00Z");
   await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
   await contextActions.applyUpdateMemory({
-    workspaceId, groupId, actorUserId: userId, memoryId, expectedVersion: 1,
-    patch: { content: "Обычно ложусь в 00:30", sensitive: true }, now,
+    workspaceId,
+    groupId,
+    actorUserId: userId,
+    memoryId,
+    expectedVersion: 1,
+    patch: { content: "Обычно ложусь в 00:30", sensitive: true },
+    now,
     undoExpiresAt: new Date(now.getTime() + 60_000),
   });
 
-  const [updated] = await database.db.select().from(memoryItems).where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.id, memoryId)));
+  const [updated] = await database.db
+    .select()
+    .from(memoryItems)
+    .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.id, memoryId)));
   assert.equal(updated?.content, "Обычно ложусь в 00:30");
   assert.equal(updated?.sensitive, true);
   assert.equal(updated?.version, 2);
@@ -80,7 +90,10 @@ test("profile update is transactional and undo restores the prior fact", async (
   assert.ok(claimed);
   await groups.undo({ workspaceId, groupId, now: new Date(now.getTime() + 2_000) });
 
-  const [restored] = await database.db.select().from(memoryItems).where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.id, memoryId)));
+  const [restored] = await database.db
+    .select()
+    .from(memoryItems)
+    .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.id, memoryId)));
   assert.equal(restored?.content, "Обычно ложусь в 23:00");
   assert.equal(restored?.sensitive, false);
   assert.equal(restored?.version, 3);
@@ -94,14 +107,23 @@ test("stale concurrent profile edits cannot both overwrite one fact", async () =
     const groupId = randomUUID();
     await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
     return contextActions.applyUpdateMemory({
-      workspaceId, groupId, actorUserId: userId, memoryId, expectedVersion: 1,
-      patch: { content }, now, undoExpiresAt: new Date(now.getTime() + 60_000),
+      workspaceId,
+      groupId,
+      actorUserId: userId,
+      memoryId,
+      expectedVersion: 1,
+      patch: { content },
+      now,
+      undoExpiresAt: new Date(now.getTime() + 60_000),
     });
   };
   const results = await Promise.allSettled([attempt("Ложусь в 23:30"), attempt("Ложусь в 00:30")]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected").length, 1);
-  const [memory] = await database.db.select().from(memoryItems).where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.id, memoryId)));
+  const [memory] = await database.db
+    .select()
+    .from(memoryItems)
+    .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.id, memoryId)));
   assert.equal(memory?.version, 2);
 });
 
@@ -111,8 +133,12 @@ test("chat settings update is atomic, versioned and undoable", async () => {
   const now = new Date("2026-08-12T09:00:00Z");
   await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
   await mutations.applyUpdateSettings({
-    workspaceId, groupId, actorUserId: userId, expectedVersion: 1,
-    patch: { morningDigestEnabled: true, morningReferenceTime: "08:30" }, now,
+    workspaceId,
+    groupId,
+    actorUserId: userId,
+    expectedVersion: 1,
+    patch: { morningDigestEnabled: true, morningReferenceTime: "08:30" },
+    now,
     undoExpiresAt: new Date(now.getTime() + 60_000),
   });
   let [settings] = await database.db.select().from(userSettings).where(eq(userSettings.userId, userId));
@@ -135,8 +161,13 @@ test("stale chat settings cannot overwrite a newer settings version", async () =
     const groupId = randomUUID();
     await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
     return mutations.applyUpdateSettings({
-      workspaceId, groupId, actorUserId: userId, expectedVersion: 1,
-      patch: { morningReferenceTime: time }, now, undoExpiresAt: new Date(now.getTime() + 60_000),
+      workspaceId,
+      groupId,
+      actorUserId: userId,
+      expectedVersion: 1,
+      patch: { morningReferenceTime: time },
+      now,
+      undoExpiresAt: new Date(now.getTime() + 60_000),
     });
   };
   const results = await Promise.allSettled([attempt("08:00"), attempt("08:30")]);
@@ -152,7 +183,9 @@ test("weekly review topics satisfy the production database constraint", async ()
   assert.equal(stored?.status, "active");
   assert.equal(stored?.reviewState?.version, 1);
   const state = await context.mergeWeeklyReviewProgress({
-    workspaceId, userId, topicId: topic.id,
+    workspaceId,
+    userId,
+    topicId: topic.id,
     progress: { outcome: { status: "provided", summary: "Пять интервью" }, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
   });
   assert.equal(state.outcome.summary, "Пять интервью");
@@ -161,12 +194,22 @@ test("weekly review topics satisfy the production database constraint", async ()
 test("one Telegram message can seed at most one active action group", async () => {
   const { workspaceId, userId } = await fixture();
   const first = await messageRepository.saveOnce({
-    workspaceId, userId, role: "user", status: "processing", content: "Создай задачу",
-    telegramChatId: telegramUserSequence, telegramMessageId: 42,
+    workspaceId,
+    userId,
+    role: "user",
+    status: "processing",
+    content: "Создай задачу",
+    telegramChatId: telegramUserSequence,
+    telegramMessageId: 42,
   });
   const duplicate = await messageRepository.saveOnce({
-    workspaceId, userId, role: "user", status: "processing", content: "Создай задачу",
-    telegramChatId: telegramUserSequence, telegramMessageId: 42,
+    workspaceId,
+    userId,
+    role: "user",
+    status: "processing",
+    content: "Создай задачу",
+    telegramChatId: telegramUserSequence,
+    telegramMessageId: 42,
   });
   assert.equal(first.inserted, true);
   assert.equal(duplicate.inserted, false);
@@ -192,10 +235,12 @@ async function createOccurrence(workspaceId, userId) {
     "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, planned_start_at) values ($1,$2,$3,'Тестовая задача','task','normal','active','point','Europe/Kyiv',$4)",
     [taskId, workspaceId, userId, new Date(Date.now() - 60_000)],
   );
-  await database.pool.query(
-    "insert into task_occurrences(id, workspace_id, task_id, status, timezone, planned_start_at) values ($1,$2,$3,'open','Europe/Kyiv',$4)",
-    [occurrenceId, workspaceId, taskId, new Date(Date.now() - 60_000)],
-  );
+  await database.pool.query("insert into task_occurrences(id, workspace_id, task_id, status, timezone, planned_start_at) values ($1,$2,$3,'open','Europe/Kyiv',$4)", [
+    occurrenceId,
+    workspaceId,
+    taskId,
+    new Date(Date.now() - 60_000),
+  ]);
   return { taskId, occurrenceId };
 }
 
@@ -206,8 +251,14 @@ test("task-card lifecycle and action journal commit in one transaction and undo 
   const now = new Date();
   await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
   await mutations.applyUpdateOccurrence({
-    workspaceId, groupId, actorUserId: userId, occurrenceId, expectedVersion: 1,
-    operation: "start", now, undoExpiresAt: new Date(now.getTime() + 60_000),
+    workspaceId,
+    groupId,
+    actorUserId: userId,
+    occurrenceId,
+    expectedVersion: 1,
+    operation: "start",
+    now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
   });
   let [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
   let [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
@@ -228,11 +279,20 @@ test("Seen interaction and its action group commit atomically", async () => {
   const groupId = randomUUID();
   await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
   const result = await mutations.applyOccurrenceInteraction({
-    workspaceId, groupId, actorUserId: userId, occurrenceId, expectedVersion: 1, operation: "seen", now: new Date(),
+    workspaceId,
+    groupId,
+    actorUserId: userId,
+    occurrenceId,
+    expectedVersion: 1,
+    operation: "seen",
+    now: new Date(),
   });
   assert.equal(result.undoable, false);
   const [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
-  const events = await database.db.select().from(taskEvents).where(and(eq(taskEvents.occurrenceId, occurrenceId), eq(taskEvents.eventType, "occurrence:seen")));
+  const events = await database.db
+    .select()
+    .from(taskEvents)
+    .where(and(eq(taskEvents.occurrenceId, occurrenceId), eq(taskEvents.eventType, "occurrence:seen")));
   assert.equal(group?.status, "applied");
   assert.equal(events.length, 1);
 });
@@ -241,7 +301,10 @@ test("only one concurrent confirmation may claim a pending action group", async 
   const { workspaceId, userId } = await fixture();
   const groupId = randomUUID();
   await actions.createPendingGroup({
-    id: groupId, workspaceId, actorUserId: userId, expiresAt: new Date(Date.now() + 60_000),
+    id: groupId,
+    workspaceId,
+    actorUserId: userId,
+    expiresAt: new Date(Date.now() + 60_000),
     actions: [{ id: randomUUID(), actionType: "update_memory", payload: { type: "update_memory" } }],
   });
   const [first, second] = await Promise.all([
@@ -260,11 +323,17 @@ test("startup expires pending proposals stored under the old contract and record
   const legacyGroupId = randomUUID();
   const freshGroupId = randomUUID();
   await actions.createPendingGroup({
-    id: legacyGroupId, workspaceId, actorUserId: userId, expiresAt: new Date(Date.now() + 60_000),
+    id: legacyGroupId,
+    workspaceId,
+    actorUserId: userId,
+    expiresAt: new Date(Date.now() + 60_000),
     actions: [{ id: randomUUID(), actionType: "task_batch", payload: { type: "task_batch", steps: [] } }],
   });
   await actions.createPendingGroup({
-    id: freshGroupId, workspaceId, actorUserId: userId, expiresAt: new Date(Date.now() + 60_000),
+    id: freshGroupId,
+    workspaceId,
+    actorUserId: userId,
+    expiresAt: new Date(Date.now() + 60_000),
     actions: [{ id: randomUUID(), actionType: "memory", payload: { type: "memory", intent: "inferred", op: "save" } }],
   });
   const isValid = (actionType, payload) => actionType === "memory" && payload?.intent !== undefined;
@@ -277,7 +346,10 @@ test("startup expires pending proposals stored under the old contract and record
   assert.equal(audit.rows[0].after_state.reason, "contract_v2");
   const fresh = await actions.findPendingGroup(workspaceId, userId, freshGroupId, new Date());
   assert.equal(fresh?.status, "pending");
-  assert.deepEqual(fresh?.actions.map((action) => action.actionType), ["memory"]);
+  assert.deepEqual(
+    fresh?.actions.map((action) => action.actionType),
+    ["memory"],
+  );
   assert.equal(await actions.findPendingGroup(workspaceId, userId, legacyGroupId, new Date()), null);
 });
 
@@ -285,15 +357,24 @@ test("the E2E database includes every migration required by the running schema",
   const { rows } = await database.pool.query(
     "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'user_settings' and column_name = 'profile_invited_at'",
   );
-  assert.deepEqual(rows.map((row) => row.column_name), ["profile_invited_at"]);
+  assert.deepEqual(
+    rows.map((row) => row.column_name),
+    ["profile_invited_at"],
+  );
   const version = await database.pool.query(
     "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'user_settings' and column_name = 'version'",
   );
-  assert.deepEqual(version.rows.map((row) => row.column_name), ["version"]);
+  assert.deepEqual(
+    version.rows.map((row) => row.column_name),
+    ["version"],
+  );
   const pendingGroup = await database.pool.query(
     "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'messages' and column_name = 'pending_group_id'",
   );
-  assert.deepEqual(pendingGroup.rows.map((row) => row.column_name), ["pending_group_id"]);
+  assert.deepEqual(
+    pendingGroup.rows.map((row) => row.column_name),
+    ["pending_group_id"],
+  );
 });
 
 test("recurrence exclusions are unique and cannot cross workspace boundaries", async () => {
@@ -304,22 +385,13 @@ test("recurrence exclusions are unique and cannot cross workspace boundaries", a
     "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, planned_start_at, recurrence_rule, recurrence_timezone, recurrence_end_local_date) values ($1,$2,$3,'Ограниченная серия','task','normal','active','point','Europe/Kyiv','2026-09-01T06:00:00Z','FREQ=DAILY','Europe/Kyiv','2026-09-30')",
     [taskId, owner.workspaceId, owner.userId],
   );
-  await database.pool.query(
-    "insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-10')",
-    [owner.workspaceId, taskId],
-  );
+  await database.pool.query("insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-10')", [owner.workspaceId, taskId]);
   await assert.rejects(
-    database.pool.query(
-      "insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-10')",
-      [owner.workspaceId, taskId],
-    ),
+    database.pool.query("insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-10')", [owner.workspaceId, taskId]),
     (error) => error?.constraint === "task_recurrence_exclusions_pkey",
   );
   await assert.rejects(
-    database.pool.query(
-      "insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-11')",
-      [other.workspaceId, taskId],
-    ),
+    database.pool.query("insert into task_recurrence_exclusions(workspace_id, task_id, local_date) values ($1,$2,'2026-09-11')", [other.workspaceId, taskId]),
     (error) => {
       assert.match(error?.constraint ?? "", /task_recurrence_exclusions.*fkey/);
       return true;
@@ -357,9 +429,24 @@ function planFor(workspaceId, userId, groupId, taskId, title = "Новая за�
   const occurrenceId = randomUUID();
   const startAt = new Date(Date.now() + 2 * 3_600_000);
   return {
-    task: { id: taskId, workspaceId, createdByUserId: userId, sourceActionGroupId: groupId, title, kind: "task", importance: "normal", status: "active", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: startAt },
+    task: {
+      id: taskId,
+      workspaceId,
+      createdByUserId: userId,
+      sourceActionGroupId: groupId,
+      title,
+      kind: "task",
+      importance: "normal",
+      status: "active",
+      timeMode: "point",
+      timezone: "Europe/Kyiv",
+      plannedStartAt: startAt,
+    },
     occurrences: [{ id: occurrenceId, workspaceId, taskId, seriesRevision: 1, status: "scheduled", timezone: "Europe/Kyiv", plannedStartAt: startAt }],
-    reminderRules: [], reminderDeliveries: [], checklist: [], recurrenceExclusions: [],
+    reminderRules: [],
+    reminderDeliveries: [],
+    checklist: [],
+    recurrenceExclusions: [],
   };
 }
 
@@ -372,14 +459,22 @@ test("a mixed action group applies atomically and undoes atomically", async () =
   const groupId = randomUUID();
   const taskId = randomUUID();
   const applied = await groups.apply({
-    workspaceId, actorUserId: userId, groupId, groupExists: false, now, undoExpiresAt: new Date(now.getTime() + 60_000),
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
     steps: [
       { kind: "create_task", plan: planFor(workspaceId, userId, groupId, taskId), goalLink: null },
       { kind: "link_task_to_goal", taskId, expectedTaskVersion: 1, goalId, expectedGoalVersion: 1, source: "user_explicit", confidence: 1 },
       { kind: "reschedule_occurrence", occurrenceId, expectedVersion: 1, scheduleTimezone: "Europe/Kyiv", schedule: { plannedStartAt: nextStart }, reason: "перенос" },
     ],
   });
-  assert.deepEqual(applied.steps.map((step) => step.kind), ["create_task", "link_task_to_goal", "reschedule_occurrence"]);
+  assert.deepEqual(
+    applied.steps.map((step) => step.kind),
+    ["create_task", "link_task_to_goal", "reschedule_occurrence"],
+  );
   assert.equal(applied.steps[1].goalTitle, "Цель");
   assert.equal(applied.steps[2].title, "Тестовая задача");
   assert.equal(applied.steps[2].occurrenceSchedule.plannedStartAt.toISOString(), nextStart.toISOString());
@@ -415,10 +510,18 @@ test("a failing last step rolls back every earlier step of the group", async () 
   const groupId = randomUUID();
   const taskId = randomUUID();
   const link = { kind: "link_task_to_goal", taskId, expectedTaskVersion: 1, goalId, expectedGoalVersion: 1, source: "user_explicit", confidence: 1 };
-  await assert.rejects(groups.apply({
-    workspaceId, actorUserId: userId, groupId, groupExists: false, now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000),
-    steps: [{ kind: "create_task", plan: planFor(workspaceId, userId, groupId, taskId), goalLink: null }, link, { ...link }],
-  }), /already linked/);
+  await assert.rejects(
+    groups.apply({
+      workspaceId,
+      actorUserId: userId,
+      groupId,
+      groupExists: false,
+      now: new Date(),
+      undoExpiresAt: new Date(Date.now() + 60_000),
+      steps: [{ kind: "create_task", plan: planFor(workspaceId, userId, groupId, taskId), goalLink: null }, link, { ...link }],
+    }),
+    /already linked/,
+  );
   assert.equal((await database.pool.query("select id from tasks where id=$1", [taskId])).rowCount, 0);
   assert.equal((await database.pool.query("select id from action_groups where id=$1", [groupId])).rowCount, 0);
   assert.equal((await database.pool.query("select id from action_events where group_id=$1", [groupId])).rowCount, 0);
@@ -429,7 +532,12 @@ test("a group addresses one task twice on its own versions, and only a concurren
   const { taskId } = await createFuzzyTask(workspaceId, userId, "Исходная");
   const groupId = randomUUID();
   const applied = await groups.apply({
-    workspaceId, actorUserId: userId, groupId, groupExists: false, now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000),
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
     steps: [
       { kind: "update_task", taskId, expectedVersion: 1, patch: { title: "Переименована" } },
       { kind: "update_task", taskId, expectedVersion: 1, patch: { why: "потому что" } },
@@ -440,10 +548,18 @@ test("a group addresses one task twice on its own versions, and only a concurren
   const row = (await database.pool.query("select title, why, version from tasks where id=$1", [taskId])).rows[0];
   assert.deepEqual(row, { title: "Переименована", why: "потому что", version: 3 });
 
-  await assert.rejects(groups.apply({
-    workspaceId, actorUserId: userId, groupId: randomUUID(), groupExists: false, now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000),
-    steps: [{ kind: "update_task", taskId, expectedVersion: 1, patch: { title: "Устаревшая" } }],
-  }), /stale/);
+  await assert.rejects(
+    groups.apply({
+      workspaceId,
+      actorUserId: userId,
+      groupId: randomUUID(),
+      groupExists: false,
+      now: new Date(),
+      undoExpiresAt: new Date(Date.now() + 60_000),
+      steps: [{ kind: "update_task", taskId, expectedVersion: 1, patch: { title: "Устаревшая" } }],
+    }),
+    /stale/,
+  );
 
   const claim = await actions.claimUndo(workspaceId, userId, groupId, new Date());
   assert.ok(claim);
@@ -454,11 +570,16 @@ test("a group addresses one task twice on its own versions, and only a concurren
 test("concurrent groups cannot both apply the same expected task version", async () => {
   const { workspaceId, userId } = await fixture();
   const { taskId } = await createFuzzyTask(workspaceId, userId, "Исходная");
-  const attempt = (title) => groups.apply({
-    workspaceId, actorUserId: userId, groupId: randomUUID(), groupExists: false,
-    steps: [{ kind: "update_task", taskId, expectedVersion: 1, patch: { title } }],
-    now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000),
-  });
+  const attempt = (title) =>
+    groups.apply({
+      workspaceId,
+      actorUserId: userId,
+      groupId: randomUUID(),
+      groupExists: false,
+      steps: [{ kind: "update_task", taskId, expectedVersion: 1, patch: { title } }],
+      now: new Date(),
+      undoExpiresAt: new Date(Date.now() + 60_000),
+    });
   const results = await Promise.allSettled([attempt("Первый вариант"), attempt("Второй вариант")]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected").length, 1);
@@ -474,7 +595,12 @@ test("undo refuses a group whose task changed afterwards", async () => {
   const groupId = randomUUID();
   const taskId = randomUUID();
   await groups.apply({
-    workspaceId, actorUserId: userId, groupId, groupExists: false, now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000),
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
     steps: [{ kind: "create_task", plan: planFor(workspaceId, userId, groupId, taskId), goalLink: null }],
   });
   await database.pool.query("update tasks set title='Изменено позже', version=version+1 where id=$1", [taskId]);
@@ -490,7 +616,12 @@ test("cancelling a fuzzy task retires its planning review and undo brings both b
   const groupId = randomUUID();
   const now = new Date();
   const applied = await groups.apply({
-    workspaceId, actorUserId: userId, groupId, groupExists: false, now, undoExpiresAt: new Date(now.getTime() + 60_000),
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
     steps: [{ kind: "cancel_task", taskId, expectedVersion: 1 }],
   });
   assert.deepEqual(applied.steps, [{ kind: "cancel_task", taskId, occurrenceId: null, title: "Разобрать гараж" }]);
@@ -516,11 +647,22 @@ test("a fuzzy task given a time gets its first occurrence and default reminders,
   const now = new Date();
   const plannedStartAt = new Date(now.getTime() + 48 * 3_600_000);
   const applied = await groups.apply({
-    workspaceId, actorUserId: userId, groupId, groupExists: false, now, undoExpiresAt: new Date(now.getTime() + 60_000),
-    steps: [{
-      kind: "concretise_task", taskId, expectedVersion: 1, occurrenceStatus: "scheduled", reason: "нашлось время",
-      definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt, habitMode: false },
-    }],
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
+    steps: [
+      {
+        kind: "concretise_task",
+        taskId,
+        expectedVersion: 1,
+        occurrenceStatus: "scheduled",
+        reason: "нашлось время",
+        definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt, habitMode: false },
+      },
+    ],
   });
   const step = applied.steps[0];
   assert.equal(step.kind, "concretise_task");
@@ -532,15 +674,27 @@ test("a fuzzy task given a time gets its first occurrence and default reminders,
   assert.equal(task.fuzzy_horizon_text, null);
   assert.equal(task.review_at, null);
   assert.equal(new Date(task.planned_start_at).toISOString(), plannedStartAt.toISOString());
-  const occurrence = (await database.pool.query("select status, series_revision, version, needs_reminder_rebuild from task_occurrences where id=$1 and task_id=$2", [step.occurrenceId, taskId])).rows[0];
+  const occurrence = (
+    await database.pool.query("select status, series_revision, version, needs_reminder_rebuild from task_occurrences where id=$1 and task_id=$2", [step.occurrenceId, taskId])
+  ).rows[0];
   assert.deepEqual(occurrence, { status: "scheduled", series_revision: 1, version: 1, needs_reminder_rebuild: true });
   const rules = (await database.pool.query("select purpose, origin, active, anchor from reminder_rules where task_id=$1 order by purpose", [taskId])).rows;
-  assert.deepEqual(rules.find((rule) => rule.purpose === "planning_review"), { purpose: "planning_review", origin: "default", active: false, anchor: "review_at" });
+  assert.deepEqual(
+    rules.find((rule) => rule.purpose === "planning_review"),
+    { purpose: "planning_review", origin: "default", active: false, anchor: "review_at" },
+  );
   const defaults = rules.filter((rule) => rule.purpose !== "planning_review");
   assert.ok(defaults.length >= 1);
   assert.ok(defaults.every((rule) => rule.active && rule.origin === "default"));
-  const events = (await database.pool.query("select action_type, entity_type, post_version, before_state from action_events where group_id=$1 order by action_type", [groupId])).rows;
-  assert.deepEqual(events.map((event) => [event.action_type, event.entity_type, event.post_version]), [["concretise_task", "task", 2], ["occurrence_created", "occurrence", 1]]);
+  const events = (await database.pool.query("select action_type, entity_type, post_version, before_state from action_events where group_id=$1 order by action_type", [groupId]))
+    .rows;
+  assert.deepEqual(
+    events.map((event) => [event.action_type, event.entity_type, event.post_version]),
+    [
+      ["concretise_task", "task", 2],
+      ["occurrence_created", "occurrence", 1],
+    ],
+  );
   assert.equal(events[1].before_state, null);
 
   const claim = await actions.claimUndo(workspaceId, userId, groupId, new Date());
@@ -563,10 +717,13 @@ test("findCurrentOccurrence prefers in-progress, then open, then the nearest sch
   );
   const insert = async (status, offsetHours) => {
     const id = randomUUID();
-    await database.pool.query(
-      "insert into task_occurrences(id, workspace_id, task_id, status, timezone, planned_start_at) values ($1,$2,$3,$4,'Europe/Kyiv',$5)",
-      [id, workspaceId, taskId, status, new Date(Date.now() + offsetHours * 3_600_000)],
-    );
+    await database.pool.query("insert into task_occurrences(id, workspace_id, task_id, status, timezone, planned_start_at) values ($1,$2,$3,$4,'Europe/Kyiv',$5)", [
+      id,
+      workspaceId,
+      taskId,
+      status,
+      new Date(Date.now() + offsetHours * 3_600_000),
+    ]);
     return id;
   };
   const elapsed = await insert("elapsed", -30);
@@ -590,7 +747,12 @@ test("unlinking a task from its goal is journaled with the link it removed and u
   await database.pool.query("insert into task_goals(workspace_id, task_id, goal_id, source, confidence) values ($1,$2,$3,'ai_inferred',80)", [workspaceId, taskId, goalId]);
   const groupId = randomUUID();
   const applied = await groups.apply({
-    workspaceId, actorUserId: userId, groupId, groupExists: false, now: new Date(), undoExpiresAt: new Date(Date.now() + 60_000),
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
     steps: [{ kind: "unlink_task_to_goal", taskId, expectedTaskVersion: 1, goalId, expectedGoalVersion: 1 }],
   });
   assert.deepEqual(applied.steps, [{ kind: "unlink_task_to_goal", taskId, goalId, taskTitle: "Зарядка", goalTitle: "Здоровье" }]);
@@ -603,7 +765,10 @@ test("unlinking a task from its goal is journaled with the link it removed and u
   const claim = await actions.claimUndo(workspaceId, userId, groupId, new Date());
   assert.ok(claim);
   await groups.undo({ workspaceId, groupId, now: new Date() });
-  const [link] = await database.db.select().from(taskGoals).where(and(eq(taskGoals.taskId, taskId), eq(taskGoals.goalId, goalId)));
+  const [link] = await database.db
+    .select()
+    .from(taskGoals)
+    .where(and(eq(taskGoals.taskId, taskId), eq(taskGoals.goalId, goalId)));
   assert.equal(link?.source, "ai_inferred");
   assert.equal(link?.confidence, 80);
 });
@@ -613,11 +778,22 @@ test("an assistant message remembers the proposal card it carries", async () => 
   const other = await fixture();
   const groupId = randomUUID();
   await actions.createPendingGroup({
-    id: groupId, workspaceId, actorUserId: userId, expiresAt: new Date(Date.now() + 60_000),
+    id: groupId,
+    workspaceId,
+    actorUserId: userId,
+    expiresAt: new Date(Date.now() + 60_000),
     actions: [{ id: randomUUID(), actionType: "memory", payload: { type: "memory" } }],
   });
   await messageRepository.save({ workspaceId, userId, role: "user", content: "запомни" });
-  const card = await messageRepository.save({ workspaceId, userId, role: "assistant", content: "Сохранить? да/нет", telegramChatId: 7, telegramMessageId: 100, pendingGroupId: groupId });
+  const card = await messageRepository.save({
+    workspaceId,
+    userId,
+    role: "assistant",
+    content: "Сохранить? да/нет",
+    telegramChatId: 7,
+    telegramMessageId: 100,
+    pendingGroupId: groupId,
+  });
   const last = await messageRepository.findLastAssistantMessage(workspaceId, userId);
   assert.equal(last?.id, card.id);
   assert.equal(last?.pendingGroupId, groupId);
@@ -641,10 +817,11 @@ test("an assistant message remembers the proposal card it carries", async () => 
 test("task search and the AI task list stay inside the workspace", async () => {
   const owner = await fixture();
   const other = await fixture();
-  const insertTask = (workspaceId, userId, title, status = "active") => database.pool.query(
-    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, context) values ($1,$2,$3,$4,'task','normal',$5,'fuzzy','Europe/Kyiv','после работы')",
-    [randomUUID(), workspaceId, userId, title, status],
-  );
+  const insertTask = (workspaceId, userId, title, status = "active") =>
+    database.pool.query(
+      "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, context) values ($1,$2,$3,$4,'task','normal',$5,'fuzzy','Europe/Kyiv','после работы')",
+      [randomUUID(), workspaceId, userId, title, status],
+    );
   await insertTask(owner.workspaceId, owner.userId, "Купить молоко");
   await insertTask(owner.workspaceId, owner.userId, "Позвонить маме", "paused");
   await insertTask(owner.workspaceId, owner.userId, "Старое молоко", "closed");
@@ -652,7 +829,10 @@ test("task search and the AI task list stay inside the workspace", async () => {
   for (let index = 0; index < 14; index += 1) await insertTask(owner.workspaceId, owner.userId, `Задача ${index}`);
 
   const found = await tasksRepository.searchActiveTasks(owner.workspaceId, "молоко");
-  assert.deepEqual(found.map((task) => task.title), ["Купить молоко"]);
+  assert.deepEqual(
+    found.map((task) => task.title),
+    ["Купить молоко"],
+  );
   assert.ok(found.every((task) => task.workspaceId === owner.workspaceId));
   const byContext = await tasksRepository.searchActiveTasks(owner.workspaceId, "работы");
   assert.equal(byContext.length, 16);
@@ -666,16 +846,23 @@ test("task search and the AI task list stay inside the workspace", async () => {
 
 test("a saved note is found by an inflected form of one content word in the message", async () => {
   const { workspaceId, userId } = await fixture();
-  await database.pool.query(
-    "insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'note', $4, false, 'user_explicit')",
-    [randomUUID(), workspaceId, userId, "Пью таблетки от давления каждое утро"],
-  );
-  await database.pool.query(
-    "insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'note', $4, false, 'user_explicit')",
-    [randomUUID(), workspaceId, userId, "Кошку зовут Мурка"],
-  );
+  await database.pool.query("insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'note', $4, false, 'user_explicit')", [
+    randomUUID(),
+    workspaceId,
+    userId,
+    "Пью таблетки от давления каждое утро",
+  ]);
+  await database.pool.query("insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'note', $4, false, 'user_explicit')", [
+    randomUUID(),
+    workspaceId,
+    userId,
+    "Кошку зовут Мурка",
+  ]);
   const found = await contextRepository.searchMemory(workspaceId, userId, "Напомни про таблетки завтра утром");
-  assert.deepEqual(found.map((item) => item.content), ["Пью таблетки от давления каждое утро"]);
+  assert.deepEqual(
+    found.map((item) => item.content),
+    ["Пью таблетки от давления каждое утро"],
+  );
   assert.deepEqual(await contextRepository.searchMemory(workspaceId, userId, "да, давай"), []);
 
   await database.pool.query(
@@ -683,24 +870,36 @@ test("a saved note is found by an inflected form of one content word in the mess
     [randomUUID(), workspaceId, userId],
   );
   const tasksFound = await tasksRepository.searchActiveTasks(workspaceId, "Перенеси посылка на четверг");
-  assert.deepEqual(tasksFound.map((task) => task.title), ["Забрать посылку на почте"]);
+  assert.deepEqual(
+    tasksFound.map((task) => task.title),
+    ["Забрать посылку на почте"],
+  );
 });
 
 test("sensitive profile and memory facts never enter the AI context", async () => {
   const { workspaceId, userId } = await fixture();
   await createMemory(workspaceId, userId, "Usually plans important work before noon");
-  await database.pool.query(
-    "insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'context', $4, true, 'user_explicit')",
-    [randomUUID(), workspaceId, userId, "Private medical detail"],
-  );
-  const [profile, memoryMatches] = await Promise.all([
-    contextRepository.listProfile(workspaceId, userId),
-    contextRepository.searchMemory(workspaceId, userId, "work"),
+  await database.pool.query("insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'context', $4, true, 'user_explicit')", [
+    randomUUID(),
+    workspaceId,
+    userId,
+    "Private medical detail",
   ]);
+  const [profile, memoryMatches] = await Promise.all([contextRepository.listProfile(workspaceId, userId), contextRepository.searchMemory(workspaceId, userId, "work")]);
   assert.equal(profile.length, 2);
   const composed = composeTurnContext({
-    now: new Date(), timezone: "Europe/Kyiv", tasks: [], tasksTotal: 0, truncated: false, occurrencesByTask: new Map(),
-    goals: [], taskGoalLinks: [], profile, memoryMatches, settings: null, topics: [],
+    now: new Date(),
+    timezone: "Europe/Kyiv",
+    tasks: [],
+    tasksTotal: 0,
+    truncated: false,
+    occurrencesByTask: new Map(),
+    goals: [],
+    taskGoalLinks: [],
+    profile,
+    memoryMatches,
+    settings: null,
+    topics: [],
   });
   const serialized = JSON.stringify(composed.model);
   assert.match(serialized, /Usually plans important work before noon/);
@@ -732,10 +931,12 @@ test("an invite creates one isolated personal workspace and cannot be reused", a
   assert.equal(secondAttempt.kind, "invalid");
 
   const expiredToken = "E".repeat(43);
-  await database.pool.query(
-    "insert into registration_invites(token, created_by_user_id, created_at, expires_at) values ($1, $2, $3, $4)",
-    [expiredToken, ownerId, new Date("2026-07-25T09:00:00Z"), new Date("2026-08-01T09:00:00Z")],
-  );
+  await database.pool.query("insert into registration_invites(token, created_by_user_id, created_at, expires_at) values ($1, $2, $3, $4)", [
+    expiredToken,
+    ownerId,
+    new Date("2026-07-25T09:00:00Z"),
+    new Date("2026-08-01T09:00:00Z"),
+  ]);
   const expiredAttempt = await access.registerFromInvite(expiredToken, ++telegramUserSequence, new Date("2026-08-12T09:06:00Z"));
   assert.equal(expiredAttempt.kind, "invalid");
 });
@@ -743,27 +944,38 @@ test("an invite creates one isolated personal workspace and cannot be reused", a
 test("a user from another personal workspace cannot create an action group in it", async () => {
   const owner = await fixture();
   const other = await fixture();
-  await assert.rejects(
-    actions.createImmediateGroup({ id: randomUUID(), workspaceId: owner.workspaceId, actorUserId: other.userId }),
-    (error) => {
-      assert.match(error.cause?.message ?? "", /foreign key|workspace_members|violates/i);
-      return true;
-    },
-  );
+  await assert.rejects(actions.createImmediateGroup({ id: randomUUID(), workspaceId: owner.workspaceId, actorUserId: other.userId }), (error) => {
+    assert.match(error.cause?.message ?? "", /foreign key|workspace_members|violates/i);
+    return true;
+  });
 });
 
 test("an explicit reminder on a new task is persisted instead of the default one", async () => {
   // Production 2026-08-23: "напомни за полчаса" stored only the default planned_start reminder.
   const { workspaceId, userId } = await fixture();
   const enqueued = [];
-  const tasksService = new TasksService(new TasksRepository(database), { enqueue: async (id, at) => { enqueued.push({ id, at }); } }, {});
+  const tasksService = new TasksService(
+    new TasksRepository(database),
+    {
+      enqueue: async (id, at) => {
+        enqueued.push({ id, at });
+      },
+    },
+    {},
+  );
   const now = new Date("2026-08-23T07:04:40Z");
   const result = await tasksService.createTask({
-    workspaceId, actorUserId: userId, recipientUserId: userId, title: "Вакцинация", now,
+    workspaceId,
+    actorUserId: userId,
+    recipientUserId: userId,
+    title: "Вакцинация",
+    now,
     definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-08-23T15:00:00Z"), habitMode: false },
     explicitReminder: { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -1800, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" },
   });
-  const rules = (await database.pool.query("select anchor, offset_seconds, purpose, origin from reminder_rules where task_id=$1 and active order by offset_seconds", [result.taskId])).rows;
+  const rules = (
+    await database.pool.query("select anchor, offset_seconds, purpose, origin from reminder_rules where task_id=$1 and active order by offset_seconds", [result.taskId])
+  ).rows;
   assert.deepEqual(rules, [{ anchor: "planned_start", offset_seconds: -1800, purpose: "user_reminder", origin: "explicit" }]);
   const deliveries = (await database.pool.query("select scheduled_for, status from reminder_deliveries where task_id=$1", [result.taskId])).rows;
   assert.equal(deliveries.length, 1);

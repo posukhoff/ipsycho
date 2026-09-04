@@ -44,14 +44,76 @@ export interface TelegramOccurrenceCard {
 export type TelegramTaskListRow = { task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null };
 
 const CARD_COPY = {
-  ru: { inProgress: "▶️ В работе", overdue: "⚠️ Просрочено", noDate: "🫧 Без точной даты", comeBack: "🗓 Вернуться:", planningReview: "Пора решить, когда вернуться к задаче.", howGoing: "Как идёт?", why: "💡 Зачем:", nextStep: "➡️ Следующий шаг:", checklist: "☑️ Чеклист", more: "… ещё", goal: "🎯 Цель:", by: "до", overdueShort: "⚠️ просрочено", now: "сейчас", in: "через", min: "мин", h: "ч", d: "дн", forWord: "на" },
-  uk: { inProgress: "▶️ У роботі", overdue: "⚠️ Прострочено", noDate: "🫧 Без точної дати", comeBack: "🗓 Повернутися:", planningReview: "Час вирішити, коли повернутися до завдання.", howGoing: "Як іде?", why: "💡 Навіщо:", nextStep: "➡️ Наступний крок:", checklist: "☑️ Чекліст", more: "… ще", goal: "🎯 Ціль:", by: "до", overdueShort: "⚠️ прострочено", now: "зараз", in: "через", min: "хв", h: "год", d: "дн", forWord: "на" },
-  en: { inProgress: "▶️ In progress", overdue: "⚠️ Overdue", noDate: "🫧 No exact date", comeBack: "🗓 Come back:", planningReview: "Time to decide when to return to this task.", howGoing: "How is it going?", why: "💡 Why:", nextStep: "➡️ Next step:", checklist: "☑️ Checklist", more: "… more", goal: "🎯 Goal:", by: "by", overdueShort: "⚠️ overdue", now: "now", in: "in", min: "min", h: "h", d: "d", forWord: "by" },
+  ru: {
+    inProgress: "▶️ В работе",
+    overdue: "⚠️ Просрочено",
+    noDate: "🫧 Без точной даты",
+    comeBack: "🗓 Вернуться:",
+    planningReview: "Пора решить, когда вернуться к задаче.",
+    howGoing: "Как идёт?",
+    why: "💡 Зачем:",
+    nextStep: "➡️ Следующий шаг:",
+    checklist: "☑️ Чеклист",
+    more: "… ещё",
+    goal: "🎯 Цель:",
+    by: "до",
+    overdueShort: "⚠️ просрочено",
+    now: "сейчас",
+    in: "через",
+    min: "мин",
+    h: "ч",
+    d: "дн",
+    forWord: "на",
+  },
+  uk: {
+    inProgress: "▶️ У роботі",
+    overdue: "⚠️ Прострочено",
+    noDate: "🫧 Без точної дати",
+    comeBack: "🗓 Повернутися:",
+    planningReview: "Час вирішити, коли повернутися до завдання.",
+    howGoing: "Як іде?",
+    why: "💡 Навіщо:",
+    nextStep: "➡️ Наступний крок:",
+    checklist: "☑️ Чекліст",
+    more: "… ще",
+    goal: "🎯 Ціль:",
+    by: "до",
+    overdueShort: "⚠️ прострочено",
+    now: "зараз",
+    in: "через",
+    min: "хв",
+    h: "год",
+    d: "дн",
+    forWord: "на",
+  },
+  en: {
+    inProgress: "▶️ In progress",
+    overdue: "⚠️ Overdue",
+    noDate: "🫧 No exact date",
+    comeBack: "🗓 Come back:",
+    planningReview: "Time to decide when to return to this task.",
+    howGoing: "How is it going?",
+    why: "💡 Why:",
+    nextStep: "➡️ Next step:",
+    checklist: "☑️ Checklist",
+    more: "… more",
+    goal: "🎯 Goal:",
+    by: "by",
+    overdueShort: "⚠️ overdue",
+    now: "now",
+    in: "in",
+    min: "min",
+    h: "h",
+    d: "d",
+    forWord: "by",
+  },
 } as const;
 
 type CardLocale = TelegramLocale;
 
-function cardCopy(locale: CardLocale) { return CARD_COPY[locale]; }
+function cardCopy(locale: CardLocale) {
+  return CARD_COPY[locale];
+}
 
 export function taskCardText(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard, now: Date = new Date(), locale: CardLocale = "ru"): string {
   const copy = cardCopy(locale);
@@ -61,9 +123,7 @@ export function taskCardText(task: TelegramTaskCard, occurrence: TelegramOccurre
   if (when) head.push(when);
   const recurrence = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate, locale);
   if (recurrence) head.push(`🔁 ${recurrence}`);
-  const state = occurrence.status === "in_progress" ? copy.inProgress
-    : occurrence.overdue ? `${copy.overdue}${overdueFor(occurrence, now, locale)}`
-    : "";
+  const state = occurrence.status === "in_progress" ? copy.inProgress : occurrence.overdue ? `${copy.overdue}${overdueFor(occurrence, now, locale)}` : "";
   if (state) head.push(state);
   const details = detailLines(task, locale);
   return details.length ? `${head.join("\n")}\n\n${details.join("\n")}` : head.join("\n");
@@ -92,8 +152,7 @@ export function reminderCardText(input: {
   const copy = cardCopy(locale);
   const icon = input.purpose === "planning_review" ? "🗓" : input.purpose === "follow_up" ? "↩️" : "🔔";
   const title = `${icon} ${importanceIcon(input.task.importance)} ${input.task.title}`.replace(/\s+/g, " ").trim();
-  const prompt = input.purpose === "planning_review" ? copy.planningReview
-    : input.purpose === "follow_up" && input.occurrence?.status === "in_progress" ? copy.howGoing : "";
+  const prompt = input.purpose === "planning_review" ? copy.planningReview : input.purpose === "follow_up" && input.occurrence?.status === "in_progress" ? copy.howGoing : "";
   const lines = input.header ? [input.header, title] : [title];
   if (input.occurrence) {
     const when = scheduleLine(input.task, input.occurrence, input.now, relativeDue(input.occurrence, input.now, locale), locale);
@@ -197,10 +256,7 @@ export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceSta
 }
 
 export function startedTaskKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
-  const keyboard = new InlineKeyboard()
-    .text(label(locale, "done"), `occ:done:${occurrenceId}`)
-    .text(label(locale, "later"), `occ:resched:${occurrenceId}`)
-    .row();
+  const keyboard = new InlineKeyboard().text(label(locale, "done"), `occ:done:${occurrenceId}`).text(label(locale, "later"), `occ:resched:${occurrenceId}`).row();
   if (options.snooze) keyboard.text(t(locale, "snooze_15m_button"), `follow:seen:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:seen:1h:${occurrenceId}`).row();
   keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
   if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
@@ -214,10 +270,7 @@ export function taskMoreKeyboard(occurrenceId: string, status: TelegramOccurrenc
   if (recurring) keyboard.text(label(locale, "skip"), `occ:skip:${occurrenceId}`).row();
   if (recurring && taskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${taskId}`).row();
   if (status !== "in_progress") keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).row();
-  return keyboard
-    .text(label(locale, "cancel"), `occ:cancel:${occurrenceId}`)
-    .row()
-    .text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
+  return keyboard.text(label(locale, "cancel"), `occ:cancel:${occurrenceId}`).row().text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
 export function quickRescheduleKeyboard(occurrenceId: string, locale: TelegramLocale = "ru"): InlineKeyboard {
@@ -230,7 +283,6 @@ export function quickRescheduleKeyboard(occurrenceId: string, locale: TelegramLo
     .row()
     .text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
-
 
 export type QuickRescheduleReasonCode = "time" | "dependency" | "energy" | "other";
 
@@ -265,12 +317,75 @@ export function resultCheckKeyboard(occurrenceId: string, locale: TelegramLocale
 }
 
 const BUTTON_LABELS = {
-  ru: { start: "▶️ Начать", done: "✅ Готово", later: "🕒 Позже", more: "⚙️ Ещё", stuck: "🧱 Застрял", check: "🔔 Проверить", skip: "⏭ Пропустить это", pauseSeries: "⏸ Поставить серию на паузу", cancel: "❌ Отменить задачу", plusHour: "+1 час", evening: "Вечером", tomorrow: "Завтра", otherDate: "📅 Другая дата", other: "Другое", reasonTime: "Не успеваю", reasonDependency: "Зависит от другого", reasonEnergy: "Нет сил", in15: "Через 15 мин", in1h: "Через 1 час", noCheck: "Без проверки" },
-  uk: { start: "▶️ Почати", done: "✅ Готово", later: "🕒 Пізніше", more: "⚙️ Ще", stuck: "🧱 Застряг", check: "🔔 Перевірити", skip: "⏭ Пропустити це", pauseSeries: "⏸ Поставити серію на паузу", cancel: "❌ Скасувати завдання", plusHour: "+1 година", evening: "Увечері", tomorrow: "Завтра", otherDate: "📅 Інша дата", other: "Інше", reasonTime: "Не встигаю", reasonDependency: "Залежить від іншого", reasonEnergy: "Немає сил", in15: "Через 15 хв", in1h: "Через 1 годину", noCheck: "Без перевірки" },
-  en: { start: "▶️ Start", done: "✅ Done", later: "🕒 Later", more: "⚙️ More", stuck: "🧱 Stuck", check: "🔔 Check", skip: "⏭ Skip this one", pauseSeries: "⏸ Pause the series", cancel: "❌ Cancel the task", plusHour: "+1 hour", evening: "This evening", tomorrow: "Tomorrow", otherDate: "📅 Another date", other: "Other", reasonTime: "Out of time", reasonDependency: "Depends on something", reasonEnergy: "No energy", in15: "In 15 min", in1h: "In 1 hour", noCheck: "No check" },
+  ru: {
+    start: "▶️ Начать",
+    done: "✅ Готово",
+    later: "🕒 Позже",
+    more: "⚙️ Ещё",
+    stuck: "🧱 Застрял",
+    check: "🔔 Проверить",
+    skip: "⏭ Пропустить это",
+    pauseSeries: "⏸ Поставить серию на паузу",
+    cancel: "❌ Отменить задачу",
+    plusHour: "+1 час",
+    evening: "Вечером",
+    tomorrow: "Завтра",
+    otherDate: "📅 Другая дата",
+    other: "Другое",
+    reasonTime: "Не успеваю",
+    reasonDependency: "Зависит от другого",
+    reasonEnergy: "Нет сил",
+    in15: "Через 15 мин",
+    in1h: "Через 1 час",
+    noCheck: "Без проверки",
+  },
+  uk: {
+    start: "▶️ Почати",
+    done: "✅ Готово",
+    later: "🕒 Пізніше",
+    more: "⚙️ Ще",
+    stuck: "🧱 Застряг",
+    check: "🔔 Перевірити",
+    skip: "⏭ Пропустити це",
+    pauseSeries: "⏸ Поставити серію на паузу",
+    cancel: "❌ Скасувати завдання",
+    plusHour: "+1 година",
+    evening: "Увечері",
+    tomorrow: "Завтра",
+    otherDate: "📅 Інша дата",
+    other: "Інше",
+    reasonTime: "Не встигаю",
+    reasonDependency: "Залежить від іншого",
+    reasonEnergy: "Немає сил",
+    in15: "Через 15 хв",
+    in1h: "Через 1 годину",
+    noCheck: "Без перевірки",
+  },
+  en: {
+    start: "▶️ Start",
+    done: "✅ Done",
+    later: "🕒 Later",
+    more: "⚙️ More",
+    stuck: "🧱 Stuck",
+    check: "🔔 Check",
+    skip: "⏭ Skip this one",
+    pauseSeries: "⏸ Pause the series",
+    cancel: "❌ Cancel the task",
+    plusHour: "+1 hour",
+    evening: "This evening",
+    tomorrow: "Tomorrow",
+    otherDate: "📅 Another date",
+    other: "Other",
+    reasonTime: "Out of time",
+    reasonDependency: "Depends on something",
+    reasonEnergy: "No energy",
+    in15: "In 15 min",
+    in1h: "In 1 hour",
+    noCheck: "No check",
+  },
 } as const;
 
-function label(locale: TelegramLocale, key: keyof typeof BUTTON_LABELS["ru"]): string {
+function label(locale: TelegramLocale, key: keyof (typeof BUTTON_LABELS)["ru"]): string {
   return BUTTON_LABELS[locale][key];
 }
 
@@ -280,27 +395,33 @@ export function terminalTaskText(task: TelegramTaskCard, status: "done" | "skipp
   return `❌ ${task.title}\n${t(locale, "cancelled_occurrence_toast")}`;
 }
 
-export function settingsText(row: {
-  timezone: string;
-  morningDigestEnabled: boolean;
-  morningReferenceTime: string;
-  eveningDigestEnabled: boolean;
-  eveningReferenceTime: string;
-  weeklyReviewEnabled: boolean;
-  weeklyReviewWeekday: number;
-  weeklyReviewTime: string;
-  quietHoursEnabled: boolean;
-  weekdayQuietStart: string;
-  weekdayQuietEnd: string;
-  weekendQuietStart?: string | null;
-  weekendQuietEnd?: string | null;
-  pinnedLanguage?: string | null;
-  notificationsSnoozedUntil?: Date | null;
-}, now = new Date(), historyMessageCount = 0, locale: TelegramLocale = "ru"): string {
+export function settingsText(
+  row: {
+    timezone: string;
+    morningDigestEnabled: boolean;
+    morningReferenceTime: string;
+    eveningDigestEnabled: boolean;
+    eveningReferenceTime: string;
+    weeklyReviewEnabled: boolean;
+    weeklyReviewWeekday: number;
+    weeklyReviewTime: string;
+    quietHoursEnabled: boolean;
+    weekdayQuietStart: string;
+    weekdayQuietEnd: string;
+    weekendQuietStart?: string | null;
+    weekendQuietEnd?: string | null;
+    pinnedLanguage?: string | null;
+    notificationsSnoozedUntil?: Date | null;
+  },
+  now = new Date(),
+  historyMessageCount = 0,
+  locale: TelegramLocale = "ru",
+): string {
   if (locale === "en") {
     const snoozed = row.notificationsSnoozedUntil && row.notificationsSnoozedUntil > now ? `\n🔕 Quiet until ${formatLocal(row.notificationsSnoozedUntil, row.timezone)}` : "";
     return [
-      "⚙️ Settings", "",
+      "⚙️ Settings",
+      "",
       `🌍 Timezone: ${row.timezone}${snoozed}`,
       `🗣 Interface language: ${row.pinnedLanguage ?? "automatic (Telegram)"}`,
       `☀️ Morning briefing: ${row.morningDigestEnabled ? row.morningReferenceTime : "off"}`,
@@ -308,30 +429,37 @@ export function settingsText(row: {
       `📅 Weekly review: ${row.weeklyReviewEnabled ? `${weekdayLabel(row.weeklyReviewWeekday, locale)} ${row.weeklyReviewTime}` : "off"}`,
       `🔕 Quiet hours: ${quietHoursLabel(row, locale)}`,
       `💬 AI history: ${historyMessageCount} ${messageWord(historyMessageCount, locale)}`,
-      "", "Describe what you want to change: briefing time, weekly-review day, language, or quiet hours.",
+      "",
+      "Describe what you want to change: briefing time, weekly-review day, language, or quiet hours.",
     ].join("\n");
   }
   const uk = locale === "uk";
-  const snoozed = row.notificationsSnoozedUntil && row.notificationsSnoozedUntil > now
-    ? `\n🔕 ${locale === "uk" ? "Тиша до" : "Тишина до"} ${formatLocal(row.notificationsSnoozedUntil, row.timezone)}`
-    : "";
+  const snoozed =
+    row.notificationsSnoozedUntil && row.notificationsSnoozedUntil > now
+      ? `\n🔕 ${locale === "uk" ? "Тиша до" : "Тишина до"} ${formatLocal(row.notificationsSnoozedUntil, row.timezone)}`
+      : "";
   return [
     uk ? "⚙️ Налаштування" : "⚙️ Настройки",
     "",
     `${uk ? "🌍 Часовий пояс" : "🌍 Часовой пояс"}: ${row.timezone}${snoozed}`,
     `${uk ? "🗣 Мова інтерфейсу" : "🗣 Язык интерфейса"}: ${row.pinnedLanguage ?? (uk ? "автоматично (Telegram)" : "автоматически (Telegram)")}`,
-    `${uk ? "☀️ Ранкове зведення" : "☀️ Утренняя сводка"}: ${row.morningDigestEnabled ? row.morningReferenceTime : (uk ? "вимкнено" : "выкл")}`,
-    `${uk ? "🌙 Вечірнє зведення" : "🌙 Вечерняя сводка"}: ${row.eveningDigestEnabled ? row.eveningReferenceTime : (uk ? "вимкнено" : "выкл")}`,
-    `${uk ? "📅 Щотижневий огляд" : "📅 Еженедельный обзор"}: ${row.weeklyReviewEnabled ? `${weekdayLabel(row.weeklyReviewWeekday, locale)} ${row.weeklyReviewTime}` : (uk ? "вимкнено" : "выкл")}`,
+    `${uk ? "☀️ Ранкове зведення" : "☀️ Утренняя сводка"}: ${row.morningDigestEnabled ? row.morningReferenceTime : uk ? "вимкнено" : "выкл"}`,
+    `${uk ? "🌙 Вечірнє зведення" : "🌙 Вечерняя сводка"}: ${row.eveningDigestEnabled ? row.eveningReferenceTime : uk ? "вимкнено" : "выкл"}`,
+    `${uk ? "📅 Щотижневий огляд" : "📅 Еженедельный обзор"}: ${row.weeklyReviewEnabled ? `${weekdayLabel(row.weeklyReviewWeekday, locale)} ${row.weeklyReviewTime}` : uk ? "вимкнено" : "выкл"}`,
     `${uk ? "🔕 Тихі години" : "🔕 Тихие часы"}: ${quietHoursLabel(row, locale)}`,
     `${uk ? "💬 Історія AI" : "💬 История AI"}: ${historyMessageCount} ${messageWord(historyMessageCount, locale)}`,
     "",
-    uk ? "Опиши бажаний результат: час зведень, день тижневого огляду, мову чи тихі години." : "Опиши желаемый результат: время сводок, день еженедельного обзора, язык или тихие часы.",
+    uk
+      ? "Опиши бажаний результат: час зведень, день тижневого огляду, мову чи тихі години."
+      : "Опиши желаемый результат: время сводок, день еженедельного обзора, язык или тихие часы.",
   ].join("\n");
 }
 
 /** Every toggle the settings card shows is one tap; free text remains for values (times, days). */
-export function settingsKeyboard(locale: TelegramLocale = "ru", row?: { morningDigestEnabled: boolean; eveningDigestEnabled: boolean; weeklyReviewEnabled: boolean; quietHoursEnabled: boolean }): InlineKeyboard {
+export function settingsKeyboard(
+  locale: TelegramLocale = "ru",
+  row?: { morningDigestEnabled: boolean; eveningDigestEnabled: boolean; weeklyReviewEnabled: boolean; quietHoursEnabled: boolean },
+): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (row) {
     keyboard
@@ -353,7 +481,11 @@ export function settingsKeyboard(locale: TelegramLocale = "ru", row?: { morningD
     .text(t(locale, "tasks_button"), "nav:tasks");
 }
 
-export function tasksOverviewText(rows: Array<{ task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null }>, locale: TelegramLocale = "ru", now: Date = new Date()): string {
+export function tasksOverviewText(
+  rows: Array<{ task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null }>,
+  locale: TelegramLocale = "ru",
+  now: Date = new Date(),
+): string {
   // The overview is task-oriented: a recurring task may have many future
   // occurrences, but it must appear only once here. The Today screen below is
   // occurrence-oriented and intentionally keeps every same-day instance.
@@ -379,12 +511,19 @@ export function tasksOverviewText(rows: Array<{ task: TelegramTaskCard & { id: s
     lines.push(`${index + 1}. ${icon} ${row.task.title}${overviewWhen(row.task, row.occurrence, now, locale)}${state}`);
   }
   if (uniqueRows.length > 8) lines.push(uk ? `+ ще ${uniqueRows.length - 8}` : `+ ещё ${uniqueRows.length - 8}`);
-  lines.push("", uk ? "Щоб змінити, завершити або перенести завдання, напиши це звичайним повідомленням." : "Чтобы изменить, завершить или перенести задачу, напиши это обычным сообщением.");
+  lines.push(
+    "",
+    uk ? "Щоб змінити, завершити або перенести завдання, напиши це звичайним повідомленням." : "Чтобы изменить, завершить или перенести задачу, напиши это обычным сообщением.",
+  );
   return lines.join("\n");
 }
 
 /** Opens the numbered item shown in a compact overview. */
-export function taskListKeyboard(rows: TelegramTaskListRow[], locale: TelegramLocale = "ru", options: { showAll?: boolean; allCount?: number; visibleCount?: number; expanded?: boolean } = {}): InlineKeyboard {
+export function taskListKeyboard(
+  rows: TelegramTaskListRow[],
+  locale: TelegramLocale = "ru",
+  options: { showAll?: boolean; allCount?: number; visibleCount?: number; expanded?: boolean } = {},
+): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const visible = rows.slice(0, options.visibleCount ?? 6);
   for (const [index, row] of visible.entries()) {
@@ -392,7 +531,8 @@ export function taskListKeyboard(rows: TelegramTaskListRow[], locale: TelegramLo
     const title = row.task.title.length > 30 ? `${row.task.title.slice(0, 29)}…` : row.task.title;
     keyboard.text(`${index + 1}. ${title}`, target).row();
   }
-  if (options.showAll && (options.allCount ?? rows.length) > visible.length) keyboard.text(t(locale, "show_all_button", { count: options.allCount ?? rows.length }), "nav:today_all").row();
+  if (options.showAll && (options.allCount ?? rows.length) > visible.length)
+    keyboard.text(t(locale, "show_all_button", { count: options.allCount ?? rows.length }), "nav:today_all").row();
   if (options.expanded) keyboard.text(t(locale, "collapse_button"), "nav:today").row();
   keyboard.text(t(locale, "today_button"), "nav:today").text(t(locale, "tasks_button"), "nav:tasks");
   return keyboard;
@@ -421,7 +561,14 @@ export function fuzzyTaskDetailKeyboard(locale: TelegramLocale = "ru"): InlineKe
   return new InlineKeyboard().text(t(locale, "to_tasks_button"), "nav:tasks").text(t(locale, "today_button"), "nav:today");
 }
 
-export function todayText(rows: Array<{ task: TelegramTaskCard; occurrence: TelegramOccurrenceCard | null }>, localDate: string, locale: TelegramLocale = "ru", completedCount = 0, visibleLimit = 6, now: Date = new Date()): string {
+export function todayText(
+  rows: Array<{ task: TelegramTaskCard; occurrence: TelegramOccurrenceCard | null }>,
+  localDate: string,
+  locale: TelegramLocale = "ru",
+  completedCount = 0,
+  visibleLimit = 6,
+  now: Date = new Date(),
+): string {
   if (locale === "en") {
     if (!rows.length) return "☀️ Today\n\nNothing is planned.";
     const top = rows.slice(0, visibleLimit);
@@ -447,10 +594,13 @@ export function todayText(rows: Array<{ task: TelegramTaskCard; occurrence: Tele
   return lines.join("\n");
 }
 
-export function goalsOverviewText(rows: Array<{
-  goal: { title: string; status: "active" | "paused" | "completed" | "cancelled"; why: string | null; targetLocalDate: string | null };
-  tasks: Array<{ title: string; nextAction: string | null; context: string | null; dueLocalDate: string | null }>;
-}>, locale: TelegramLocale = "ru"): string {
+export function goalsOverviewText(
+  rows: Array<{
+    goal: { title: string; status: "active" | "paused" | "completed" | "cancelled"; why: string | null; targetLocalDate: string | null };
+    tasks: Array<{ title: string; nextAction: string | null; context: string | null; dueLocalDate: string | null }>;
+  }>,
+  locale: TelegramLocale = "ru",
+): string {
   if (locale === "en") {
     if (!rows.length) return "🎯 Goals\n\nNo goals yet. For example: “I want to prepare for a half marathon.”";
     const lines = ["🎯 Goals", ""];
@@ -474,7 +624,10 @@ export function goalsOverviewText(rows: Array<{
     return compactText(lines.join("\n"), 3_800);
   }
   const uk = locale === "uk";
-  if (!rows.length) return uk ? "🎯 Цілі\n\nЦілей поки немає. Напиши, наприклад: «Хочу підготуватися до напівмарафону»." : "🎯 Цели\n\nЦелей пока нет. Напиши, например: «Хочу подготовиться к полумарафону».";
+  if (!rows.length)
+    return uk
+      ? "🎯 Цілі\n\nЦілей поки немає. Напиши, наприклад: «Хочу підготуватися до напівмарафону»."
+      : "🎯 Цели\n\nЦелей пока нет. Напиши, например: «Хочу подготовиться к полумарафону».";
   const lines = [uk ? "🎯 Цілі" : "🎯 Цели", ""];
   const visibleRows = rows.slice(0, 8);
   for (const [index, row] of visibleRows.entries()) {
@@ -512,13 +665,25 @@ export function todayLine(task: TelegramTaskCard, occurrence: TelegramOccurrence
   const tz = occurrence.timezone;
   const sameDay = (value: Date | string | null | undefined) => Boolean(value) && localDateAt(new Date(value!), tz) === localDate;
   let when = "";
-  if (occurrence.plannedStartAt && occurrence.plannedEndAt && sameDay(occurrence.plannedStartAt)) when = `${formatTime(new Date(occurrence.plannedStartAt), tz, locale)}–${formatTime(new Date(occurrence.plannedEndAt), tz, locale)}`;
+  if (occurrence.plannedStartAt && occurrence.plannedEndAt && sameDay(occurrence.plannedStartAt))
+    when = `${formatTime(new Date(occurrence.plannedStartAt), tz, locale)}–${formatTime(new Date(occurrence.plannedEndAt), tz, locale)}`;
   else if (occurrence.plannedStartAt && sameDay(occurrence.plannedStartAt)) when = formatTime(new Date(occurrence.plannedStartAt), tz, locale);
   else if (occurrence.dueAt && sameDay(occurrence.dueAt)) when = `${locale === "en" ? "by" : "до"} ${formatTime(new Date(occurrence.dueAt), tz, locale)}`;
   else if (occurrence.plannedStartAt || occurrence.dueAt) when = formatLocalDateTime(new Date((occurrence.plannedStartAt ?? occurrence.dueAt)!), tz, now, intlLocale(locale));
   else if (occurrence.dueLocalDate && occurrence.dueLocalDate !== localDate) when = `${locale === "en" ? "by" : "до"} ${formatDateLabel(occurrence.dueLocalDate, tz, now)}`;
-  const state = occurrence.overdue ? (locale === "en" ? "overdue" : locale === "uk" ? "прострочено" : "просрочено")
-    : occurrence.status === "in_progress" ? (locale === "en" ? "in progress" : locale === "uk" ? "у роботі" : "в работе") : "";
+  const state = occurrence.overdue
+    ? locale === "en"
+      ? "overdue"
+      : locale === "uk"
+        ? "прострочено"
+        : "просрочено"
+    : occurrence.status === "in_progress"
+      ? locale === "en"
+        ? "in progress"
+        : locale === "uk"
+          ? "у роботі"
+          : "в работе"
+      : "";
   const parts = [when, state].filter(Boolean);
   return `${icon} ${task.title}${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
 }
@@ -587,20 +752,28 @@ function messageWord(count: number, locale: TelegramLocale = "ru"): string {
   return "сообщений";
 }
 
-function quietHoursLabel(row: { quietHoursEnabled: boolean; weekdayQuietStart: string; weekdayQuietEnd: string; weekendQuietStart?: string | null; weekendQuietEnd?: string | null }, locale: TelegramLocale): string {
+function quietHoursLabel(
+  row: { quietHoursEnabled: boolean; weekdayQuietStart: string; weekdayQuietEnd: string; weekendQuietStart?: string | null; weekendQuietEnd?: string | null },
+  locale: TelegramLocale,
+): string {
   if (!row.quietHoursEnabled) return locale === "en" ? "off" : locale === "uk" ? "вимкнено" : "выкл";
   const weekday = `${row.weekdayQuietStart}–${row.weekdayQuietEnd}`;
   const weekend = row.weekendQuietStart && row.weekendQuietEnd ? `${row.weekendQuietStart}–${row.weekendQuietEnd}` : null;
   if (!weekend || weekend === weekday) return weekday;
-  return locale === "en" ? `${weekday} (weekdays), ${weekend} (weekends)` : locale === "uk" ? `${weekday} (будні), ${weekend} (вихідні)` : `${weekday} (будни), ${weekend} (выходные)`;
+  return locale === "en"
+    ? `${weekday} (weekdays), ${weekend} (weekends)`
+    : locale === "uk"
+      ? `${weekday} (будні), ${weekend} (вихідні)`
+      : `${weekday} (будни), ${weekend} (выходные)`;
 }
 
 function weekdayLabel(value: number, locale: TelegramLocale): string {
-  const labels = locale === "en"
-    ? ["?", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    : locale === "uk"
-    ? ["?", "пн", "вт", "ср", "чт", "пт", "сб", "нд"]
-    : ["?", "пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+  const labels =
+    locale === "en"
+      ? ["?", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      : locale === "uk"
+        ? ["?", "пн", "вт", "ср", "чт", "пт", "сб", "нд"]
+        : ["?", "пн", "вт", "ср", "чт", "пт", "сб", "вс"];
   return labels[value] ?? String(value);
 }
 

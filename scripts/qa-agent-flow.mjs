@@ -32,8 +32,7 @@ import { ChatService } from "../dist/chat/chat.service.js";
 
 const config = loadConfig(process.env);
 const database = new DatabaseService(config);
-const provider = config.aiProvider === "openai" ? new OpenAiProvider(config)
-  : config.aiProvider === "gemini" ? new GeminiProvider(config) : new DeepSeekProvider(config);
+const provider = config.aiProvider === "openai" ? new OpenAiProvider(config) : config.aiProvider === "gemini" ? new GeminiProvider(config) : new DeepSeekProvider(config);
 const ai = new AiService(config, provider, new AiRepository(database));
 const messages = new MessagesRepository(database);
 const queue = { enqueue: async () => undefined };
@@ -73,12 +72,22 @@ const transcript = [];
 let telegramMessageId = 7_000_000;
 
 async function record(label, result) {
-  const entry = { label, kind: result.kind, ...(result.kind === "ok" ? { text: result.text, report: result.report ?? null, applied: result.appliedCount, pending: result.pendingCount, pendingTitles: result.pendingTitles ?? [] } : {}) };
+  const entry = {
+    label,
+    kind: result.kind,
+    ...(result.kind === "ok"
+      ? { text: result.text, report: result.report ?? null, applied: result.appliedCount, pending: result.pendingCount, pendingTitles: result.pendingTitles ?? [] }
+      : {}),
+  };
   transcript.push(entry);
   if (result.kind === "ok" && !result.skipAssistantHistory) {
     telegramMessageId += 1;
     await chat.recordAssistantMessage({
-      workspaceId, userId, content: result.text, telegramChatId: Number(telegramId), telegramMessageId,
+      workspaceId,
+      userId,
+      content: result.text,
+      telegramChatId: Number(telegramId),
+      telegramMessageId,
       ...(result.topicId ? { topicId: result.topicId } : {}),
       ...(result.pendingGroupId ? { pendingGroupId: result.pendingGroupId } : {}),
     });
@@ -90,8 +99,14 @@ async function send(text) {
   telegramMessageId += 1;
   const before = await database.pool.query("select count(*)::int as count from ai_usage where user_id=$1", [userId]);
   const result = await chat.processText({
-    workspaceId, userId, aiStatus: "enabled", timezone, language: "ru", text,
-    telegramChatId: Number(telegramId), telegramMessageId,
+    workspaceId,
+    userId,
+    aiStatus: "enabled",
+    timezone,
+    language: "ru",
+    text,
+    telegramChatId: Number(telegramId),
+    telegramMessageId,
   });
   const after = await database.pool.query("select count(*)::int as count from ai_usage where user_id=$1", [userId]);
   const recorded = await record(text, result);
@@ -99,14 +114,15 @@ async function send(text) {
   return recorded;
 }
 
-const okWithOutcome = (result) => result.kind === "ok" && (result.appliedCount > 0 || result.pendingCount > 0 || /\?/.test(result.text));
-
 try {
   await database.pool.query("insert into users(id, telegram_user_id) values ($1,$2)", [userId, telegramId]);
   await database.pool.query("insert into workspaces(id, owner_user_id) values ($1,$2)", [workspaceId, userId]);
   await database.pool.query("insert into workspace_members(workspace_id,user_id,role) values ($1,$2,'owner')", [workspaceId, userId]);
   await database.pool.query("insert into user_settings(user_id,timezone,digest_timezone,quiet_hours_timezone) values ($1,$2,$2,$2)", [userId, timezone]);
-  await database.pool.query("insert into goals(id,workspace_id,created_by_user_id,title,why) values ($1,$2,$3,'Запустить первую платную группу курса','Проверить спрос без выгорания')", [randomUUID(), workspaceId, userId]);
+  await database.pool.query(
+    "insert into goals(id,workspace_id,created_by_user_id,title,why) values ($1,$2,$3,'Запустить первую платную группу курса','Проверить спрос без выгорания')",
+    [randomUUID(), workspaceId, userId],
+  );
   await ai.grantConsent(userId);
 
   const r1 = await send("Создай задачу: завтра в 10:30 позвонить клиенту, цель — честно объяснить ошибку и предложить два варианта решения. Напомни в момент начала.");
@@ -116,7 +132,9 @@ try {
   const r5 = await send("Создай задачу «Попросить обратную связь по лендингу» на пятницу в 12:00 и свяжи её с целью запуска группы.");
   const r6 = await send("Поставь с сентября каждый второй понедельник в 9:15 финансовый обзор на 30 минут, до конца ноября.");
   const r7 = await send("Каждый вторник в 19:00 до октября хочу заниматься английским час, но ближайший вторник пропусти.");
-  const r8 = await send("Добавь сразу четыре дела: 1) в понедельник в 14:00 забрать документы; 2) во вторник до 17:00 отправить бухгалтеру выписку; 3) в четверг с 10:00 до 11:00 подготовиться к сложному разговору; 4) по будням в 8:00 до 30 сентября 10 минут планировать день — это именно повторяющаяся привычка, минимум открыть план и выбрать одно главное дело, желаемый вариант — расписать три приоритета.");
+  const r8 = await send(
+    "Добавь сразу четыре дела: 1) в понедельник в 14:00 забрать документы; 2) во вторник до 17:00 отправить бухгалтеру выписку; 3) в четверг с 10:00 до 11:00 подготовиться к сложному разговору; 4) по будням в 8:00 до 30 сентября 10 минут планировать день — это именно повторяющаяся привычка, минимум открыть план и выбрать одно главное дело, желаемый вариант — расписать три приоритета.",
+  );
   const r9 = await send("Не дай забыть: завтра после обеда надо забрать посылку. Точного часа не знаю, не придумывай его сам.");
   const cancel = await send("Отмени созвон с дизайнером");
   const yes = cancel.kind === "ok" && cancel.pendingGroupId ? await send("да") : null;
@@ -143,7 +161,9 @@ try {
     { name: "calls per message <= 1.1", pass: usage.rows[0].calls <= Math.ceil(userMessages * 1.1) },
     { name: "mean input tokens <= 5000", pass: (usage.rows[0].input_tokens ?? 0) <= 5000 },
   ].map((check) => ({ ...check, pass: Boolean(check.pass) }));
-  process.stdout.write(`${JSON.stringify({ qaRun: "agent-flow-v2", provider: config.aiProvider, model: config.aiModel, usage: usage.rows[0], userMessages, checks, issues: issuesSeen, transcript }, null, 2)}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ qaRun: "agent-flow-v2", provider: config.aiProvider, model: config.aiModel, usage: usage.rows[0], userMessages, checks, issues: issuesSeen, transcript }, null, 2)}\n`,
+  );
   if (checks.some((item) => !item.pass)) process.exitCode = 2;
 } finally {
   await database.pool.query("delete from users where id=$1", [userId]).catch(() => undefined);

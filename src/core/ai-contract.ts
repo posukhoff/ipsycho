@@ -26,15 +26,20 @@ export const WhenSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("fuzzy"), horizonText: z.string().min(1).max(200), reviewDate: LocalDateSchema }).strict(),
 ]);
 
-export const RecurrenceSchema = z.object({
-  frequency: z.enum(["daily", "weekly", "monthly"]),
-  interval: z.number().int().min(1).max(365),
-  weekdays: z.array(z.enum(["MO", "TU", "WE", "TH", "FR", "SA", "SU"])).max(7).nullable(),
-  monthDays: z.array(z.number().int().min(1).max(31)).max(31).nullable(),
-  until: LocalDateSchema.nullable(),
-  skipDates: z.array(LocalDateSchema).max(32).nullable(),
-  missed: z.enum(["expire", "carry_over"]).nullable(),
-}).strict();
+export const RecurrenceSchema = z
+  .object({
+    frequency: z.enum(["daily", "weekly", "monthly"]),
+    interval: z.number().int().min(1).max(365),
+    weekdays: z
+      .array(z.enum(["MO", "TU", "WE", "TH", "FR", "SA", "SU"]))
+      .max(7)
+      .nullable(),
+    monthDays: z.array(z.number().int().min(1).max(31)).max(31).nullable(),
+    until: LocalDateSchema.nullable(),
+    skipDates: z.array(LocalDateSchema).max(32).nullable(),
+    missed: z.enum(["expire", "carry_over"]).nullable(),
+  })
+  .strict();
 
 export const ReminderSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("at"), date: LocalDateSchema, time: LocalTimeSchema, quiet: QuietSchema }).strict(),
@@ -43,27 +48,31 @@ export const ReminderSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const ChecklistSchema = z.array(z.object({ text: z.string().min(1).max(300), done: z.boolean() }).strict()).max(20);
-export const HabitSchema = z.object({
-  minimumAction: z.string().min(1).max(300),
-  desiredAction: z.string().min(1).max(300),
-  trigger: NullableText(300),
-}).strict();
+export const HabitSchema = z
+  .object({
+    minimumAction: z.string().min(1).max(300),
+    desiredAction: z.string().min(1).max(300),
+    trigger: NullableText(300),
+  })
+  .strict();
 
-export const TaskBodySchema = z.object({
-  title: z.string().min(1).max(500),
-  why: NullableText(1000),
-  nextAction: NullableText(500),
-  context: NullableText(1000),
-  checklist: ChecklistSchema.nullable(),
-  importance: z.enum(["normal", "required", "critical"]),
-  kind: z.enum(["task", "event"]),
-  when: WhenSchema,
-  recurrence: RecurrenceSchema.nullable(),
-  reminder: ReminderSchema.nullable(),
-  habit: HabitSchema.nullable(),
-  /** Only when the user named a zone other than their own. */
-  timezone: z.string().nullable(),
-}).strict();
+export const TaskBodySchema = z
+  .object({
+    title: z.string().min(1).max(500),
+    why: NullableText(1000),
+    nextAction: NullableText(500),
+    context: NullableText(1000),
+    checklist: ChecklistSchema.nullable(),
+    importance: z.enum(["normal", "required", "critical"]),
+    kind: z.enum(["task", "event"]),
+    when: WhenSchema,
+    recurrence: RecurrenceSchema.nullable(),
+    reminder: ReminderSchema.nullable(),
+    habit: HabitSchema.nullable(),
+    /** Only when the user named a zone other than their own. */
+    timezone: z.string().nullable(),
+  })
+  .strict();
 
 const ActionBase = { intent: IntentSchema };
 
@@ -73,109 +82,127 @@ export const CreateTaskActionSchema = TaskBodySchema.extend({
   goal: RefSchema.nullable(),
 }).strict();
 
-export const UpdateTaskPatchSchema = z.object({
-  title: NullableText(500),
-  why: NullableText(1000),
-  nextAction: NullableText(500),
-  context: NullableText(1000),
-  checklist: ChecklistSchema.nullable(),
-  importance: z.enum(["normal", "required", "critical"]).nullable(),
-  habit: z.union([HabitSchema, z.object({ enabled: z.literal(false) }).strict()]).nullable(),
-}).strict();
+export const UpdateTaskPatchSchema = z
+  .object({
+    title: NullableText(500),
+    why: NullableText(1000),
+    nextAction: NullableText(500),
+    context: NullableText(1000),
+    checklist: ChecklistSchema.nullable(),
+    importance: z.enum(["normal", "required", "critical"]).nullable(),
+    habit: z.union([HabitSchema, z.object({ enabled: z.literal(false) }).strict()]).nullable(),
+  })
+  .strict();
 
-export const UpdateTaskActionSchema = z.object({
-  type: z.literal("update_task"),
-  ...ActionBase,
-  task: RefSchema,
-  patch: UpdateTaskPatchSchema,
-}).strict();
+export const UpdateTaskActionSchema = z
+  .object({
+    type: z.literal("update_task"),
+    ...ActionBase,
+    task: RefSchema,
+    patch: UpdateTaskPatchSchema,
+  })
+  .strict();
 
 export const TaskScopeSchema = z.enum(["occurrence", "series"]);
 
-export const SetTaskStateActionSchema = z.object({
-  type: z.literal("set_task_state"),
-  ...ActionBase,
-  task: RefSchema,
-  state: z.enum(["done", "started", "seen", "skipped", "cancelled"]),
-  /** With state=seen: the user's concrete blocker text. */
-  note: NullableText(1000),
-  scope: TaskScopeSchema.nullable(),
-}).strict();
+export const SetTaskStateActionSchema = z
+  .object({
+    type: z.literal("set_task_state"),
+    ...ActionBase,
+    task: RefSchema,
+    state: z.enum(["done", "started", "seen", "skipped", "cancelled"]),
+    /** With state=seen: the user's concrete blocker text. */
+    note: NullableText(1000),
+    scope: TaskScopeSchema.nullable(),
+  })
+  .strict();
 
-export const RescheduleActionSchema = z.object({
-  type: z.literal("reschedule"),
-  ...ActionBase,
-  task: RefSchema,
-  when: WhenSchema,
-  reason: NullableText(500),
-  scope: TaskScopeSchema.nullable(),
-  /** Only with scope=series; null keeps the current rule. */
-  recurrence: RecurrenceSchema.nullable(),
-  timezone: z.string().nullable(),
-}).strict();
+export const RescheduleActionSchema = z
+  .object({
+    type: z.literal("reschedule"),
+    ...ActionBase,
+    task: RefSchema,
+    when: WhenSchema,
+    reason: NullableText(500),
+    scope: TaskScopeSchema.nullable(),
+    /** Only with scope=series; null keeps the current rule. */
+    recurrence: RecurrenceSchema.nullable(),
+    timezone: z.string().nullable(),
+  })
+  .strict();
 
-export const SetReminderActionSchema = z.object({
-  type: z.literal("set_reminder"),
-  ...ActionBase,
-  task: RefSchema,
-  mode: z.enum(["add", "replace", "clear"]),
-  reminder: ReminderSchema.nullable(),
-}).strict();
+export const SetReminderActionSchema = z
+  .object({
+    type: z.literal("set_reminder"),
+    ...ActionBase,
+    task: RefSchema,
+    mode: z.enum(["add", "replace", "clear"]),
+    reminder: ReminderSchema.nullable(),
+  })
+  .strict();
 
-export const GoalActionSchema = z.object({
-  type: z.literal("goal"),
-  ...ActionBase,
-  op: z.enum(["create", "update", "link", "unlink"]),
-  goal: RefSchema.nullable(),
-  task: RefSchema.nullable(),
-  title: NullableText(500),
-  why: NullableText(1000),
-  targetDate: LocalDateSchema.nullable(),
-  status: z.enum(["active", "paused", "completed", "cancelled"]).nullable(),
-  reviewEnabled: z.boolean().nullable(),
-}).strict();
+export const GoalActionSchema = z
+  .object({
+    type: z.literal("goal"),
+    ...ActionBase,
+    op: z.enum(["create", "update", "link", "unlink"]),
+    goal: RefSchema.nullable(),
+    task: RefSchema.nullable(),
+    title: NullableText(500),
+    why: NullableText(1000),
+    targetDate: LocalDateSchema.nullable(),
+    status: z.enum(["active", "paused", "completed", "cancelled"]).nullable(),
+    reviewEnabled: z.boolean().nullable(),
+  })
+  .strict();
 
-export const PlanActionSchema = z.object({
-  type: z.literal("plan"),
-  ...ActionBase,
-  goal: z.object({ title: z.string().min(1).max(500), why: NullableText(1000), targetDate: LocalDateSchema.nullable() }).strict(),
-  tasks: z.array(TaskBodySchema).min(1).max(12),
-}).strict();
+export const PlanActionSchema = z
+  .object({
+    type: z.literal("plan"),
+    ...ActionBase,
+    goal: z.object({ title: z.string().min(1).max(500), why: NullableText(1000), targetDate: LocalDateSchema.nullable() }).strict(),
+    tasks: z.array(TaskBodySchema).min(1).max(12),
+  })
+  .strict();
 
-export const MemoryActionSchema = z.object({
-  type: z.literal("memory"),
-  ...ActionBase,
-  op: z.enum(["save", "update", "delete"]),
-  item: RefSchema.nullable(),
-  kind: z.enum(["note", "decision", "preference", "context"]).nullable(),
-  content: NullableText(2000),
-  sensitive: z.boolean().nullable(),
-}).strict();
+export const MemoryActionSchema = z
+  .object({
+    type: z.literal("memory"),
+    ...ActionBase,
+    op: z.enum(["save", "update", "delete"]),
+    item: RefSchema.nullable(),
+    kind: z.enum(["note", "decision", "preference", "context"]).nullable(),
+    content: NullableText(2000),
+    sensitive: z.boolean().nullable(),
+  })
+  .strict();
 
-export const SettingsActionSchema = z.object({
-  type: z.literal("settings"),
-  ...ActionBase,
-  operation: z.enum(["timezone", "language", "digest", "weekly_review", "quiet_hours", "snooze", "reminder_defaults"]),
-  timezone: z.string().nullable(),
-  applyTimezoneTo: z.enum(["profile_only", "all"]).nullable(),
-  language: z.string().nullable(),
-  digestKind: z.enum(["morning", "evening"]).nullable(),
-  enabled: z.boolean().nullable(),
-  time: LocalTimeSchema.nullable(),
-  weekday: z.number().int().min(1).max(7).nullable(),
-  weekdayStart: LocalTimeSchema.nullable(),
-  weekdayEnd: LocalTimeSchema.nullable(),
-  weekendStart: LocalTimeSchema.nullable(),
-  weekendEnd: LocalTimeSchema.nullable(),
-  snoozeUntilDate: LocalDateSchema.nullable(),
-  snoozeUntilTime: LocalTimeSchema.nullable(),
-  eventOffsets: z.array(z.number().int()).max(12).nullable(),
-  plannedTaskOffsetMinutes: z.number().int().nullable(),
-  criticalPostDueMinutes: z.number().int().nullable(),
-  seenNormalMinutes: z.number().int().nullable(),
-  seenRequiredMinutes: z.number().int().nullable(),
-  seenCriticalMinutes: z.number().int().nullable(),
-}).strict();
+export const SettingsActionSchema = z
+  .object({
+    type: z.literal("settings"),
+    ...ActionBase,
+    operation: z.enum(["timezone", "language", "digest", "weekly_review", "quiet_hours", "snooze", "reminder_defaults"]),
+    timezone: z.string().nullable(),
+    applyTimezoneTo: z.enum(["profile_only", "all"]).nullable(),
+    language: z.string().nullable(),
+    digestKind: z.enum(["morning", "evening"]).nullable(),
+    enabled: z.boolean().nullable(),
+    time: LocalTimeSchema.nullable(),
+    weekday: z.number().int().min(1).max(7).nullable(),
+    weekdayStart: LocalTimeSchema.nullable(),
+    weekdayEnd: LocalTimeSchema.nullable(),
+    weekendStart: LocalTimeSchema.nullable(),
+    weekendEnd: LocalTimeSchema.nullable(),
+    snoozeUntilDate: LocalDateSchema.nullable(),
+    snoozeUntilTime: LocalTimeSchema.nullable(),
+    eventOffsets: z.array(z.number().int()).max(12).nullable(),
+    plannedTaskOffsetMinutes: z.number().int().nullable(),
+    criticalPostDueMinutes: z.number().int().nullable(),
+    seenNormalMinutes: z.number().int().nullable(),
+    seenRequiredMinutes: z.number().int().nullable(),
+    seenCriticalMinutes: z.number().int().nullable(),
+  })
+  .strict();
 
 export const AiActionSchema = z.discriminatedUnion("type", [
   CreateTaskActionSchema,
@@ -191,18 +218,22 @@ export const AiActionSchema = z.discriminatedUnion("type", [
 
 export const AI_ACTION_TYPES = ["create_task", "update_task", "set_task_state", "reschedule", "set_reminder", "goal", "plan", "memory", "settings"] as const;
 
-export const TopicDirectiveSchema = z.object({
-  mode: z.enum(["none", "continue", "new", "resolve"]),
-  title: NullableText(200),
-  summary: NullableText(2000),
-}).strict();
+export const TopicDirectiveSchema = z
+  .object({
+    mode: z.enum(["none", "continue", "new", "resolve"]),
+    title: NullableText(200),
+    summary: NullableText(2000),
+  })
+  .strict();
 
-export const AiTurnSchema = z.object({
-  reply: z.string().min(1).max(4000),
-  question: NullableText(1000),
-  actions: z.array(AiActionSchema).max(8),
-  topic: TopicDirectiveSchema,
-}).strict();
+export const AiTurnSchema = z
+  .object({
+    reply: z.string().min(1).max(4000),
+    question: NullableText(1000),
+    actions: z.array(AiActionSchema).max(8),
+    topic: TopicDirectiveSchema,
+  })
+  .strict();
 
 export type AiTurn = z.infer<typeof AiTurnSchema>;
 export type AiAction = z.infer<typeof AiActionSchema>;
@@ -239,21 +270,42 @@ export const ResolvedActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("create_task"), ...ResolvedBase, body: TaskBodySchema, goal: z.object({ goalId: Uuid, goalVersion: Version }).strict().nullable() }).strict(),
   z.object({ type: z.literal("update_task"), ...ResolvedBase, taskId: Uuid, taskVersion: Version, patch: UpdateTaskPatchSchema }).strict(),
   z.object({ type: z.literal("set_task_state"), ...ResolvedBase, target: TaskTargetSchema, state: SetTaskStateActionSchema.shape.state, note: NullableText(1000) }).strict(),
-  z.object({ type: z.literal("reschedule"), ...ResolvedBase, target: TaskTargetSchema, when: WhenSchema, recurrence: RecurrenceSchema.nullable(), reason: NullableText(500) }).strict(),
+  z
+    .object({ type: z.literal("reschedule"), ...ResolvedBase, target: TaskTargetSchema, when: WhenSchema, recurrence: RecurrenceSchema.nullable(), reason: NullableText(500) })
+    .strict(),
   z.object({ type: z.literal("set_reminder"), ...ResolvedBase, target: TaskTargetSchema, mode: SetReminderActionSchema.shape.mode, reminder: ReminderSchema.nullable() }).strict(),
-  z.object({
-    type: z.literal("goal"), ...ResolvedBase, op: GoalActionSchema.shape.op,
-    goalId: Uuid.nullable(), goalVersion: Version.nullable(), taskId: Uuid.nullable(), taskVersion: Version.nullable(),
-    title: NullableText(500), why: NullableText(1000), targetDate: LocalDateSchema.nullable(),
-    status: GoalActionSchema.shape.status, reviewEnabled: z.boolean().nullable(),
-  }).strict(),
+  z
+    .object({
+      type: z.literal("goal"),
+      ...ResolvedBase,
+      op: GoalActionSchema.shape.op,
+      goalId: Uuid.nullable(),
+      goalVersion: Version.nullable(),
+      taskId: Uuid.nullable(),
+      taskVersion: Version.nullable(),
+      title: NullableText(500),
+      why: NullableText(1000),
+      targetDate: LocalDateSchema.nullable(),
+      status: GoalActionSchema.shape.status,
+      reviewEnabled: z.boolean().nullable(),
+    })
+    .strict(),
   z.object({ type: z.literal("plan"), ...ResolvedBase, goal: PlanActionSchema.shape.goal, tasks: z.array(TaskBodySchema).min(1).max(12) }).strict(),
-  z.object({
-    type: z.literal("memory"), ...ResolvedBase, op: MemoryActionSchema.shape.op,
-    memoryId: Uuid.nullable(), memoryVersion: Version.nullable(),
-    kind: MemoryActionSchema.shape.kind, content: NullableText(2000), sensitive: z.boolean().nullable(),
-  }).strict(),
-  SettingsActionSchema.omit({ intent: true }).extend({ ...ResolvedBase, expectedVersion: Version }).strict(),
+  z
+    .object({
+      type: z.literal("memory"),
+      ...ResolvedBase,
+      op: MemoryActionSchema.shape.op,
+      memoryId: Uuid.nullable(),
+      memoryVersion: Version.nullable(),
+      kind: MemoryActionSchema.shape.kind,
+      content: NullableText(2000),
+      sensitive: z.boolean().nullable(),
+    })
+    .strict(),
+  SettingsActionSchema.omit({ intent: true })
+    .extend({ ...ResolvedBase, expectedVersion: Version })
+    .strict(),
 ]);
 
 export type ResolvedAction = z.infer<typeof ResolvedActionSchema>;

@@ -100,13 +100,21 @@ export function compileStructuredLocalSchedule(input: StructuredLocalScheduleInp
 
 function localDate(value: string | null | undefined, field: string): string | undefined {
   if (!value) return undefined;
-  try { parseLocalDate(value); } catch { throw new Error(`${field} must be YYYY-MM-DD`); }
+  try {
+    parseLocalDate(value);
+  } catch {
+    throw new Error(`${field} must be YYYY-MM-DD`);
+  }
   return value;
 }
 
 function localTime(value: string | null | undefined, field: string): string | undefined {
   if (!value) return undefined;
-  try { parseLocalTime(value); } catch { throw new Error(`${field} must be HH:mm`); }
+  try {
+    parseLocalTime(value);
+  } catch {
+    throw new Error(`${field} must be HH:mm`);
+  }
   return value;
 }
 
@@ -120,6 +128,9 @@ function requireOnlyAbsent(values: Record<string, unknown>, mode: string): void 
 }
 
 function assertTimezone(timezone: string): void {
-  try { new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date()); }
-  catch { throw new Error("timezone is not a valid IANA timezone"); }
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date());
+  } catch {
+    throw new Error("timezone is not a valid IANA timezone");
+  }
 }

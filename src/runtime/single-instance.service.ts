@@ -2,6 +2,7 @@ import { Inject, Injectable, type OnApplicationShutdown, type OnModuleInit } fro
 import { Client } from "pg";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 export const APP_LOCK_NAMESPACE = 424242;
 export const APP_LOCK_KEY = 106;
@@ -29,7 +30,7 @@ export class SingleInstanceService implements OnModuleInit, OnApplicationShutdow
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
     this.client = new Client({ connectionString: config.databaseUrl, application_name: "ipsycho-single-instance-lock" });
     this.onLost = (reason) => {
-      console.error("single-instance lock lost; stopping so exactly one process runs", { reason });
+      logger.error("single-instance lock lost; stopping so exactly one process runs", { reason });
       process.exitCode = 1;
       process.kill(process.pid, "SIGTERM");
     };
@@ -40,14 +41,11 @@ export class SingleInstanceService implements OnModuleInit, OnApplicationShutdow
     this.client.on("error", (error) => {
       if (!this.locked) return;
       this.locked = false;
-      console.error("single-instance lock connection failed", { error: safeError(error) });
+      logger.error("single-instance lock connection failed", { error: safeError(error) });
       this.onLost("connection error");
     });
     try {
-      const result = await this.client.query<{ locked: boolean }>(
-        "select pg_try_advisory_lock($1, $2) as locked",
-        [APP_LOCK_NAMESPACE, APP_LOCK_KEY],
-      );
+      const result = await this.client.query<{ locked: boolean }>("select pg_try_advisory_lock($1, $2) as locked", [APP_LOCK_NAMESPACE, APP_LOCK_KEY]);
       this.locked = result.rows[0]?.locked === true;
       if (!this.locked) throw new Error("another IPsycho app instance is already active for this PostgreSQL database");
     } catch (error) {
@@ -71,7 +69,7 @@ export class SingleInstanceService implements OnModuleInit, OnApplicationShutdow
       this.onLost("lock no longer held by this session");
       return false;
     } catch (error) {
-      console.error("single-instance lock check failed", { error: safeError(error) });
+      logger.error("single-instance lock check failed", { error: safeError(error) });
       return true;
     }
   }

@@ -17,7 +17,15 @@ export type SettingsChange =
   | { operation: "weekly_preset"; enabled: boolean }
   | { operation: "quiet_hours"; enabled: boolean; weekdayStart?: string | null; weekdayEnd?: string | null; weekendStart?: string | null; weekendEnd?: string | null }
   | { operation: "snooze"; until: Date | null }
-  | { operation: "reminder_defaults"; eventOffsets?: number[] | null; plannedTaskOffsetMinutes?: number | null; criticalPostDueMinutes?: number | null; seenNormalMinutes?: number | null; seenRequiredMinutes?: number | null; seenCriticalMinutes?: number | null };
+  | {
+      operation: "reminder_defaults";
+      eventOffsets?: number[] | null;
+      plannedTaskOffsetMinutes?: number | null;
+      criticalPostDueMinutes?: number | null;
+      seenNormalMinutes?: number | null;
+      seenRequiredMinutes?: number | null;
+      seenCriticalMinutes?: number | null;
+    };
 
 export interface SettingsPatchFields {
   timezone?: string;
@@ -90,18 +98,31 @@ export function buildSettingsPatch(change: SettingsChange, current: { timezone: 
         : { eveningDigestEnabled: change.enabled, digestTimezone: current.timezone, ...(reference ? { eveningReferenceTime: reference } : {}) };
     }
     case "digest_preset":
-      return { morningDigestEnabled: change.enabled, eveningDigestEnabled: change.enabled, morningReferenceTime: DEFAULT_DIGEST_TIMES.morning, eveningReferenceTime: DEFAULT_DIGEST_TIMES.evening, digestTimezone: current.timezone };
+      return {
+        morningDigestEnabled: change.enabled,
+        eveningDigestEnabled: change.enabled,
+        morningReferenceTime: DEFAULT_DIGEST_TIMES.morning,
+        eveningReferenceTime: DEFAULT_DIGEST_TIMES.evening,
+        digestTimezone: current.timezone,
+      };
     case "weekly_review": {
-      if (change.weekday !== null && change.weekday !== undefined && (!Number.isInteger(change.weekday) || change.weekday < 1 || change.weekday > 7)) throw new DomainRuleError("weekday must be 1..7", "settings_shape");
+      if (change.weekday !== null && change.weekday !== undefined && (!Number.isInteger(change.weekday) || change.weekday < 1 || change.weekday > 7))
+        throw new DomainRuleError("weekday must be 1..7", "settings_shape");
       const reference = time(change.time, "weekly review time");
       return {
-        weeklyReviewEnabled: change.enabled, digestTimezone: current.timezone,
+        weeklyReviewEnabled: change.enabled,
+        digestTimezone: current.timezone,
         ...(change.weekday !== null && change.weekday !== undefined ? { weeklyReviewWeekday: change.weekday } : {}),
         ...(reference ? { weeklyReviewTime: reference } : {}),
       };
     }
     case "weekly_preset":
-      return { weeklyReviewEnabled: change.enabled, weeklyReviewWeekday: DEFAULT_WEEKLY_REVIEW.weekday, weeklyReviewTime: DEFAULT_WEEKLY_REVIEW.time, digestTimezone: current.timezone };
+      return {
+        weeklyReviewEnabled: change.enabled,
+        weeklyReviewWeekday: DEFAULT_WEEKLY_REVIEW.weekday,
+        weeklyReviewTime: DEFAULT_WEEKLY_REVIEW.time,
+        digestTimezone: current.timezone,
+      };
     case "quiet_hours": {
       const patch: SettingsPatchFields = { quietHoursEnabled: change.enabled, quietHoursTimezone: current.timezone };
       if (!change.enabled) return patch;
@@ -121,7 +142,8 @@ export function buildSettingsPatch(change: SettingsChange, current: { timezone: 
       return { notificationsSnoozedUntil: change.until };
     case "reminder_defaults": {
       if (change.eventOffsets !== null && change.eventOffsets !== undefined) {
-        if (!change.eventOffsets.length || change.eventOffsets.some((value) => !Number.isInteger(value))) throw new DomainRuleError("event offsets must be integer minutes", "settings_shape");
+        if (!change.eventOffsets.length || change.eventOffsets.some((value) => !Number.isInteger(value)))
+          throw new DomainRuleError("event offsets must be integer minutes", "settings_shape");
       }
       if (change.plannedTaskOffsetMinutes !== null && change.plannedTaskOffsetMinutes !== undefined && !Number.isInteger(change.plannedTaskOffsetMinutes)) {
         throw new DomainRuleError("plannedTaskOffsetMinutes must be integer minutes", "settings_shape");

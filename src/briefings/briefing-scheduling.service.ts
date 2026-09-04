@@ -6,6 +6,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { briefingDeliveries, userSettings, users, workspaceMembers, workspaces } from "../database/schema.js";
 import { BriefingQueueService } from "./briefing-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 const RECONCILE_MS = 15 * 60_000;
 
@@ -14,11 +15,14 @@ export class BriefingSchedulingService implements OnApplicationBootstrap, OnAppl
   private timer?: NodeJS.Timeout;
   private running = false;
 
-  constructor(private readonly database: DatabaseService, private readonly queue: BriefingQueueService) {}
+  constructor(
+    private readonly database: DatabaseService,
+    private readonly queue: BriefingQueueService,
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     await this.reconcile();
-    this.timer = setInterval(() => void this.reconcile().catch((error) => console.error("briefing scheduling reconciliation failed", safeError(error))), RECONCILE_MS);
+    this.timer = setInterval(() => void this.reconcile().catch((error) => logger.error("briefing scheduling reconciliation failed", { error: safeError(error) })), RECONCILE_MS);
     this.timer.unref();
   }
 
@@ -30,7 +34,8 @@ export class BriefingSchedulingService implements OnApplicationBootstrap, OnAppl
     if (this.running) return;
     this.running = true;
     try {
-      const rows = await this.database.db.select({ user: users, settings: userSettings, workspaceId: workspaces.id })
+      const rows = await this.database.db
+        .select({ user: users, settings: userSettings, workspaceId: workspaces.id })
         .from(users)
         .innerJoin(userSettings, eq(userSettings.userId, users.id))
         .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
@@ -48,7 +53,8 @@ export class BriefingSchedulingService implements OnApplicationBootstrap, OnAppl
   private async materializeDate(workspaceId: string, userId: string, settings: typeof userSettings.$inferSelect, localDate: string, now: Date): Promise<void> {
     parseLocalDate(localDate);
     const weekday = localWeekday(localDate);
-    const bundle = settings.eveningDigestEnabled && settings.weeklyReviewEnabled && weekday === settings.weeklyReviewWeekday && settings.eveningReferenceTime === settings.weeklyReviewTime;
+    const bundle =
+      settings.eveningDigestEnabled && settings.weeklyReviewEnabled && weekday === settings.weeklyReviewWeekday && settings.eveningReferenceTime === settings.weeklyReviewTime;
     const expected: Array<{ kind: "morning" | "evening" | "weekly" | "evening_weekly"; time: string }> = [];
     if (settings.morningDigestEnabled) expected.push({ kind: "morning", time: settings.morningReferenceTime });
     if (bundle) expected.push({ kind: "evening_weekly", time: settings.eveningReferenceTime });
@@ -63,16 +69,18 @@ export class BriefingSchedulingService implements OnApplicationBootstrap, OnAppl
       deduplicationKey: `${userId}:${item.kind}:${localDate}:${item.time}`,
     }));
     const expectedKeys = new Set(expectedItems.map((item) => item.deduplicationKey));
-    const existing = await this.database.db.select().from(briefingDeliveries).where(and(
-      eq(briefingDeliveries.workspaceId, workspaceId), eq(briefingDeliveries.recipientUserId, userId), eq(briefingDeliveries.localDate, localDate),
-    ));
+    const existing = await this.database.db
+      .select()
+      .from(briefingDeliveries)
+      .where(and(eq(briefingDeliveries.workspaceId, workspaceId), eq(briefingDeliveries.recipientUserId, userId), eq(briefingDeliveries.localDate, localDate)));
     const existingByKey = new Map(existing.map((delivery) => [delivery.deduplicationKey, delivery]));
 
     for (const delivery of existing) {
       if (["pending", "processing"].includes(delivery.status) && !expectedKeys.has(delivery.deduplicationKey)) {
-        await this.database.db.update(briefingDeliveries).set({ status: "suppressed", suppressedReason: "superseded" }).where(and(
-          eq(briefingDeliveries.id, delivery.id), inArray(briefingDeliveries.status, ["pending", "processing"]),
-        ));
+        await this.database.db
+          .update(briefingDeliveries)
+          .set({ status: "suppressed", suppressedReason: "superseded" })
+          .where(and(eq(briefingDeliveries.id, delivery.id), inArray(briefingDeliveries.status, ["pending", "processing"])));
       }
     }
 
@@ -83,21 +91,38 @@ export class BriefingSchedulingService implements OnApplicationBootstrap, OnAppl
         if (prior.status === "sent" || prior.status === "processing" || prior.status === "failed") continue;
         if (prior.status === "suppressed" && item.scheduledFor <= now) continue;
         if (prior.status !== "pending" || prior.scheduledFor.getTime() !== item.scheduledFor.getTime()) {
-          await this.database.db.update(briefingDeliveries).set({
-            scheduledFor: item.scheduledFor, status: "pending", suppressedReason: null,
-          }).where(eq(briefingDeliveries.id, prior.id));
+          await this.database.db
+            .update(briefingDeliveries)
+            .set({
+              scheduledFor: item.scheduledFor,
+              status: "pending",
+              suppressedReason: null,
+            })
+            .where(eq(briefingDeliveries.id, prior.id));
         }
-        await this.queue.enqueue(prior.id, item.scheduledFor).catch((error) => console.error("briefing enqueue deferred", { deliveryId: prior.id, error: safeError(error) }));
+        await this.queue.enqueue(prior.id, item.scheduledFor).catch((error) => logger.error("briefing enqueue deferred", { deliveryId: prior.id, error: safeError(error) }));
         continue;
       }
 
       const id = randomUUID();
-      const [delivery] = await this.database.db.insert(briefingDeliveries).values({
-        id, workspaceId, recipientUserId: userId, kind: item.kind, localDate, scheduledFor: item.scheduledFor, deduplicationKey: item.deduplicationKey,
-      }).onConflictDoNothing().returning({ id: briefingDeliveries.id, scheduledFor: briefingDeliveries.scheduledFor, status: briefingDeliveries.status });
-      if (delivery?.status === "pending") await this.queue.enqueue(delivery.id, delivery.scheduledFor).catch((error) => console.error("briefing enqueue deferred", { deliveryId: delivery.id, error: safeError(error) }));
+      const [delivery] = await this.database.db
+        .insert(briefingDeliveries)
+        .values({
+          id,
+          workspaceId,
+          recipientUserId: userId,
+          kind: item.kind,
+          localDate,
+          scheduledFor: item.scheduledFor,
+          deduplicationKey: item.deduplicationKey,
+        })
+        .onConflictDoNothing()
+        .returning({ id: briefingDeliveries.id, scheduledFor: briefingDeliveries.scheduledFor, status: briefingDeliveries.status });
+      if (delivery?.status === "pending")
+        await this.queue
+          .enqueue(delivery.id, delivery.scheduledFor)
+          .catch((error) => logger.error("briefing enqueue deferred", { deliveryId: delivery.id, error: safeError(error) }));
     }
-
   }
 }
 

@@ -59,7 +59,10 @@ function monthDate(monthValue: number, day: number): string | null {
 }
 
 export function parseRecurrenceRule(value: string): RecurrenceRule {
-  const entries = value.split(";").filter(Boolean).map((part) => part.split("=", 2) as [string, string]);
+  const entries = value
+    .split(";")
+    .filter(Boolean)
+    .map((part) => part.split("=", 2) as [string, string]);
   const map = new Map(entries);
   const allowed = new Set(["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "BYTIME"]);
   for (const key of map.keys()) if (!allowed.has(key)) throw new Error(`unsupported recurrence field ${key}`);
@@ -70,7 +73,7 @@ export function parseRecurrenceRule(value: string): RecurrenceRule {
   if (!Number.isInteger(interval) || interval < 1 || interval > 365) throw new Error("recurrence INTERVAL must be a positive integer <= 365");
 
   const byDayValue = map.get("BYDAY");
-  const byDay = byDayValue ? byDayValue.split(",") as Weekday[] : undefined;
+  const byDay = byDayValue ? (byDayValue.split(",") as Weekday[]) : undefined;
   if (byDay && byDay.some((day) => !(day in DAY_INDEX))) throw new Error("invalid BYDAY value");
   if (byDay && freq !== "WEEKLY") throw new Error("BYDAY is supported only for WEEKLY recurrence");
 
@@ -170,10 +173,6 @@ function dueBoundaryForLocalDate(localDate: string, timezone: string): Date {
   return startOfLocalDateUtc(shiftLocalDate(localDate, 1), timezone).date;
 }
 
-function primaryStart(projection: OccurrenceProjection): Date | undefined {
-  return projection.plannedStartAt;
-}
-
 function statusForProjection(projection: OccurrenceProjection, now: Date): "scheduled" | "open" {
   if (projection.plannedStartAt) return deriveInitialOccurrenceStatus(now, projection.plannedStartAt);
   if (projection.plannedLocalDate) return compareLocalDates(projection.plannedLocalDate, localDateAt(now, projection.timezone)) > 0 ? "scheduled" : "open";
@@ -181,13 +180,7 @@ function statusForProjection(projection: OccurrenceProjection, now: Date): "sche
   return "open";
 }
 
-function buildProjectionForDate(
-  task: TaskDefinition,
-  targetDate: string,
-  anchorDate: string,
-  timezone: string,
-  occurrenceTime?: string,
-): OccurrenceProjection {
+function buildProjectionForDate(task: TaskDefinition, targetDate: string, anchorDate: string, timezone: string, occurrenceTime?: string): OccurrenceProjection {
   let dstAdjusted = false;
   const projection: OccurrenceProjection = {
     status: "open",
@@ -269,15 +262,9 @@ export function buildRecurringOccurrences(task: TaskDefinition, now: Date, horiz
   // Generate only far enough past the visible window to know the next expiry boundary.
   // Daily/weekly gaps are exact; monthly keeps a wider bound because dates such as Feb 29
   // or day 31 may skip calendar months.
-  const extensionDays = rule.freq === "DAILY"
-    ? rule.interval
-    : rule.freq === "WEEKLY"
-      ? rule.interval * 7
-      : 370 * rule.interval;
+  const extensionDays = rule.freq === "DAILY" ? rule.interval : rule.freq === "WEEKLY" ? rule.interval * 7 : 370 * rule.interval;
   const requestedExtension = shiftLocalDate(horizon, extensionDays);
-  const extension = task.recurrenceEndLocalDate && compareLocalDates(task.recurrenceEndLocalDate, requestedExtension) < 0
-    ? task.recurrenceEndLocalDate
-    : requestedExtension;
+  const extension = task.recurrenceEndLocalDate && compareLocalDates(task.recurrenceEndLocalDate, requestedExtension) < 0 ? task.recurrenceEndLocalDate : requestedExtension;
   if (compareLocalDates(extension, seed) < 0 || compareLocalDates(extension, today) < 0) return [];
   const dates = recurrenceDates(seed, rule, extension);
   const visible = dates.filter((date) => compareLocalDates(date, horizon) <= 0 && compareLocalDates(date, today) >= 0);
@@ -287,9 +274,9 @@ export function buildRecurringOccurrences(task: TaskDefinition, now: Date, horiz
   }
 
   const excludedDates = new Set(task.recurrenceExcludedLocalDates ?? []);
-  const slots = dates.filter((date) => !excludedDates.has(date)).flatMap((date) => (rule.byTime ?? [undefined])
-    .filter((time) => date !== seed || !time || !seedTime || time >= seedTime)
-    .map((time) => ({ date, time })));
+  const slots = dates
+    .filter((date) => !excludedDates.has(date))
+    .flatMap((date) => (rule.byTime ?? [undefined]).filter((time) => date !== seed || !time || !seedTime || time >= seedTime).map((time) => ({ date, time })));
   const projections = slots.map(({ date, time }) => buildProjectionForDate(task, date, seed, timezone, time));
   const result: OccurrenceProjection[] = [];
   for (let i = 0; i < projections.length; i += 1) {

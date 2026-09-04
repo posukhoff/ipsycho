@@ -5,8 +5,16 @@ import type { TaskStatus, TimeMode } from "./types.js";
  * name. Built by the context, consumed by the resolver; UUIDs never reach the model and
  * a short id from an earlier turn can never be replayed against a different entity.
  */
-export interface RefEntry { id: string; version: number; title: string }
-export interface TaskRefEntry extends RefEntry { timeMode: TimeMode; recurring: boolean; status: TaskStatus }
+export interface RefEntry {
+  id: string;
+  version: number;
+  title: string;
+}
+export interface TaskRefEntry extends RefEntry {
+  timeMode: TimeMode;
+  recurring: boolean;
+  status: TaskStatus;
+}
 
 export interface RefMap {
   tasks: ReadonlyMap<string, TaskRefEntry>;
@@ -30,8 +38,7 @@ export function buildRefMap(input: {
   goals: ReadonlyArray<RefEntry & { shortId: string }>;
   memory: ReadonlyArray<RefEntry & { shortId: string }>;
 }): RefMap {
-  const strip = <T extends { shortId: string }>(entries: ReadonlyArray<T>): Map<string, Omit<T, "shortId">> =>
-    new Map(entries.map(({ shortId, ...entry }) => [shortId, entry]));
+  const strip = <T extends { shortId: string }>(entries: ReadonlyArray<T>): Map<string, Omit<T, "shortId">> => new Map(entries.map(({ shortId, ...entry }) => [shortId, entry]));
   return { tasks: strip(input.tasks), goals: strip(input.goals), memory: strip(input.memory) };
 }
 

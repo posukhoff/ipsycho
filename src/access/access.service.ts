@@ -74,7 +74,8 @@ export class AccessService {
       const existing = await tx.select({ id: users.id }).from(users).where(eq(users.telegramUserId, telegramUserId)).limit(1);
       if (existing[0]) return { kind: "already_registered" as const };
 
-      const [invite] = await tx.update(registrationInvites)
+      const [invite] = await tx
+        .update(registrationInvites)
         .set({ usedAt: now })
         .where(and(eq(registrationInvites.token, token), isNull(registrationInvites.usedAt), gt(registrationInvites.expiresAt, now)))
         .returning({ id: registrationInvites.id, createdByUserId: registrationInvites.createdByUserId });
@@ -97,11 +98,14 @@ export class AccessService {
     if (!user) throw new Error("user not found");
     await this.database.db.transaction(async (tx) => {
       const now = new Date();
-      await tx.update(users).set({
-        status,
-        updatedAt: now,
-        ...(status === "active" ? { deletionRequestedAt: null, deleteAfter: null } : {}),
-      }).where(eq(users.id, user.id));
+      await tx
+        .update(users)
+        .set({
+          status,
+          updatedAt: now,
+          ...(status === "active" ? { deletionRequestedAt: null, deleteAfter: null } : {}),
+        })
+        .where(eq(users.id, user.id));
 
       if (status === "disabled") await suppressPendingForUser(tx, user.id);
       else await restoreFutureAccessSuppressed(tx, user.id, now);
@@ -125,12 +129,16 @@ export class AccessService {
     if (user.status !== "active") throw new Error("only an active account can request deletion");
     const deleteAfter = new Date(now.getTime() + DELETION_GRACE_MS);
     await this.database.db.transaction(async (tx) => {
-      const [updated] = await tx.update(users).set({
-        status: "deletion_pending",
-        deletionRequestedAt: now,
-        deleteAfter,
-        updatedAt: now,
-      }).where(and(eq(users.id, user.id), eq(users.status, "active"))).returning({ id: users.id });
+      const [updated] = await tx
+        .update(users)
+        .set({
+          status: "deletion_pending",
+          deletionRequestedAt: now,
+          deleteAfter,
+          updatedAt: now,
+        })
+        .where(and(eq(users.id, user.id), eq(users.status, "active")))
+        .returning({ id: users.id });
       if (!updated) throw new Error("account state changed");
       await suppressPendingForUser(tx, user.id);
       await tx.insert(adminAuditLog).values({ action: "users:delete-request", targetUserId: user.id });
@@ -142,16 +150,16 @@ export class AccessService {
     const [user] = await this.database.db.select().from(users).where(eq(users.telegramUserId, telegramUserId)).limit(1);
     if (!user || user.status !== "deletion_pending" || !user.deleteAfter || user.deleteAfter <= now) return false;
     await this.database.db.transaction(async (tx) => {
-      const [updated] = await tx.update(users).set({
-        status: "active",
-        deletionRequestedAt: null,
-        deleteAfter: null,
-        updatedAt: now,
-      }).where(and(
-        eq(users.id, user.id),
-        eq(users.status, "deletion_pending"),
-        gt(users.deleteAfter, now),
-      )).returning({ id: users.id });
+      const [updated] = await tx
+        .update(users)
+        .set({
+          status: "active",
+          deletionRequestedAt: null,
+          deleteAfter: null,
+          updatedAt: now,
+        })
+        .where(and(eq(users.id, user.id), eq(users.status, "deletion_pending"), gt(users.deleteAfter, now)))
+        .returning({ id: users.id });
       if (!updated) throw new Error("account state changed");
       await restoreFutureAccessSuppressed(tx, user.id, now);
       await tx.insert(adminAuditLog).values({ action: "users:delete-restore", targetUserId: user.id });
@@ -160,19 +168,18 @@ export class AccessService {
   }
 
   async finalizeExpiredDeletions(now = new Date()): Promise<number> {
-    const expired = await this.database.db.select({ id: users.id }).from(users).where(and(
-      eq(users.status, "deletion_pending"),
-      lte(users.deleteAfter, now),
-    ));
+    const expired = await this.database.db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.status, "deletion_pending"), lte(users.deleteAfter, now)));
     let deleted = 0;
     for (const user of expired) {
       await this.database.db.transaction(async (tx) => {
         await tx.insert(adminAuditLog).values({ action: "users:delete-finalize", targetUserId: user.id });
-        const rows = await tx.delete(users).where(and(
-          eq(users.id, user.id),
-          eq(users.status, "deletion_pending"),
-          lte(users.deleteAfter, now),
-        )).returning({ id: users.id });
+        const rows = await tx
+          .delete(users)
+          .where(and(eq(users.id, user.id), eq(users.status, "deletion_pending"), lte(users.deleteAfter, now)))
+          .returning({ id: users.id });
         if (rows.length) deleted += 1;
       });
     }
@@ -183,29 +190,37 @@ export class AccessService {
 type DbTransaction = Parameters<Parameters<DatabaseService["db"]["transaction"]>[0]>[0];
 
 async function suppressPendingForUser(tx: DbTransaction, userId: string): Promise<void> {
-  await tx.update(reminderDeliveries)
+  await tx
+    .update(reminderDeliveries)
     .set({ status: "suppressed", suppressedReason: "access" })
     .where(and(eq(reminderDeliveries.recipientUserId, userId), inArray(reminderDeliveries.status, ["pending", "processing"])));
-  await tx.update(briefingDeliveries)
+  await tx
+    .update(briefingDeliveries)
     .set({ status: "suppressed", suppressedReason: "access" })
     .where(and(eq(briefingDeliveries.recipientUserId, userId), inArray(briefingDeliveries.status, ["pending", "processing"])));
 }
 
 async function restoreFutureAccessSuppressed(tx: DbTransaction, userId: string, now: Date): Promise<void> {
-  await tx.update(reminderDeliveries)
+  await tx
+    .update(reminderDeliveries)
     .set({ status: "pending", suppressedReason: null })
-    .where(and(
-      eq(reminderDeliveries.recipientUserId, userId),
-      eq(reminderDeliveries.status, "suppressed"),
-      eq(reminderDeliveries.suppressedReason, "access"),
-      gt(reminderDeliveries.scheduledFor, now),
-    ));
-  await tx.update(briefingDeliveries)
+    .where(
+      and(
+        eq(reminderDeliveries.recipientUserId, userId),
+        eq(reminderDeliveries.status, "suppressed"),
+        eq(reminderDeliveries.suppressedReason, "access"),
+        gt(reminderDeliveries.scheduledFor, now),
+      ),
+    );
+  await tx
+    .update(briefingDeliveries)
     .set({ status: "pending", suppressedReason: null })
-    .where(and(
-      eq(briefingDeliveries.recipientUserId, userId),
-      eq(briefingDeliveries.status, "suppressed"),
-      eq(briefingDeliveries.suppressedReason, "access"),
-      gt(briefingDeliveries.scheduledFor, now),
-    ));
+    .where(
+      and(
+        eq(briefingDeliveries.recipientUserId, userId),
+        eq(briefingDeliveries.status, "suppressed"),
+        eq(briefingDeliveries.suppressedReason, "access"),
+        gt(briefingDeliveries.scheduledFor, now),
+      ),
+    );
 }

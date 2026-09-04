@@ -13,6 +13,7 @@ import { t } from "./copy/index.js";
 import { TelegramChatReplyService } from "./telegram-chat-reply.service.js";
 import { activeState, type AppContext } from "./telegram-context.js";
 import { TelegramService } from "./telegram.service.js";
+import { logger } from "../observability/logger.js";
 
 const REVIEW_CALLBACK = /^review:(evening|weekly):([0-9a-f-]{36}|start)$/;
 
@@ -40,16 +41,16 @@ export class TelegramConversationHandlersService {
 
   private async voice(ctx: Filter<AppContext, "message:voice">): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
-    if (access.user.aiStatus !== "enabled") return void await ctx.reply(t(locale, "voice_suspended"));
+    if (access.user.aiStatus !== "enabled") return void (await ctx.reply(t(locale, "voice_suspended")));
     const voice = ctx.message.voice;
     const limits = { minutes: Math.floor(this.config.aiVoiceMaxDurationSeconds / 60), mb: Math.floor(this.config.aiVoiceMaxBytes / (1024 * 1024)) };
-    if (!this.transcription.acceptsVoice(voice.duration, voice.file_size ?? 0)) return void await ctx.reply(t(locale, "voice_too_long", limits));
-    if (!this.transcription.isAvailable()) return void await ctx.reply(t(locale, "voice_openai_only"));
+    if (!this.transcription.acceptsVoice(voice.duration, voice.file_size ?? 0)) return void (await ctx.reply(t(locale, "voice_too_long", limits)));
+    if (!this.transcription.isAvailable()) return void (await ctx.reply(t(locale, "voice_openai_only")));
     const gate = await this.chat.voiceGate(access.user.id);
     if (gate === "consent") return this.replyVoiceConsent(ctx);
-    if (gate === "unavailable") return void await ctx.reply(t(locale, "voice_openai_only"));
-    if (gate === "suspended") return void await ctx.reply(t(locale, "voice_suspended"));
-    if (gate === "rate_limited") return void await ctx.reply(t(locale, "voice_rate_limited"));
+    if (gate === "unavailable") return void (await ctx.reply(t(locale, "voice_openai_only")));
+    if (gate === "suspended") return void (await ctx.reply(t(locale, "voice_suspended")));
+    if (gate === "rate_limited") return void (await ctx.reply(t(locale, "voice_rate_limited")));
     let statusMessageId: number | undefined;
     let messageText: string | undefined;
     try {
@@ -65,25 +66,51 @@ export class TelegramConversationHandlersService {
       // Consent may have been revoked while the file was downloading; recheck before the upload.
       const providerGate = await this.chat.voiceGate(access.user.id);
       if (providerGate !== "ready") {
-        const text = t(locale, providerGate === "consent" ? "voice_consent_needed" : providerGate === "suspended" ? "voice_suspended" : providerGate === "rate_limited" ? "voice_rate_limited" : "voice_unavailable");
+        const text = t(
+          locale,
+          providerGate === "consent"
+            ? "voice_consent_needed"
+            : providerGate === "suspended"
+              ? "voice_suspended"
+              : providerGate === "rate_limited"
+                ? "voice_rate_limited"
+                : "voice_unavailable",
+        );
         await ctx.api.editMessageText(ctx.chat.id, statusMessageId, text).catch(() => undefined);
         if (providerGate === "consent") await this.replyVoiceConsent(ctx);
         return;
       }
 
       const language = voiceLanguage(ctx.from.language_code, settings.pinnedLanguage);
-      const text = await this.transcription.transcribe({ workspaceId: access.workspaceId, userId: access.user.id, audio, durationSeconds: voice.duration, ...(language ? { language } : {}) });
-      if (!text) return void await ctx.api.editMessageText(ctx.chat.id, statusMessageId, t(locale, "voice_unrecognized")).catch(() => undefined);
+      const text = await this.transcription.transcribe({
+        workspaceId: access.workspaceId,
+        userId: access.user.id,
+        audio,
+        durationSeconds: voice.duration,
+        ...(language ? { language } : {}),
+      });
+      if (!text) return void (await ctx.api.editMessageText(ctx.chat.id, statusMessageId, t(locale, "voice_unrecognized")).catch(() => undefined));
       messageText = text;
       await ctx.api.editMessageText(ctx.chat.id, statusMessageId, `🎙 ${compactText(text, 320)}`).catch(() => undefined);
       await ctx.replyWithChatAction("typing").catch(() => undefined);
       const result = await this.chat.processText({
-        workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus, timezone: settings.timezone,
-        language: settings.pinnedLanguage ?? ctx.from.language_code ?? null, text, telegramChatId: ctx.chat.id, telegramMessageId: ctx.message.message_id,
+        workspaceId: access.workspaceId,
+        userId: access.user.id,
+        aiStatus: access.user.aiStatus,
+        timezone: settings.timezone,
+        language: settings.pinnedLanguage ?? ctx.from.language_code ?? null,
+        text,
+        telegramChatId: ctx.chat.id,
+        telegramMessageId: ctx.message.message_id,
       });
       await this.chatReply.reply(ctx, access, result);
     } catch (error) {
-      console.error("voice processing failed", { userId: access.user.id, messageId: ctx.message.message_id, ...(messageText ? { message: safeMessageMetadata(messageText) } : {}), error: safeError(error) });
+      logger.error("voice processing failed", {
+        userId: access.user.id,
+        messageId: ctx.message.message_id,
+        ...(messageText ? { message: safeMessageMetadata(messageText) } : {}),
+        error: safeError(error),
+      });
       const message = t(locale, "voice_failed");
       if (statusMessageId) await ctx.api.editMessageText(ctx.chat.id, statusMessageId, message).catch(() => undefined);
       else await ctx.reply(message);
@@ -104,12 +131,19 @@ export class TelegramConversationHandlersService {
     const match = REVIEW_CALLBACK.exec(ctx.callbackQuery.data);
     const kind = match?.[1] as "evening" | "weekly" | undefined;
     const deliveryId = match?.[2];
-    if (!kind || !deliveryId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (!kind || !deliveryId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     const messageId = ctx.callbackQuery.message?.message_id;
     if (deliveryId !== "start") {
-      const current = messageId !== undefined && await this.briefings.isCurrentReviewDelivery({
-        workspaceId: access.workspaceId, userId: access.user.id, deliveryId, kind, telegramMessageId: messageId, localDate: localDateAt(new Date(), settings.digestTimezone),
-      });
+      const current =
+        messageId !== undefined &&
+        (await this.briefings.isCurrentReviewDelivery({
+          workspaceId: access.workspaceId,
+          userId: access.user.id,
+          deliveryId,
+          kind,
+          telegramMessageId: messageId,
+          localDate: localDateAt(new Date(), settings.digestTimezone),
+        }));
       if (!current) {
         await ctx.answerCallbackQuery({ text: t(locale, "review_stale_toast") });
         await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
@@ -119,12 +153,17 @@ export class TelegramConversationHandlersService {
     try {
       await ctx.answerCallbackQuery({ text: t(locale, kind === "evening" ? "review_start_evening_toast" : "review_start_weekly_toast") });
       const result = await this.chat.startReview({
-        workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus, timezone: settings.timezone,
-        digestTimezone: settings.digestTimezone, language: settings.pinnedLanguage, kind,
+        workspaceId: access.workspaceId,
+        userId: access.user.id,
+        aiStatus: access.user.aiStatus,
+        timezone: settings.timezone,
+        digestTimezone: settings.digestTimezone,
+        language: settings.pinnedLanguage,
+        kind,
       });
       await this.chatReply.reply(ctx, access, result);
     } catch (error) {
-      console.error("review callback failed", { userId: access.user.id, error: safeError(error) });
+      logger.error("review callback failed", { userId: access.user.id, error: safeError(error) });
       await ctx.reply(t(locale, "review_failed"));
     }
   }

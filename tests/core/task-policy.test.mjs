@@ -6,34 +6,47 @@ const base = { kind: "task", importance: "normal", timeMode: "point", timezone: 
 
 test("point task is valid", () => assert.deepEqual(validateTaskDefinition(base), { ok: true }));
 test("event cannot be deadline", () => assert.equal(validateTaskDefinition({ ...base, kind: "event", timeMode: "deadline", dueAt: new Date() }).ok, false));
-test("critical date-only deadline is rejected", () => assert.equal(validateTaskDefinition({ ...base, importance: "critical", timeMode: "deadline", plannedStartAt: undefined, dueLocalDate: "2026-08-11" }).ok, false));
-test("fuzzy task requires reviewAt", () => assert.equal(validateTaskDefinition({ ...base, timeMode: "fuzzy", plannedStartAt: undefined, fuzzyHorizonText: "на следующей неделе" }).ok, false));
-test("fuzzy task does not create occurrence", () => assert.equal(taskCreatesOccurrence({ ...base, timeMode: "fuzzy", plannedStartAt: undefined, fuzzyHorizonText: "к осени", reviewAt: new Date() }), false));
-test("habit requires recurring task and minimum/desired actions", () => assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=DAILY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "expire", habitMode: true }).ok, false));
+test("critical date-only deadline is rejected", () =>
+  assert.equal(validateTaskDefinition({ ...base, importance: "critical", timeMode: "deadline", plannedStartAt: undefined, dueLocalDate: "2026-08-11" }).ok, false));
+test("fuzzy task requires reviewAt", () =>
+  assert.equal(validateTaskDefinition({ ...base, timeMode: "fuzzy", plannedStartAt: undefined, fuzzyHorizonText: "на следующей неделе" }).ok, false));
+test("fuzzy task does not create occurrence", () =>
+  assert.equal(taskCreatesOccurrence({ ...base, timeMode: "fuzzy", plannedStartAt: undefined, fuzzyHorizonText: "к осени", reviewAt: new Date() }), false));
+test("habit requires recurring task and minimum/desired actions", () =>
+  assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=DAILY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "expire", habitMode: true }).ok, false));
 
-test("unsupported recurrence frequency is rejected", () => assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=YEARLY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over" }).ok, false));
+test("unsupported recurrence frequency is rejected", () =>
+  assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=YEARLY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over" }).ok, false));
 test("miss policy without recurrence is rejected", () => assert.equal(validateTaskDefinition({ ...base, missPolicy: "carry_over" }).ok, false));
 test("recurrence bounds and exclusions require a valid series", () => {
   assert.equal(validateTaskDefinition({ ...base, recurrenceEndLocalDate: "2026-09-30" }).ok, false);
-  assert.equal(validateTaskDefinition({
-    ...base,
-    recurrenceRule: "FREQ=DAILY",
-    recurrenceTimezone: "Europe/Kyiv",
-    missPolicy: "carry_over",
-    recurrenceEndLocalDate: "2026-08-09",
-  }).ok, false);
-  assert.equal(validateTaskDefinition({
-    ...base,
-    recurrenceRule: "FREQ=DAILY",
-    recurrenceTimezone: "Europe/Kyiv",
-    missPolicy: "carry_over",
-    recurrenceEndLocalDate: "2026-09-30",
-    recurrenceExcludedLocalDates: ["2026-08-12"],
-  }).ok, true);
+  assert.equal(
+    validateTaskDefinition({
+      ...base,
+      recurrenceRule: "FREQ=DAILY",
+      recurrenceTimezone: "Europe/Kyiv",
+      missPolicy: "carry_over",
+      recurrenceEndLocalDate: "2026-08-09",
+    }).ok,
+    false,
+  );
+  assert.equal(
+    validateTaskDefinition({
+      ...base,
+      recurrenceRule: "FREQ=DAILY",
+      recurrenceTimezone: "Europe/Kyiv",
+      missPolicy: "carry_over",
+      recurrenceEndLocalDate: "2026-09-30",
+      recurrenceExcludedLocalDates: ["2026-08-12"],
+    }).ok,
+    true,
+  );
 });
 test("point cannot secretly contain deadline", () => assert.equal(validateTaskDefinition({ ...base, dueAt: new Date("2026-08-11T09:00:00Z") }).ok, false));
-test("fuzzy cannot contain concrete start", () => assert.equal(validateTaskDefinition({ ...base, timeMode: "fuzzy", fuzzyHorizonText: "в течение месяца", reviewAt: new Date() }).ok, false));
-test("unsupported recurrence fields are rejected", () => assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=DAILY;COUNT=4", recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over" }).ok, false));
+test("fuzzy cannot contain concrete start", () =>
+  assert.equal(validateTaskDefinition({ ...base, timeMode: "fuzzy", fuzzyHorizonText: "в течение месяца", reviewAt: new Date() }).ok, false));
+test("unsupported recurrence fields are rejected", () =>
+  assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=DAILY;COUNT=4", recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over" }).ok, false));
 test("multiple daily times require an exact point or window start", () => {
   const invalid = validateTaskDefinition({
     ...base,
@@ -55,7 +68,8 @@ test("multiple daily times include the series start time", () => {
   });
   assert.deepEqual(invalid, { ok: false, errors: ["plannedStartAt time must be included in BYTIME"] });
 });
-test("deadline planned start cannot be after exact due", () => assert.equal(validateTaskDefinition({ ...base, timeMode: "deadline", plannedStartAt: new Date("2026-08-11T10:00:00Z"), dueAt: new Date("2026-08-11T09:00:00Z") }).ok, false));
+test("deadline planned start cannot be after exact due", () =>
+  assert.equal(validateTaskDefinition({ ...base, timeMode: "deadline", plannedStartAt: new Date("2026-08-11T10:00:00Z"), dueAt: new Date("2026-08-11T09:00:00Z") }).ok, false));
 
 test("one-time tasks cannot be created with a past boundary", () => {
   const now = new Date("2026-08-11T17:30:00Z");
@@ -65,13 +79,16 @@ test("one-time tasks cannot be created with a past boundary", () => {
 
 test("a new recurring series cannot start in the past", () => {
   const now = new Date("2026-08-11T17:30:00Z");
-  const errors = validateNewTaskTiming({
-    ...base,
-    plannedStartAt: new Date("2026-08-11T17:29:59Z"),
-    recurrenceRule: "FREQ=DAILY;BYTIME=20:00",
-    recurrenceTimezone: "Europe/Kyiv",
-    missPolicy: "expire",
-  }, now);
+  const errors = validateNewTaskTiming(
+    {
+      ...base,
+      plannedStartAt: new Date("2026-08-11T17:29:59Z"),
+      recurrenceRule: "FREQ=DAILY;BYTIME=20:00",
+      recurrenceTimezone: "Europe/Kyiv",
+      missPolicy: "expire",
+    },
+    now,
+  );
   assert.match(errors.join(" "), /plannedStartAt.*recurring task/);
 });
 
@@ -95,7 +112,6 @@ test("temporal guard covers every concrete one-time boundary in the user timezon
     assert.match(errors.join(" "), new RegExp(field));
   }
 });
-
 
 test("reschedule reason is required by importance or repeated normal reschedule", () => {
   assert.equal(isRescheduleReasonRequired("normal", 0), false);

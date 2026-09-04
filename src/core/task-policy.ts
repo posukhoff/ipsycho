@@ -135,16 +135,17 @@ function validateConcreteTaskTiming(task: TaskDefinition, now: Date, operation: 
     if (value && value < now) errors.push(`${field} must not be in the past when ${operation}`);
   }
   const today = localDateAt(now, task.timezone);
-  for (const [field, value] of [["plannedLocalDate", task.plannedLocalDate], ["dueLocalDate", task.dueLocalDate]] as const) {
+  for (const [field, value] of [
+    ["plannedLocalDate", task.plannedLocalDate],
+    ["dueLocalDate", task.dueLocalDate],
+  ] as const) {
     if (value && value < today) errors.push(`${field} must not be before today when ${operation}`);
   }
   return errors;
 }
 
 export function validateNewTaskTiming(task: TaskDefinition, now: Date): string[] {
-  return task.recurrenceRule
-    ? validateConcreteTaskTiming(task, now, "creating a recurring task")
-    : validateOneTimeTaskTiming(task, now, "creating a one-time task");
+  return task.recurrenceRule ? validateConcreteTaskTiming(task, now, "creating a recurring task") : validateOneTimeTaskTiming(task, now, "creating a one-time task");
 }
 
 export function isRescheduleReasonRequired(importance: TaskDefinition["importance"], previousReschedules: number): boolean {

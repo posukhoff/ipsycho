@@ -5,7 +5,10 @@
  * user; everything else that is thrown is an actual failure and is retried or reported.
  */
 export class DomainRuleError extends Error {
-  constructor(message: string, readonly code?: string) {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
     super(message);
     this.name = "DomainRuleError";
   }

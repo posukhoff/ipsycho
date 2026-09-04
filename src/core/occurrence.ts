@@ -26,11 +26,7 @@ export function deriveInitialOccurrenceStatus(now: Date, plannedStartAt?: Date):
   return plannedStartAt && plannedStartAt > now ? "scheduled" : "open";
 }
 
-export function validateOccurrenceTransition(
-  from: OccurrenceStatus,
-  to: OccurrenceStatus,
-  context: TransitionContext,
-): { ok: true } | { ok: false; reason: string } {
+export function validateOccurrenceTransition(from: OccurrenceStatus, to: OccurrenceStatus, context: TransitionContext): { ok: true } | { ok: false; reason: string } {
   if (context.isUndo) return { ok: true };
   if (!transitions[from].includes(to)) return { ok: false, reason: `illegal transition ${from} -> ${to}` };
 

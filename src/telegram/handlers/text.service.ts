@@ -16,6 +16,7 @@ import { activeState, type AppContext } from "../telegram-context.js";
 import { OnboardingService } from "./onboarding.service.js";
 import { ScreensService } from "./screens.service.js";
 import { TaskCallbacksService } from "./task-callbacks.service.js";
+import { logger } from "../../observability/logger.js";
 
 type TextContext = Filter<AppContext, "message:text">;
 
@@ -67,9 +68,15 @@ export class TextService {
       return;
     }
     if (control === "conclude") {
-      const result = await this.withTyping(ctx, () => this.chat.concludeConversation({
-        workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus, timezone: settings.timezone, language: settings.pinnedLanguage,
-      }));
+      const result = await this.withTyping(ctx, () =>
+        this.chat.concludeConversation({
+          workspaceId: access.workspaceId,
+          userId: access.user.id,
+          aiStatus: access.user.aiStatus,
+          timezone: settings.timezone,
+          language: settings.pinnedLanguage,
+        }),
+      );
       await this.chatReply.reply(ctx, access, result);
       return;
     }
@@ -80,20 +87,27 @@ export class TextService {
   private async processWithModel(ctx: TextContext, focus?: { occurrenceId: string; action: "reschedule" | "blocker" }): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
     try {
-      const result = await this.withTyping(ctx, () => this.chat.processText({
-        workspaceId: access.workspaceId,
-        userId: access.user.id,
-        aiStatus: access.user.aiStatus,
-        timezone: settings.timezone,
-        language: settings.pinnedLanguage ?? ctx.from.language_code ?? null,
-        text: ctx.message.text,
-        telegramChatId: ctx.chat.id,
-        telegramMessageId: ctx.message.message_id,
-        ...(focus ? { focus } : {}),
-      }));
+      const result = await this.withTyping(ctx, () =>
+        this.chat.processText({
+          workspaceId: access.workspaceId,
+          userId: access.user.id,
+          aiStatus: access.user.aiStatus,
+          timezone: settings.timezone,
+          language: settings.pinnedLanguage ?? ctx.from.language_code ?? null,
+          text: ctx.message.text,
+          telegramChatId: ctx.chat.id,
+          telegramMessageId: ctx.message.message_id,
+          ...(focus ? { focus } : {}),
+        }),
+      );
       await this.chatReply.reply(ctx, access, result);
     } catch (error) {
-      console.error("text processing failed", { userId: access.user.id, messageId: ctx.message.message_id, message: safeMessageMetadata(ctx.message.text), error: safeError(error) });
+      logger.error("text processing failed", {
+        userId: access.user.id,
+        messageId: ctx.message.message_id,
+        message: safeMessageMetadata(ctx.message.text),
+        error: safeError(error),
+      });
       await ctx.reply(t(locale, error instanceof ActionStateUncertainError ? "text_uncertain" : "text_failed")).catch(() => undefined);
     }
   }
@@ -124,7 +138,10 @@ export class TextService {
         const schedule = await this.taskCallbacks.buildQuickReschedule(access, pending.occurrenceId, pending.choice);
         const applied = await this.taskCallbacks.applyReschedule(access, pending.occurrenceId, schedule, reason);
         const current = await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId);
-        if (current) await ctx.reply(await this.screens.taskCard(access.workspaceId, current, locale), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button") });
+        if (current)
+          await ctx.reply(await this.screens.taskCard(access.workspaceId, current, locale), {
+            reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button"),
+          });
         else await ctx.reply(t(locale, "rescheduled_text"));
         return;
       }
@@ -135,7 +152,13 @@ export class TextService {
       }
       if (pending.kind === "follow_up_custom") {
         const intendedFor = parseCustomFollowUpInput(ctx.message.text, timezone, new Date());
-        await this.reminders.scheduleCustomFollowUp({ workspaceId: access.workspaceId, userId: access.user.id, occurrenceId: pending.occurrenceId, intendedFor, mode: pending.mode });
+        await this.reminders.scheduleCustomFollowUp({
+          workspaceId: access.workspaceId,
+          userId: access.user.id,
+          occurrenceId: pending.occurrenceId,
+          intendedFor,
+          mode: pending.mode,
+        });
         await ctx.reply(t(locale, "followup_done", { when: formatLocalDateTime(intendedFor, timezone, new Date()) }));
         return;
       }
@@ -157,27 +180,33 @@ export class TextService {
       const applied = await this.taskCallbacks.applyReschedule(access, pending.occurrenceId, parsed.schedule, parsed.reason);
       const report = applied.items?.length ? renderAppliedReport(applied.items, new Date(), locale) : "";
       const headline = t(locale, parsed.schedule.fuzzyHorizonText ? "rescheduled_fuzzy_text" : "rescheduled_text");
-      await ctx.reply(report ? `${headline}\n\n${report}` : headline, { reply_markup: new InlineKeyboard().text(t(locale, "undo_reschedule_button"), `act:undo:${applied.groupId}`) });
+      await ctx.reply(report ? `${headline}\n\n${report}` : headline, {
+        reply_markup: new InlineKeyboard().text(t(locale, "undo_reschedule_button"), `act:undo:${applied.groupId}`),
+      });
       if (!parsed.schedule.fuzzyHorizonText) {
         const count = await this.tasks.countOccurrenceEvents(access.workspaceId, pending.occurrenceId, "occurrence:rescheduled");
         if (count >= 2) {
           await ctx.reply(t(locale, "repeated_reschedule"), {
-            reply_markup: new InlineKeyboard().text(t(locale, "cant_start_button"), `occ:cant:${pending.occurrenceId}`).text(t(locale, "started_button"), `occ:start:${pending.occurrenceId}`),
+            reply_markup: new InlineKeyboard()
+              .text(t(locale, "cant_start_button"), `occ:cant:${pending.occurrenceId}`)
+              .text(t(locale, "started_button"), `occ:start:${pending.occurrenceId}`),
           });
         }
       }
     } catch (error) {
-      console.warn("pending input handling failed", { userId: access.user.id, kind: pending.kind, error: safeError(error) });
-      if (pending.kind === "blocker") return void await ctx.reply(t(locale, "blocker_failed"));
-      if (pending.kind === "reschedule") return void await ctx.reply(t(locale, "resched_failed_text"));
+      logger.warn("pending input handling failed", { userId: access.user.id, kind: pending.kind, error: safeError(error) });
+      if (pending.kind === "blocker") return void (await ctx.reply(t(locale, "blocker_failed")));
+      if (pending.kind === "reschedule") return void (await ctx.reply(t(locale, "resched_failed_text")));
       if (pending.kind === "timezone") return;
       await this.settings.setPendingInput(access.user.id, pending);
-      if (pending.kind === "quick_reschedule_reason") return void await ctx.reply(t(locale, "reason_too_short"));
+      if (pending.kind === "quick_reschedule_reason") return void (await ctx.reply(t(locale, "reason_too_short")));
       await ctx.reply(t(locale, "followup_parse_failed"), { reply_markup: new InlineKeyboard().text(t(locale, "not_now_button"), `occ:back:${pending.occurrenceId}`) });
     }
   }
 }
 
 function isUntilMorningPhrase(text: string): boolean {
-  return /(?:замолчи|мовчи|не пиши(?: мне)?|quiet|don'?t (?:message|write))\s+(?:до|until|till)\s+(?:утра|ранку|morning)|(?:до|until|till)\s+(?:утра|ранку|morning).*(?:замолчи|мовчи|не пиши|quiet)/iu.test(text.trim());
+  return /(?:замолчи|мовчи|не пиши(?: мне)?|quiet|don'?t (?:message|write))\s+(?:до|until|till)\s+(?:утра|ранку|morning)|(?:до|until|till)\s+(?:утра|ранку|morning).*(?:замолчи|мовчи|не пиши|quiet)/iu.test(
+    text.trim(),
+  );
 }

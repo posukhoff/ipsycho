@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { safeError } from "../observability/safe-error.js";
 import * as schema from "./schema.js";
+import { logger } from "../observability/logger.js";
 
 /** Upper bound for one statement; a runaway query must not hold a pooled connection indefinitely. */
 export const STATEMENT_TIMEOUT_MS = 30_000;
@@ -25,7 +26,7 @@ export class DatabaseService implements OnApplicationShutdown {
     });
     // pg emits 'error' for an idle client whose connection dropped (PostgreSQL restart, a NAT
     // timeout). Without a listener Node treats it as an uncaught exception and the process exits.
-    this.pool.on("error", (error) => console.error("postgres pool error on an idle connection", { error: safeError(error) }));
+    this.pool.on("error", (error) => logger.error("postgres pool error on an idle connection", { error: safeError(error) }));
     this.db = drizzle({ client: this.pool, schema });
   }
 

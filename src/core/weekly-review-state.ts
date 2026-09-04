@@ -1,19 +1,23 @@
 import { z } from "zod";
 import { reviewQuestionLimit } from "./review-policy.js";
 
-export const WeeklyReviewDimensionSchema = z.object({
-  status: z.enum(["provided", "skipped"]),
-  summary: z.string().min(1).max(1000),
-}).strict();
+export const WeeklyReviewDimensionSchema = z
+  .object({
+    status: z.enum(["provided", "skipped"]),
+    summary: z.string().min(1).max(1000),
+  })
+  .strict();
 
-export const WeeklyReviewProgressSchema = z.object({
-  outcome: WeeklyReviewDimensionSchema.nullable(),
-  capacityEnergy: WeeklyReviewDimensionSchema.nullable(),
-  risks: WeeklyReviewDimensionSchema.nullable(),
-  minimumSuccess: WeeklyReviewDimensionSchema.nullable(),
-  commitments: WeeklyReviewDimensionSchema.nullable(),
-  conclusionRequested: z.boolean(),
-}).strict();
+export const WeeklyReviewProgressSchema = z
+  .object({
+    outcome: WeeklyReviewDimensionSchema.nullable(),
+    capacityEnergy: WeeklyReviewDimensionSchema.nullable(),
+    risks: WeeklyReviewDimensionSchema.nullable(),
+    minimumSuccess: WeeklyReviewDimensionSchema.nullable(),
+    commitments: WeeklyReviewDimensionSchema.nullable(),
+    conclusionRequested: z.boolean(),
+  })
+  .strict();
 
 export const WeeklyReviewStateSchema = WeeklyReviewProgressSchema.extend({ version: z.literal(1) }).strict();
 export type WeeklyReviewProgress = z.infer<typeof WeeklyReviewProgressSchema>;
@@ -52,7 +56,7 @@ export function mergeWeeklyReviewProgress(current: unknown, progress: WeeklyRevi
 export function weeklyReviewProgressFromText(userText: string): WeeklyReviewProgress {
   const text = userText.toLocaleLowerCase();
   const summary = { status: "provided" as const, summary: userText.trim().slice(0, 1000) };
-  const supported = (pattern: RegExp) => pattern.test(text) ? summary : null;
+  const supported = (pattern: RegExp) => (pattern.test(text) ? summary : null);
   return {
     outcome: supported(/(?:хочу|ціль|цель|(?:^|[^\p{L}\p{N}_])результат(?:$|[^\p{L}\p{N}_])|результат\w*\s+недел|підсум|итог|отримат|получить|добить|achiev|outcome|goal|want)/u),
     capacityEnergy: supported(/(?:\b\d+(?:[.,]\d+)?\s*(?:час|годин)|врем|часу|энерг|енерг|утр|ранок|вечер|після\s+\d|после\s+\d|capacity|available|energy)/u),

@@ -3,6 +3,7 @@ import "reflect-metadata";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
+import { logger } from "../observability/logger.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -35,7 +36,7 @@ try {
       await client.query(sql);
       await client.query("insert into schema_migrations(name) values ($1)", [name]);
       await client.query("commit");
-      console.log(`applied ${name}`);
+      logger.info("migration applied", { name });
     } catch (error) {
       await client.query("rollback");
       throw error;

@@ -6,7 +6,6 @@ import { buildSettingsPatch, type SettingsChange } from "../core/settings-change
 import { DatabaseService } from "../database/database.service.js";
 import { userSettings } from "../database/schema.js";
 
-
 export type PendingInput =
   | { kind: "timezone"; onboarding: boolean }
   | { kind: "reschedule"; occurrenceId: string }
@@ -40,7 +39,10 @@ export class SettingsService {
     const current = await this.get(userId);
     if (!current) throw new Error("settings missing");
     const patch = buildSettingsPatch(change, current);
-    await this.database.db.update(userSettings).set({ ...patch, version: sql`${userSettings.version} + 1`, updatedAt: now }).where(eq(userSettings.userId, userId));
+    await this.database.db
+      .update(userSettings)
+      .set({ ...patch, version: sql`${userSettings.version} + 1`, updatedAt: now })
+      .where(eq(userSettings.userId, userId));
   }
 
   setDigestPreset(userId: string, enabled: boolean): Promise<void> {
@@ -64,11 +66,15 @@ export class SettingsService {
   async applyProfileTimezone(userId: string, target: "digests" | "quiet" | "both"): Promise<void> {
     const current = await this.get(userId);
     if (!current) throw new Error("settings missing");
-    await this.database.db.update(userSettings).set({
-      ...(target === "digests" || target === "both" ? { digestTimezone: current.timezone } : {}),
-      ...(target === "quiet" || target === "both" ? { quietHoursTimezone: current.timezone } : {}),
-      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
-    }).where(eq(userSettings.userId, userId));
+    await this.database.db
+      .update(userSettings)
+      .set({
+        ...(target === "digests" || target === "both" ? { digestTimezone: current.timezone } : {}),
+        ...(target === "quiet" || target === "both" ? { quietHoursTimezone: current.timezone } : {}),
+        version: sql`${userSettings.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(userSettings.userId, userId));
   }
 
   async setLanguage(userId: string, language: string | null): Promise<string | null> {
@@ -118,8 +124,7 @@ export class SettingsService {
 
   async consumePendingInput(userId: string): Promise<PendingInput | null> {
     return this.database.db.transaction(async (tx) => {
-      const [row] = await tx.select({ pendingInput: userSettings.pendingInput }).from(userSettings)
-        .where(eq(userSettings.userId, userId)).for("update").limit(1);
+      const [row] = await tx.select({ pendingInput: userSettings.pendingInput }).from(userSettings).where(eq(userSettings.userId, userId)).for("update").limit(1);
       if (!row?.pendingInput) return null;
       await tx.update(userSettings).set({ pendingInput: null }).where(eq(userSettings.userId, userId));
       return row.pendingInput as PendingInput;
@@ -127,7 +132,8 @@ export class SettingsService {
   }
 
   async markSpendWarning(userId: string, month: string): Promise<boolean> {
-    const [row] = await this.database.db.update(userSettings)
+    const [row] = await this.database.db
+      .update(userSettings)
       .set({ lastAiSpendWarningMonth: month })
       .where(eq(userSettings.userId, userId))
       .returning({ userId: userSettings.userId });

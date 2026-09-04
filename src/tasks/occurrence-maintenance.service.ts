@@ -3,6 +3,7 @@ import { evaluateOccurrenceLifecycle } from "../core/lifecycle.js";
 import { TasksRepository } from "./tasks.repository.js";
 import { TasksService } from "./tasks.service.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 const TICK_MS = 60_000;
 const EVENT_ELAPSE_GRACE_MINUTES = 15;
@@ -19,7 +20,7 @@ export class OccurrenceMaintenanceService implements OnApplicationBootstrap, OnA
 
   async onApplicationBootstrap(): Promise<void> {
     await this.tick();
-    this.timer = setInterval(() => void this.tick().catch((error) => console.error("occurrence maintenance tick failed", safeError(error))), TICK_MS);
+    this.timer = setInterval(() => void this.tick().catch((error) => logger.error("occurrence maintenance tick failed", { error: safeError(error) })), TICK_MS);
     this.timer.unref();
   }
 
@@ -73,7 +74,7 @@ export class OccurrenceMaintenanceService implements OnApplicationBootstrap, OnA
           }
         } catch (error) {
           // Optimistic concurrency means a user action may win between scan and update.
-          console.warn("occurrence maintenance skipped stale row", { occurrenceId: occurrence.id, error: safeError(error) });
+          logger.warn("occurrence maintenance skipped stale row", { occurrenceId: occurrence.id, error: safeError(error) });
         }
       }
     } finally {

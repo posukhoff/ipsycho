@@ -15,4 +15,3 @@ export function interfaceLocale(language: string | null | undefined): InterfaceL
   if (value.startsWith("en")) return "en";
   return "ru";
 }
-

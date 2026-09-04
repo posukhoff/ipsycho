@@ -11,7 +11,10 @@ import type { CreateTaskInput } from "../tasks/tasks.service.js";
 
 /** A domain rule the model's action violated. `code` keys the user-facing explanation. */
 export class InvalidAiActionError extends Error {
-  constructor(message: string, readonly code: string = "invalid_action") {
+  constructor(
+    message: string,
+    readonly code: string = "invalid_action",
+  ) {
     super(message);
   }
 }
@@ -32,7 +35,19 @@ export function assertTimezone(timezone: string): void {
 
 /** The model's `When` expressed as the structured schedule the domain compiler understands. */
 export function structuredScheduleFromWhen(when: When, ctx: ScheduleContext): StructuredLocalScheduleInput {
-  const base = { timezone: ctx.timezone, startDate: null, startTime: null, endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null };
+  const base = {
+    timezone: ctx.timezone,
+    startDate: null,
+    startTime: null,
+    endDate: null,
+    endTime: null,
+    dueDate: null,
+    dueTime: null,
+    durationMinutes: null,
+    fuzzyHorizonText: null,
+    reviewDate: null,
+    reviewTime: null,
+  };
   switch (when.mode) {
     case "exact":
       return when.durationMinutes
@@ -61,21 +76,28 @@ function missPolicyDefault(timeMode: TimeMode): MissPolicy {
 }
 
 /** Recurrence fields for a definition whose one-time schedule is already compiled. */
-function recurrenceFields(recurrence: Recurrence, schedule: CompiledLocalSchedule, timezone: string): Pick<TaskDefinition, "recurrenceRule" | "recurrenceTimezone" | "recurrenceEndLocalDate" | "recurrenceExcludedLocalDates"> {
+function recurrenceFields(
+  recurrence: Recurrence,
+  schedule: CompiledLocalSchedule,
+  timezone: string,
+): Pick<TaskDefinition, "recurrenceRule" | "recurrenceTimezone" | "recurrenceEndLocalDate" | "recurrenceExcludedLocalDates"> {
   if (schedule.timeMode === "fuzzy") throw new InvalidAiActionError("recurring item cannot use fuzzy time", "recurring_fuzzy");
   const anchorTask = { ...schedule, kind: "task", importance: "normal" } as TaskDefinition;
   let compiled;
   try {
-    compiled = compileStructuredRecurrence({
-      frequency: recurrence.frequency,
-      interval: recurrence.interval,
-      startsOn: recurrenceAnchorLocalDate(anchorTask, timezone),
-      endsOn: recurrence.until,
-      weekdays: recurrence.weekdays,
-      monthDays: recurrence.monthDays,
-      localTimes: null,
-      excludedLocalDates: recurrence.skipDates,
-    }, { anchorLocalTime: recurrenceAnchorLocalTime(anchorTask, timezone) });
+    compiled = compileStructuredRecurrence(
+      {
+        frequency: recurrence.frequency,
+        interval: recurrence.interval,
+        startsOn: recurrenceAnchorLocalDate(anchorTask, timezone),
+        endsOn: recurrence.until,
+        weekdays: recurrence.weekdays,
+        monthDays: recurrence.monthDays,
+        localTimes: null,
+        excludedLocalDates: recurrence.skipDates,
+      },
+      { anchorLocalTime: recurrenceAnchorLocalTime(anchorTask, timezone) },
+    );
   } catch (error) {
     throw new InvalidAiActionError(error instanceof Error ? error.message : "invalid recurrence", "recurrence");
   }
@@ -100,7 +122,9 @@ export function taskDefinitionFromBody(body: TaskBody, ctx: ScheduleContext, now
     ...recurring,
     ...(body.recurrence && body.kind === "task" ? { missPolicy: body.recurrence.missed ?? missPolicyDefault(timeMode) } : {}),
     habitMode: Boolean(body.habit),
-    ...(body.habit ? { minimumAction: body.habit.minimumAction, desiredAction: body.habit.desiredAction, ...(body.habit.trigger ? { habitTrigger: body.habit.trigger } : {}) } : {}),
+    ...(body.habit
+      ? { minimumAction: body.habit.minimumAction, desiredAction: body.habit.desiredAction, ...(body.habit.trigger ? { habitTrigger: body.habit.trigger } : {}) }
+      : {}),
   };
   const validation = validateTaskDefinition(definition);
   if (!validation.ok) throw new InvalidAiActionError(validation.errors.join("; "), "task_definition");
@@ -109,13 +133,17 @@ export function taskDefinitionFromBody(body: TaskBody, ctx: ScheduleContext, now
   return definition;
 }
 
-export function createTaskInputFromBody(body: TaskBody, scope: {
-  workspaceId: string;
-  actorUserId: string;
-  recipientUserId: string;
-  sourceActionGroupId?: string;
-  now: Date;
-}, ctx: ScheduleContext): CreateTaskInput {
+export function createTaskInputFromBody(
+  body: TaskBody,
+  scope: {
+    workspaceId: string;
+    actorUserId: string;
+    recipientUserId: string;
+    sourceActionGroupId?: string;
+    now: Date;
+  },
+  ctx: ScheduleContext,
+): CreateTaskInput {
   const definition = taskDefinitionFromBody(body, ctx, scope.now);
   const explicitReminder = body.reminder ? explicitReminderForNewTask(body.reminder, definition) : undefined;
   return {
@@ -142,7 +170,14 @@ function explicitReminderForNewTask(reminder: Reminder, definition: TaskDefiniti
   if (definition.timeMode === "fuzzy") throw new InvalidAiActionError("a task without a date cannot carry a reminder", "fuzzy_reminder");
   const rule = reminderRuleFromReminder(reminder, definition.timezone);
   if (rule.triggerKind === "relative_timestamp") {
-    const anchorAt = rule.anchor === "planned_start" ? definition.plannedStartAt : rule.anchor === "planned_end" ? definition.plannedEndAt : rule.anchor === "due_at" ? definition.dueAt : undefined;
+    const anchorAt =
+      rule.anchor === "planned_start"
+        ? definition.plannedStartAt
+        : rule.anchor === "planned_end"
+          ? definition.plannedEndAt
+          : rule.anchor === "due_at"
+            ? definition.dueAt
+            : undefined;
     if (!anchorAt) throw new InvalidAiActionError(`reminder anchor ${rule.anchor} has no exact time on this task`, "date_only_offset");
   }
   if (rule.triggerKind === "local_date") {
@@ -171,7 +206,15 @@ export function reminderRuleFromReminder(reminder: Reminder, timezone: string): 
 }
 
 export function validateUpdateTaskPatch(patch: UpdateTaskPatch): void {
-  if (patch.title === null && patch.why === null && patch.nextAction === null && patch.context === null && patch.importance === null && patch.checklist === null && patch.habit === null) {
+  if (
+    patch.title === null &&
+    patch.why === null &&
+    patch.nextAction === null &&
+    patch.context === null &&
+    patch.importance === null &&
+    patch.checklist === null &&
+    patch.habit === null
+  ) {
     throw new InvalidAiActionError("update_task patch must change at least one field", "empty_patch");
   }
   if (patch.title !== null && !patch.title.trim()) throw new InvalidAiActionError("task title cannot be empty", "blank_field");
@@ -210,11 +253,11 @@ export function seriesDefinitionFromReschedule(action: ResolvedActionOf<"resched
   const recurring = action.recurrence
     ? recurrenceFields(action.recurrence, schedule, timezone)
     : {
-      recurrenceRule: current.recurrenceRule ?? "",
-      recurrenceTimezone: timezone,
-      ...(current.recurrenceEndLocalDate ? { recurrenceEndLocalDate: current.recurrenceEndLocalDate } : {}),
-      ...(current.recurrenceExcludedLocalDates?.length ? { recurrenceExcludedLocalDates: current.recurrenceExcludedLocalDates } : {}),
-    };
+        recurrenceRule: current.recurrenceRule ?? "",
+        recurrenceTimezone: timezone,
+        ...(current.recurrenceEndLocalDate ? { recurrenceEndLocalDate: current.recurrenceEndLocalDate } : {}),
+        ...(current.recurrenceExcludedLocalDates?.length ? { recurrenceExcludedLocalDates: current.recurrenceExcludedLocalDates } : {}),
+      };
   const next: TaskDefinition = {
     kind: current.kind,
     importance: current.importance,
@@ -241,7 +284,12 @@ export function whenFromRescheduleFields(fields: RescheduleFields, timezone: str
   if (fields.plannedStartAt) {
     const parts = localDateTimeAt(fields.plannedStartAt, timezone);
     const durationMinutes = fields.plannedEndAt ? Math.round((fields.plannedEndAt.getTime() - fields.plannedStartAt.getTime()) / 60_000) : null;
-    return { mode: "exact", date: localDateAt(fields.plannedStartAt, timezone), time: `${pad(parts.hour)}:${pad(parts.minute)}`, durationMinutes: durationMinutes && durationMinutes > 0 ? durationMinutes : null };
+    return {
+      mode: "exact",
+      date: localDateAt(fields.plannedStartAt, timezone),
+      time: `${pad(parts.hour)}:${pad(parts.minute)}`,
+      durationMinutes: durationMinutes && durationMinutes > 0 ? durationMinutes : null,
+    };
   }
   if (fields.plannedLocalDate) return { mode: "date", date: fields.plannedLocalDate };
   if (fields.dueAt) {

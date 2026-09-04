@@ -12,9 +12,7 @@ export class GeminiProvider implements AiProvider {
   private readonly client: OpenAI | null;
 
   constructor(config: AppConfig) {
-    this.client = config.geminiApiKey
-      ? createOpenAiCompatibleClient({ apiKey: config.geminiApiKey, baseURL: GEMINI_OPENAI_BASE_URL })
-      : null;
+    this.client = config.geminiApiKey ? createOpenAiCompatibleClient({ apiKey: config.geminiApiKey, baseURL: GEMINI_OPENAI_BASE_URL }) : null;
   }
 
   isConfigured(): boolean {

@@ -14,11 +14,7 @@ export function splitReason(value: string): { body: string; reason?: string } {
   return { body: normalizedBody, ...(reason ? { reason } : {}) };
 }
 
-export function parseRescheduleInput(
-  value: string,
-  timeMode: TimeMode,
-  timezone: string,
-): ParsedRescheduleInput {
+export function parseRescheduleInput(value: string, timeMode: TimeMode, timezone: string): ParsedRescheduleInput {
   const { body, reason } = splitReason(value);
   if (!body) throw new Error("new schedule is required");
 
@@ -35,7 +31,9 @@ export function parseRescheduleInput(
   if (timeMode === "window") {
     const match = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})$/u.exec(body);
     if (!match?.[1] || !match[2] || !match[3]) throw new Error("window format must be YYYY-MM-DD HH:MM-HH:MM");
-    parseLocalDate(match[1]); parseLocalTime(match[2]); parseLocalTime(match[3]);
+    parseLocalDate(match[1]);
+    parseLocalTime(match[2]);
+    parseLocalTime(match[3]);
     const start = localDateAndTimeToUtc(match[1], match[2], timezone).date;
     let endDate = match[1];
     let end = localDateAndTimeToUtc(endDate, match[3], timezone).date;
@@ -54,14 +52,16 @@ export function parseRescheduleInput(
     }
     const exact = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/u.exec(body);
     if (!exact?.[1] || !exact[2]) throw new Error("deadline format must be YYYY-MM-DD or YYYY-MM-DD HH:MM");
-    parseLocalDate(exact[1]); parseLocalTime(exact[2]);
+    parseLocalDate(exact[1]);
+    parseLocalTime(exact[2]);
     return { schedule: { dueAt: localDateAndTimeToUtc(exact[1], exact[2], timezone).date }, ...(reason ? { reason } : {}) };
   }
 
   // point and fuzzy tasks can both be concretized to one point.
   const point = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/u.exec(body);
   if (!point?.[1] || !point[2]) throw new Error("point format must be YYYY-MM-DD HH:MM");
-  parseLocalDate(point[1]); parseLocalTime(point[2]);
+  parseLocalDate(point[1]);
+  parseLocalTime(point[2]);
   return { schedule: { plannedStartAt: localDateAndTimeToUtc(point[1], point[2], timezone).date }, ...(reason ? { reason } : {}) };
 }
 
@@ -81,7 +81,8 @@ export function parseCustomFollowUpInput(value: string, timezone: string, now: D
   }
   const exact = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/u.exec(normalized);
   if (!exact?.[1] || !exact[2]) throw new Error("custom time must be minutes, HH:MM, or YYYY-MM-DD HH:MM");
-  parseLocalDate(exact[1]); parseLocalTime(exact[2]);
+  parseLocalDate(exact[1]);
+  parseLocalTime(exact[2]);
   const target = localDateAndTimeToUtc(exact[1], exact[2], timezone).date;
   if (target <= now) throw new Error("custom time must be in the future");
   return target;

@@ -10,8 +10,20 @@ import { t } from "../copy/index.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import type { TelegramLocale } from "../telegram-locale.js";
 import {
-  fuzzyTaskCardText, fuzzyTaskDetailKeyboard, goalsOverviewText, remindersKeyboard, screenFooterKeyboard, settingsKeyboard, settingsText,
-  startedTaskKeyboard, taskCardText, taskDetailKeyboard, taskKeyboard, taskListKeyboard, tasksOverviewText, todayText,
+  fuzzyTaskCardText,
+  fuzzyTaskDetailKeyboard,
+  goalsOverviewText,
+  remindersKeyboard,
+  screenFooterKeyboard,
+  settingsKeyboard,
+  settingsText,
+  startedTaskKeyboard,
+  taskCardText,
+  taskDetailKeyboard,
+  taskKeyboard,
+  taskListKeyboard,
+  tasksOverviewText,
+  todayText,
 } from "../telegram-ui.js";
 
 export type OccurrenceContext = NonNullable<Awaited<ReturnType<TasksService["getOccurrenceContext"]>>>;
@@ -29,7 +41,10 @@ export class ScreensService {
   async present(ctx: AppContext, text: string, keyboard?: InlineKeyboard, edit = false): Promise<void> {
     const options = { reply_markup: keyboard ?? new InlineKeyboard() };
     if (edit && ctx.callbackQuery?.message) {
-      const edited = await ctx.editMessageText(text, options).then(() => true).catch(() => false);
+      const edited = await ctx
+        .editMessageText(text, options)
+        .then(() => true)
+        .catch(() => false);
       if (edited) return;
     }
     await ctx.reply(text, keyboard ? { reply_markup: keyboard } : {});
@@ -65,7 +80,12 @@ export class ScreensService {
       this.tasks.listCompletedTodayForTelegram(access.workspaceId, localDate),
     ]);
     const visible = showAll ? 20 : 6;
-    await this.present(ctx, todayText(items, localDate, locale, completed.length, visible), taskListKeyboard(items, locale, { showAll: !showAll, allCount: items.length, visibleCount: visible, expanded: showAll }), edit);
+    await this.present(
+      ctx,
+      todayText(items, localDate, locale, completed.length, visible),
+      taskListKeyboard(items, locale, { showAll: !showAll, allCount: items.length, visibleCount: visible, expanded: showAll }),
+      edit,
+    );
   }
 
   async goals(ctx: AppContext, edit = false): Promise<void> {
@@ -93,7 +113,9 @@ export class ScreensService {
     const { access, locale } = activeState(ctx);
     const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
     if (!context) return false;
-    await ctx.editMessageText(await this.taskCard(access.workspaceId, context, locale), { reply_markup: taskDetailKeyboard(occurrenceId, context.occurrence.status, locale) }).catch(() => undefined);
+    await ctx
+      .editMessageText(await this.taskCard(access.workspaceId, context, locale), { reply_markup: taskDetailKeyboard(occurrenceId, context.occurrence.status, locale) })
+      .catch(() => undefined);
     return true;
   }
 
@@ -109,7 +131,8 @@ export class ScreensService {
   /** The card's own keyboard for its current state, optionally with an Undo row for what just happened. */
   occurrenceKeyboard(ctx: AppContext, context: OccurrenceContext, undoGroupId?: string, undoLabel: "undo_button" | "undo_reschedule_button" = "undo_button"): InlineKeyboard {
     const { locale } = activeState(ctx);
-    const keyboard = context.occurrence.status === "in_progress" ? startedTaskKeyboard(context.occurrence.id, locale) : taskKeyboard(context.occurrence.id, context.occurrence.status, locale);
+    const keyboard =
+      context.occurrence.status === "in_progress" ? startedTaskKeyboard(context.occurrence.id, locale) : taskKeyboard(context.occurrence.id, context.occurrence.status, locale);
     if (undoGroupId) keyboard.row().text(t(locale, undoLabel), `act:undo:${undoGroupId}`);
     return keyboard;
   }

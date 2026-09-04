@@ -36,7 +36,11 @@ export interface ModelGoalLine {
   tasks?: string[];
 }
 
-export interface ModelMemoryLine { id: string; type: string; content: string }
+export interface ModelMemoryLine {
+  id: string;
+  type: string;
+  content: string;
+}
 
 export interface ModelSettings {
   timezone: string;
@@ -56,10 +60,7 @@ export interface ModelSettings {
   };
 }
 
-export type ModelHint =
-  | { task: string; kind: "avoidance" }
-  | { task: string; kind: "habit_offer" }
-  | { task: string; kind: "reschedule_requested" | "blocker_recorded" };
+export type ModelHint = { task: string; kind: "avoidance" } | { task: string; kind: "habit_offer" } | { task: string; kind: "reschedule_requested" | "blocker_recorded" };
 
 export interface ModelReview {
   kind: ReviewKind;
@@ -130,7 +131,13 @@ export interface ContextGoalRow {
   targetLocalDate: string | null;
 }
 
-export interface ContextMemoryRow { id: string; version: number; type: string; content: string; sensitive: boolean }
+export interface ContextMemoryRow {
+  id: string;
+  version: number;
+  type: string;
+  content: string;
+  sensitive: boolean;
+}
 
 export interface ContextTopicRow {
   id: string;
@@ -166,9 +173,18 @@ export interface ContextSettingsRow {
   seenCriticalMinutes: number;
 }
 
-export interface TaskSelection<T extends ContextTaskRow = ContextTaskRow> { shown: T[]; total: number; truncated: boolean }
+export interface TaskSelection<T extends ContextTaskRow = ContextTaskRow> {
+  shown: T[];
+  total: number;
+  truncated: boolean;
+}
 
-export interface SelectTasksOptions { now: Date; timezone: string; limit?: number; nearest?: number }
+export interface SelectTasksOptions {
+  now: Date;
+  timezone: string;
+  limit?: number;
+  nearest?: number;
+}
 
 const DEFAULT_LIMIT = 60;
 const DEFAULT_NEAREST = 40;
@@ -178,9 +194,11 @@ const OCCURRENCE_PRIORITY: Partial<Record<OccurrenceStatus, number>> = { in_prog
 
 export function currentOccurrence<O extends ContextOccurrenceRow>(occurrences: readonly O[] | undefined): O | null {
   if (!occurrences?.length) return null;
-  return [...occurrences]
-    .filter((occurrence) => occurrence.status in OCCURRENCE_PRIORITY)
-    .sort((a, b) => (OCCURRENCE_PRIORITY[a.status] ?? 9) - (OCCURRENCE_PRIORITY[b.status] ?? 9) || compareAnchors(occurrenceAnchor(a), occurrenceAnchor(b)))[0] ?? null;
+  return (
+    [...occurrences]
+      .filter((occurrence) => occurrence.status in OCCURRENCE_PRIORITY)
+      .sort((a, b) => (OCCURRENCE_PRIORITY[a.status] ?? 9) - (OCCURRENCE_PRIORITY[b.status] ?? 9) || compareAnchors(occurrenceAnchor(a), occurrenceAnchor(b)))[0] ?? null
+  );
 }
 
 function occurrenceAnchor(occurrence: ContextOccurrenceRow): number | null {
@@ -250,7 +268,8 @@ export function selectTasksForContext<T extends ContextTaskRow>(
 }
 
 export function tasksNote(total: number, shown: number, locale: PresentationLocale = "ru"): string {
-  if (locale === "en") return `Showing ${shown} of ${total} active tasks: the nearest by time and the matches for the message. If the needed one is missing, ask for its exact title.`;
+  if (locale === "en")
+    return `Showing ${shown} of ${total} active tasks: the nearest by time and the matches for the message. If the needed one is missing, ask for its exact title.`;
   if (locale === "uk") return `Показано ${shown} із ${total} активних завдань: найближчі за часом і збіги з повідомленням. Якщо потрібного немає — попроси уточнити назву.`;
   return `Показаны ${shown} из ${total} активных задач: ближайшие по времени и совпадения с сообщением. Если нужной нет — попроси уточнить название.`;
 }
@@ -280,7 +299,10 @@ export interface TurnContextInput {
   locale?: PresentationLocale;
 }
 
-export interface ComposedTurnContext { model: ModelContext; refs: RefMap }
+export interface ComposedTurnContext {
+  model: ModelContext;
+  refs: RefMap;
+}
 
 const WEEKDAY_SHORT: Record<PresentationLocale, readonly string[]> = {
   ru: ["пн", "вт", "ср", "чт", "пт", "сб", "вс"],
@@ -359,13 +381,16 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
       line.avoided = true;
       hints.push({ task: task.shortId, kind: "avoidance" });
     }
-    if (habitOfferEligible({
-      recurring: Boolean(task.recurrenceRule),
-      kind: task.kind,
-      alreadyHabit: Boolean(task.habitMode),
-      offeredBefore: Boolean(task.habitOfferSentAt),
-      behavioral: true, // semantic suitability is the model's call; this gate enforces frequency/type rules.
-    })) hints.push({ task: task.shortId, kind: "habit_offer" });
+    if (
+      habitOfferEligible({
+        recurring: Boolean(task.recurrenceRule),
+        kind: task.kind,
+        alreadyHabit: Boolean(task.habitMode),
+        offeredBefore: Boolean(task.habitOfferSentAt),
+        behavioral: true, // semantic suitability is the model's call; this gate enforces frequency/type rules.
+      })
+    )
+      hints.push({ task: task.shortId, kind: "habit_offer" });
     return line;
   });
   if (input.focus) {
@@ -397,23 +422,33 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
     memory: memoryEntries.map((item) => ({ id: item.shortId, type: item.type, content: item.content })),
     settings: input.settings ? modelSettings(input.settings, input.now, locale) : null,
     topic: {
-      active: active ? {
-        title: active.title,
-        summary: active.summary,
-        ...(active.reviewKind === "evening" || active.reviewKind === "weekly" ? { review: active.reviewKind } : {}),
-      } : null,
+      active: active
+        ? {
+            title: active.title,
+            summary: active.summary,
+            ...(active.reviewKind === "evening" || active.reviewKind === "weekly" ? { review: active.reviewKind } : {}),
+          }
+        : null,
       recent,
     },
-    ...(input.pendingProposal ? {
-      pendingProposal: { askedAt: formatLocalDateTime(input.pendingProposal.createdAt, input.timezone, input.now), items: [...input.pendingProposal.titles] },
-    } : {}),
+    ...(input.pendingProposal
+      ? {
+          pendingProposal: { askedAt: formatLocalDateTime(input.pendingProposal.createdAt, input.timezone, input.now), items: [...input.pendingProposal.titles] },
+        }
+      : {}),
     ...(hints.length ? { hints } : {}),
     ...(input.review ? { review: modelReview(input.review) } : {}),
   };
 
   const refs = buildRefMap({
     tasks: taskEntries.map((task) => ({
-      shortId: task.shortId, id: task.id, version: task.version, title: task.title, timeMode: task.timeMode, recurring: Boolean(task.recurrenceRule), status: task.status,
+      shortId: task.shortId,
+      id: task.id,
+      version: task.version,
+      title: task.title,
+      timeMode: task.timeMode,
+      recurring: Boolean(task.recurrenceRule),
+      status: task.status,
     })),
     goals: goalEntries.map((goal) => ({ shortId: goal.shortId, id: goal.id, version: goal.version, title: goal.title })),
     memory: memoryEntries.map((item) => ({ shortId: item.shortId, id: item.id, version: item.version, title: item.content })),
@@ -432,9 +467,7 @@ function taskState(task: ContextTaskRow, current: ContextOccurrenceRow | null, s
 }
 
 function modelSettings(settings: ContextSettingsRow, now: Date, locale: PresentationLocale): ModelSettings {
-  const offsets = Array.isArray(settings.eventReminderOffsetsMinutes)
-    ? settings.eventReminderOffsetsMinutes.filter((value): value is number => typeof value === "number")
-    : [];
+  const offsets = Array.isArray(settings.eventReminderOffsetsMinutes) ? settings.eventReminderOffsetsMinutes.filter((value): value is number => typeof value === "number") : [];
   return {
     timezone: settings.timezone,
     language: settings.pinnedLanguage?.trim() || "auto",
@@ -485,9 +518,9 @@ export function budgetModelContext(model: ModelContext, maxChars = MODEL_CONTEXT
   if (size(current) <= maxChars) return current;
   current = {
     ...current,
-    memory: current.memory.map((item) => item.content.length > MEMORY_CONTENT_TRIMMED
-      ? { ...item, content: `${item.content.slice(0, MEMORY_CONTENT_TRIMMED - 1).trimEnd()}…` }
-      : item),
+    memory: current.memory.map((item) =>
+      item.content.length > MEMORY_CONTENT_TRIMMED ? { ...item, content: `${item.content.slice(0, MEMORY_CONTENT_TRIMMED - 1).trimEnd()}…` } : item,
+    ),
   };
   if (size(current) <= maxChars) return current;
   const total = model.tasks.length;
@@ -498,4 +531,3 @@ export function budgetModelContext(model: ModelContext, maxChars = MODEL_CONTEXT
   if (tasks.length === current.tasks.length) return current;
   return { ...current, tasks, tasksNote: tasksNote(total, tasks.length, locale) };
 }
-

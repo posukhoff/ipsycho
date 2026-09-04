@@ -20,7 +20,7 @@ export function reminderBriefingBundleDecision(input: {
   if (Math.abs(input.reminderScheduledFor.getTime() - input.briefingScheduledFor.getTime()) > tolerance) return "none";
   // An ambiguous digest may have reached the user; a separate reminder for the same slot risks a duplicate contact.
   if (input.briefingStatus === "sent" || input.briefingStatus === "ambiguous") return "suppress";
-  if (!['pending', 'processing'].includes(input.briefingStatus)) return "none";
+  if (!["pending", "processing"].includes(input.briefingStatus)) return "none";
   const maxWait = input.maxWaitMs ?? 5 * 60_000;
   return input.now.getTime() - input.briefingScheduledFor.getTime() <= maxWait ? "wait" : "none";
 }

@@ -42,10 +42,36 @@ test("English is a first-class locale and primary overview screens do not fall b
   assert.doesNotMatch(helpText(config, "en"), /Tasks, goals, and checklists/);
   assert.doesNotMatch(helpText(config, "en"), /\/invite/);
   const task = { id: "task", title: "Call doctor", importance: "normal", recurrenceRule: null, fuzzyHorizonText: null, timezone: "Europe/Kyiv" };
-  const occurrence = { id: "occ", status: "open", timezone: "Europe/Kyiv", plannedStartAt: "2026-08-12T09:00:00+03:00", plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null };
+  const occurrence = {
+    id: "occ",
+    status: "open",
+    timezone: "Europe/Kyiv",
+    plannedStartAt: "2026-08-12T09:00:00+03:00",
+    plannedEndAt: null,
+    plannedLocalDate: null,
+    dueAt: null,
+    dueLocalDate: null,
+  };
   const screens = [
     helpText(config, "en"),
-    settingsText({ timezone: "Europe/Kyiv", morningDigestEnabled: false, morningReferenceTime: "09:00", eveningDigestEnabled: false, eveningReferenceTime: "20:00", weeklyReviewEnabled: false, weeklyReviewWeekday: 7, weeklyReviewTime: "20:00", quietHoursEnabled: true, weekdayQuietStart: "22:00", weekdayQuietEnd: "08:00" }, new Date(), 0, "en"),
+    settingsText(
+      {
+        timezone: "Europe/Kyiv",
+        morningDigestEnabled: false,
+        morningReferenceTime: "09:00",
+        eveningDigestEnabled: false,
+        eveningReferenceTime: "20:00",
+        weeklyReviewEnabled: false,
+        weeklyReviewWeekday: 7,
+        weeklyReviewTime: "20:00",
+        quietHoursEnabled: true,
+        weekdayQuietStart: "22:00",
+        weekdayQuietEnd: "08:00",
+      },
+      new Date(),
+      0,
+      "en",
+    ),
     tasksOverviewText([{ task, occurrence }], "en"),
     todayText([{ task, occurrence }], "2026-08-12", "en"),
     goalsOverviewText([{ goal: { title: "Health", status: "active", why: "Feel better", targetLocalDate: null }, tasks: [] }], "en"),
@@ -55,9 +81,21 @@ test("English is a first-class locale and primary overview screens do not fall b
 
 test("task overview collapses recurring occurrences while Today keeps same-day occurrences", () => {
   const recurring = { id: "series", title: "Take medication", importance: "normal", recurrenceRule: "FREQ=DAILY", fuzzyHorizonText: null, timezone: "Europe/Kyiv" };
-  const morning = { id: "morning", status: "open", timezone: "Europe/Kyiv", plannedStartAt: "2026-08-12T09:00:00+03:00", plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null };
+  const morning = {
+    id: "morning",
+    status: "open",
+    timezone: "Europe/Kyiv",
+    plannedStartAt: "2026-08-12T09:00:00+03:00",
+    plannedEndAt: null,
+    plannedLocalDate: null,
+    dueAt: null,
+    dueLocalDate: null,
+  };
   const evening = { ...morning, id: "evening", plannedStartAt: "2026-08-12T21:00:00+03:00" };
-  const rows = [{ task: recurring, occurrence: morning }, { task: recurring, occurrence: evening }];
+  const rows = [
+    { task: recurring, occurrence: morning },
+    { task: recurring, occurrence: evening },
+  ];
 
   const overview = tasksOverviewText(rows, "en");
   assert.equal((overview.match(/Take medication/g) ?? []).length, 1);
@@ -70,8 +108,21 @@ test("task overview collapses recurring occurrences while Today keeps same-day o
 
 test("task-list keyboard opens each displayed occurrence and can reveal the rest of Today", () => {
   const task = { id: "task", title: "Call doctor", importance: "normal", recurrenceRule: null, fuzzyHorizonText: null, timezone: "Europe/Kyiv" };
-  const occurrence = { id: "occ", status: "open", timezone: "Europe/Kyiv", plannedStartAt: "2026-08-12T09:00:00+03:00", plannedEndAt: null, plannedLocalDate: null, dueAt: null, dueLocalDate: null };
-  const keyboard = taskListKeyboard(Array.from({ length: 7 }, (_, index) => ({ task: { ...task, id: `task-${index}` }, occurrence: { ...occurrence, id: `occ-${index}` } })), "en", { showAll: true, allCount: 7 });
+  const occurrence = {
+    id: "occ",
+    status: "open",
+    timezone: "Europe/Kyiv",
+    plannedStartAt: "2026-08-12T09:00:00+03:00",
+    plannedEndAt: null,
+    plannedLocalDate: null,
+    dueAt: null,
+    dueLocalDate: null,
+  };
+  const keyboard = taskListKeyboard(
+    Array.from({ length: 7 }, (_, index) => ({ task: { ...task, id: `task-${index}` }, occurrence: { ...occurrence, id: `occ-${index}` } })),
+    "en",
+    { showAll: true, allCount: 7 },
+  );
   const callbacks = keyboard.inline_keyboard.flat().map((button) => button.callback_data);
   assert.ok(callbacks.includes("view:occ:occ-0"));
   assert.ok(callbacks.includes("nav:today_all"));

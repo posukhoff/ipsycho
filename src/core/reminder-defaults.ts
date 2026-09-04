@@ -9,12 +9,15 @@ export interface ReminderDefaultPreferences {
   seenCriticalMinutes?: number;
 }
 
-export function defaultReminderTemplates(input: {
-  kind: TaskKind;
-  timeMode: TimeMode;
-  importance: Importance;
-  hasPlannedStart: boolean;
-}, preferences: ReminderDefaultPreferences = {}): ReminderTemplate[] {
+export function defaultReminderTemplates(
+  input: {
+    kind: TaskKind;
+    timeMode: TimeMode;
+    importance: Importance;
+    hasPlannedStart: boolean;
+  },
+  preferences: ReminderDefaultPreferences = {},
+): ReminderTemplate[] {
   const result: ReminderTemplate[] = [];
 
   if (input.kind === "event") {

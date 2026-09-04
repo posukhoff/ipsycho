@@ -33,7 +33,11 @@ function formatter(timezone: string): Intl.DateTimeFormat {
 }
 
 function partMap(at: Date, timezone: string): Map<string, string> {
-  return new Map(formatter(timezone).formatToParts(at).map((part) => [part.type, part.value]));
+  return new Map(
+    formatter(timezone)
+      .formatToParts(at)
+      .map((part) => [part.type, part.value]),
+  );
 }
 
 export function localDateTimeAt(at: Date, timezone: string): LocalDateTime {

@@ -23,10 +23,10 @@ test("event default reminders resolve against planned start", () => {
   const templates = defaultReminderTemplates({ kind: task.kind, timeMode: task.timeMode, importance: task.importance, hasPlannedStart: true });
   const rules = defaultRuleSpecs(task, templates, settings);
   const plans = planReminders({ task, occurrence, rules, settings, now: new Date("2026-08-09T10:00:00Z") });
-  assert.deepEqual(plans.map((x) => x.intendedFor.toISOString()), [
-    "2026-08-10T11:00:00.000Z",
-    "2026-08-10T11:45:00.000Z",
-  ]);
+  assert.deepEqual(
+    plans.map((x) => x.intendedFor.toISOString()),
+    ["2026-08-10T11:00:00.000Z", "2026-08-10T11:45:00.000Z"],
+  );
 });
 
 test("event reminders at the event start are not scheduled", () => {
@@ -43,7 +43,10 @@ test("event reminders at the event start are not scheduled", () => {
     { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: 0, purpose: "user_reminder", quietPolicy: "respect" },
   ];
   const plans = planReminders({ task, occurrence, rules, settings, now: new Date("2026-08-09T10:00:00Z") });
-  assert.deepEqual(plans.map((x) => x.intendedFor.toISOString()), ["2026-08-10T11:45:00.000Z"]);
+  assert.deepEqual(
+    plans.map((x) => x.intendedFor.toISOString()),
+    ["2026-08-10T11:45:00.000Z"],
+  );
 });
 
 test("date-only required deadline uses evening/morning reference times", () => {
@@ -58,11 +61,10 @@ test("date-only required deadline uses evening/morning reference times", () => {
   const templates = defaultReminderTemplates({ kind: task.kind, timeMode: task.timeMode, importance: task.importance, hasPlannedStart: false });
   const rules = defaultRuleSpecs(task, templates, settings);
   const plans = planReminders({ task, occurrence, rules, settings, now: new Date("2026-08-09T10:00:00Z") });
-  assert.deepEqual(plans.map((x) => x.intendedFor.toISOString()), [
-    "2026-08-10T17:00:00.000Z",
-    "2026-08-11T06:00:00.000Z",
-    "2026-08-11T17:00:00.000Z",
-  ]);
+  assert.deepEqual(
+    plans.map((x) => x.intendedFor.toISOString()),
+    ["2026-08-10T17:00:00.000Z", "2026-08-11T06:00:00.000Z", "2026-08-11T17:00:00.000Z"],
+  );
 });
 
 test("quiet hours defer a task reminder, but never past the task itself", () => {

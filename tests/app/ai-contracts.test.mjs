@@ -4,7 +4,9 @@ import { AiTurnSchema, AI_ACTION_TYPES, ResolvedActionSchema, WhenSchema } from 
 import { DEEPSEEK_JSON_INSTRUCTION } from "../../dist/ai/deepseek.provider.js";
 
 const turn = (actions, overrides = {}) => ({
-  reply: "Записал.", question: null, actions,
+  reply: "Записал.",
+  question: null,
+  actions,
   topic: { mode: "none", title: null, summary: null },
   ...overrides,
 });
@@ -12,26 +14,67 @@ const turn = (actions, overrides = {}) => ({
 const exact = { mode: "exact", date: "2026-09-10", time: "09:30", durationMinutes: null };
 
 const taskBody = (overrides = {}) => ({
-  title: "Позвонить врачу", why: null, nextAction: null, context: null, checklist: null,
-  importance: "normal", kind: "task", when: exact, recurrence: null, reminder: null, habit: null, timezone: null,
+  title: "Позвонить врачу",
+  why: null,
+  nextAction: null,
+  context: null,
+  checklist: null,
+  importance: "normal",
+  kind: "task",
+  when: exact,
+  recurrence: null,
+  reminder: null,
+  habit: null,
+  timezone: null,
   ...overrides,
 });
 
 const actions = {
   create_task: { type: "create_task", intent: "explicit", ...taskBody(), goal: null },
-  update_task: { type: "update_task", intent: "explicit", task: { id: "t1" }, patch: { title: "Новое имя", why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null } },
+  update_task: {
+    type: "update_task",
+    intent: "explicit",
+    task: { id: "t1" },
+    patch: { title: "Новое имя", why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null },
+  },
   set_task_state: { type: "set_task_state", intent: "explicit", task: { id: "t2" }, state: "done", note: null, scope: null },
-  reschedule: { type: "reschedule", intent: "explicit", task: { id: "t3" }, when: { mode: "date", date: "2026-09-11" }, reason: null, scope: null, recurrence: null, timezone: null },
+  reschedule: {
+    type: "reschedule",
+    intent: "explicit",
+    task: { id: "t3" },
+    when: { mode: "date", date: "2026-09-11" },
+    reason: null,
+    scope: null,
+    recurrence: null,
+    timezone: null,
+  },
   set_reminder: { type: "set_reminder", intent: "explicit", task: { id: "t1" }, mode: "replace", reminder: { kind: "offset", anchor: "start", minutes: -30, quiet: "respect" } },
   goal: { type: "goal", intent: "inferred", op: "link", goal: { id: "g1" }, task: { id: "t1" }, title: null, why: null, targetDate: null, status: null, reviewEnabled: null },
   plan: { type: "plan", intent: "explicit", goal: { title: "Выучить испанский", why: null, targetDate: "2026-12-31" }, tasks: [taskBody({ title: "Найти преподавателя" })] },
   memory: { type: "memory", intent: "explicit", op: "save", item: null, kind: "preference", content: "Предпочитает встречи утром", sensitive: false },
   settings: {
-    type: "settings", intent: "explicit", operation: "digest", timezone: null, applyTimezoneTo: null, language: null,
-    digestKind: "morning", enabled: true, time: "08:30", weekday: null,
-    weekdayStart: null, weekdayEnd: null, weekendStart: null, weekendEnd: null,
-    snoozeUntilDate: null, snoozeUntilTime: null, eventOffsets: null, plannedTaskOffsetMinutes: null,
-    criticalPostDueMinutes: null, seenNormalMinutes: null, seenRequiredMinutes: null, seenCriticalMinutes: null,
+    type: "settings",
+    intent: "explicit",
+    operation: "digest",
+    timezone: null,
+    applyTimezoneTo: null,
+    language: null,
+    digestKind: "morning",
+    enabled: true,
+    time: "08:30",
+    weekday: null,
+    weekdayStart: null,
+    weekdayEnd: null,
+    weekendStart: null,
+    weekendEnd: null,
+    snoozeUntilDate: null,
+    snoozeUntilTime: null,
+    eventOffsets: null,
+    plannedTaskOffsetMinutes: null,
+    criticalPostDueMinutes: null,
+    seenNormalMinutes: null,
+    seenRequiredMinutes: null,
+    seenCriticalMinutes: null,
   },
 };
 
@@ -49,7 +92,10 @@ for (const [type, action] of Object.entries(actions)) {
 
 test("AiTurnSchema accepts one atomic package mixing several action types", () => {
   const parsed = AiTurnSchema.parse(turn([actions.create_task, actions.goal, actions.reschedule, actions.memory]));
-  assert.deepEqual(parsed.actions.map((action) => action.type), ["create_task", "goal", "reschedule", "memory"]);
+  assert.deepEqual(
+    parsed.actions.map((action) => action.type),
+    ["create_task", "goal", "reschedule", "memory"],
+  );
 });
 
 const whens = {
@@ -83,8 +129,18 @@ test("the strict contract rejects every field of the old schema", () => {
     turn([{ ...actions.create_task, criticalExplicit: true }]),
     turn([{ ...actions.set_task_state, occurrenceId: "00000000-0000-4000-8000-000000000003" }]),
     turn([{ type: "task_batch", intent: "explicit", steps: [] }]),
-    turn([{ ...actions.create_task, recurrence: { frequency: "daily", interval: 1, weekdays: null, monthDays: null, until: null, skipDates: null, missed: null, localTimes: ["09:00"] } }]),
-    turn([{ ...actions.create_task, recurrence: { frequency: "daily", interval: 1, weekdays: null, monthDays: null, until: null, skipDates: null, missed: null, startsOn: "2026-09-10" } }]),
+    turn([
+      {
+        ...actions.create_task,
+        recurrence: { frequency: "daily", interval: 1, weekdays: null, monthDays: null, until: null, skipDates: null, missed: null, localTimes: ["09:00"] },
+      },
+    ]),
+    turn([
+      {
+        ...actions.create_task,
+        recurrence: { frequency: "daily", interval: 1, weekdays: null, monthDays: null, until: null, skipDates: null, missed: null, startsOn: "2026-09-10" },
+      },
+    ]),
     turn([{ ...actions.create_task, definition: { timeMode: "point" } }]),
     turn([], { topic: { mode: "switch", title: null, summary: null } }),
     turn([], { topic: { mode: "continue", topicId: "00000000-0000-4000-8000-000000000009", title: null, summary: null } }),
@@ -116,15 +172,24 @@ test("timezone changes still require an explicit profile-versus-notifications sc
 test("ResolvedActionSchema accepts a resolved create_task and set_task_state", () => {
   const base = { intent: "explicit", timezone: "Europe/Kyiv", reviewTime: "09:00" };
   const created = ResolvedActionSchema.parse({
-    type: "create_task", ...base, body: taskBody(),
+    type: "create_task",
+    ...base,
+    body: taskBody(),
     goal: { goalId: "00000000-0000-4000-8000-000000000010", goalVersion: 3 },
   });
   assert.equal(created.body.title, "Позвонить врачу");
   const done = ResolvedActionSchema.parse({
-    type: "set_task_state", ...base, state: "done", note: null,
+    type: "set_task_state",
+    ...base,
+    state: "done",
+    note: null,
     target: {
-      kind: "occurrence", taskId: "00000000-0000-4000-8000-000000000001", taskVersion: 4,
-      occurrenceId: "00000000-0000-4000-8000-000000000002", occurrenceVersion: 1, timezone: "Europe/Kyiv",
+      kind: "occurrence",
+      taskId: "00000000-0000-4000-8000-000000000001",
+      taskVersion: 4,
+      occurrenceId: "00000000-0000-4000-8000-000000000002",
+      occurrenceVersion: 1,
+      timezone: "Europe/Kyiv",
     },
   });
   assert.equal(done.target.kind, "occurrence");

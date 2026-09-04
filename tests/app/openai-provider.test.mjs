@@ -27,12 +27,17 @@ test("the model contract is expressible as an OpenAI strict text format", () => 
 
 test("the repair suffix carries Zod issue paths and codes but never values", () => {
   const result = AiTurnSchema.safeParse({
-    reply: "ok", question: null, topic: { mode: "none", title: null, summary: null },
+    reply: "ok",
+    question: null,
+    topic: { mode: "none", title: null, summary: null },
     actions: [{ type: "memory", intent: "explicit", op: "save", item: null, kind: "note", content: "secret-token-value", sensitive: "yes" }],
   });
   assert.equal(result.success, false);
   const issues = describeStructuredIssues(result.error);
-  assert.ok(issues.some((issue) => issue.startsWith("actions.0.sensitive: ")), issues.join("; "));
+  assert.ok(
+    issues.some((issue) => issue.startsWith("actions.0.sensitive: ")),
+    issues.join("; "),
+  );
   const suffix = structuredRepairSuffix(issues);
   assert.match(suffix, /Schema issues \(path: code\)/);
   assert.doesNotMatch(suffix, /secret-token-value/);
@@ -44,7 +49,10 @@ test("AiStructuredOutputError is a plain Error subclass without a payload", () =
   const error = new AiStructuredOutputError("no valid structured output");
   assert.ok(error instanceof Error);
   assert.equal(error.name, "AiStructuredOutputError");
-  assert.deepEqual(Object.keys(error).filter((key) => key !== "name"), []);
+  assert.deepEqual(
+    Object.keys(error).filter((key) => key !== "name"),
+    [],
+  );
   assert.equal("payload" in error, false);
 });
 
@@ -65,7 +73,14 @@ test("a repaired call counts both requests and their cached tokens, and never st
     { id: "resp-2", output: [], output_text: validTurn, usage: { input_tokens: 110, output_tokens: 20, input_tokens_details: { cached_tokens: 60 } } },
   ];
   const provider = Object.create(OpenAiProvider.prototype);
-  provider.client = { responses: { create: async (request) => { requests.push(request); return responses.shift(); } } };
+  provider.client = {
+    responses: {
+      create: async (request) => {
+        requests.push(request);
+        return responses.shift();
+      },
+    },
+  };
 
   const result = await provider.generate({ model: "m", systemPrompt: "system", messages: [{ role: "user", content: "привет" }], maxOutputTokens: 4000 });
   assert.equal(result.attempts, 2);
@@ -86,7 +101,14 @@ test("a refusal is repaired once and then surfaces as unusable output", async ()
   const refusal = { id: "r", output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }], output_text: "", usage: { input_tokens: 1, output_tokens: 1 } };
   const provider = Object.create(OpenAiProvider.prototype);
   let calls = 0;
-  provider.client = { responses: { create: async () => { calls += 1; return refusal; } } };
+  provider.client = {
+    responses: {
+      create: async () => {
+        calls += 1;
+        return refusal;
+      },
+    },
+  };
   await assert.rejects(() => provider.generate({ model: "m", systemPrompt: "s", messages: [] }), AiStructuredOutputError);
   assert.equal(calls, 2);
 });

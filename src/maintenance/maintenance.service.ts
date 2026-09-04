@@ -14,6 +14,7 @@ import { TasksRepository } from "../tasks/tasks.repository.js";
 import { RESULT_CHECK_IGNORE_GRACE_MINUTES } from "../core/result-check.js";
 import { ReminderSchedulingService } from "../reminders/reminder-scheduling.service.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 const TICK_MS = 60 * 60_000;
 const RAW_MESSAGE_RETENTION_MS = 90 * 24 * 60 * 60_000;
@@ -67,14 +68,29 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
       // therefore scrubs content instead of deleting the topic metadata/foreign-key target.
       const topicSummariesCleared = await this.context.scrubExpiredTopicSummaries(now);
       await this.checkAiSpendWarnings(now);
-      if (messagesDeleted || topicSummariesCleared || confirmationsExpired || auditPayloadsCleared || eventDetailsCleared || accountsDeleted || ignoredResultChecks || fuzzyReviewsRebuilt) {
-        console.log("maintenance completed", {
-          messagesDeleted, topicSummariesCleared, confirmationsExpired, auditPayloadsCleared, eventDetailsCleared, accountsDeleted,
-          ignoredResultChecks, fuzzyReviewsRebuilt,
+      if (
+        messagesDeleted ||
+        topicSummariesCleared ||
+        confirmationsExpired ||
+        auditPayloadsCleared ||
+        eventDetailsCleared ||
+        accountsDeleted ||
+        ignoredResultChecks ||
+        fuzzyReviewsRebuilt
+      ) {
+        logger.info("maintenance completed", {
+          messagesDeleted,
+          topicSummariesCleared,
+          confirmationsExpired,
+          auditPayloadsCleared,
+          eventDetailsCleared,
+          accountsDeleted,
+          ignoredResultChecks,
+          fuzzyReviewsRebuilt,
         });
       }
     } catch (error) {
-      console.error("maintenance failed", safeError(error));
+      logger.error("maintenance failed", { error: safeError(error) });
     } finally {
       this.running = false;
     }
@@ -82,24 +98,27 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
   private async checkAiSpendWarnings(now: Date): Promise<void> {
     const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const rows = await this.database.db.select({ user: users, settings: userSettings }).from(users)
+    const rows = await this.database.db
+      .select({ user: users, settings: userSettings })
+      .from(users)
       .innerJoin(userSettings, eq(userSettings.userId, users.id))
       .where(eq(users.status, "active"));
     for (const row of rows) {
       if (row.settings.lastAiSpendWarningMonth === month) continue;
       const userThreshold = Number(row.settings.aiMonthlyWarningUsd);
-      const threshold = Number.isFinite(userThreshold) && userThreshold > 0 ? userThreshold : this.config.aiMonthlyWarningUsd ?? 0;
+      const threshold = Number.isFinite(userThreshold) && userThreshold > 0 ? userThreshold : (this.config.aiMonthlyWarningUsd ?? 0);
       if (threshold <= 0) continue;
       const spend = await this.ai.monthlySpendUsd(row.user.id, monthStart);
       if (spend < threshold) continue;
       const marked = await this.settings.markSpendWarning(row.user.id, month);
       if (!marked) continue;
       const amount = spend.toFixed(2);
-      await this.telegram.sendMessage(row.user.telegramUserId, `Предупреждение: оценочные расходы AI в этом месяце достигли $${amount}. Это только уведомление; AI автоматически не отключается.`).catch(() => undefined);
+      await this.telegram
+        .sendMessage(row.user.telegramUserId, `Предупреждение: оценочные расходы AI в этом месяце достигли $${amount}. Это только уведомление; AI автоматически не отключается.`)
+        .catch(() => undefined);
       if (this.config.ownerTelegramUserId && this.config.ownerTelegramUserId !== row.user.telegramUserId) {
         await this.telegram.sendMessage(this.config.ownerTelegramUserId, `IPsycho: пользователь ${row.user.id} достиг AI spend warning $${amount}.`).catch(() => undefined);
       }
     }
   }
-
 }

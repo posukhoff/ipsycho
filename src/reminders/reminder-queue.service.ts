@@ -2,7 +2,18 @@ import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from "@nest
 import { and, asc, eq, gt, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { JobQueueService } from "../queue/job-queue.service.js";
-import { briefingDeliveries, reminderDeliveries, reminderRules, taskChecklistItems, taskEvents, taskOccurrences, tasks, users, userSettings, workspaceMembers } from "../database/schema.js";
+import {
+  briefingDeliveries,
+  reminderDeliveries,
+  reminderRules,
+  taskChecklistItems,
+  taskEvents,
+  taskOccurrences,
+  tasks,
+  users,
+  userSettings,
+  workspaceMembers,
+} from "../database/schema.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { classifyTelegramSendError } from "../telegram/telegram-send-outcome.js";
 import { reminderCardText } from "../telegram/telegram-ui.js";
@@ -12,6 +23,7 @@ import { occurrenceProjectionFromRow, reminderRuleSpecFromRow, reminderSettingsF
 import { applyNotificationPolicy } from "../core/reminder-planning.js";
 import { nextCriticalEscalationAt, reminderBriefingBundleDecision } from "../core/reminder-escalation.js";
 import { safeError } from "../observability/safe-error.js";
+import { logger } from "../observability/logger.js";
 
 export const REMINDER_QUEUE = "reminder-delivery";
 const MAX_DELIVERY_ATTEMPTS = 3;
@@ -28,7 +40,7 @@ type ReminderDeliveryRow = {
   task: typeof tasks.$inferSelect;
   occurrence: typeof taskOccurrences.$inferSelect | null;
   telegramUserId: number;
-  userStatus: typeof users.$inferSelect["status"];
+  userStatus: (typeof users.$inferSelect)["status"];
 };
 
 @Injectable()
@@ -47,14 +59,15 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
     // Boot recovery runs before the worker starts. Rows left in `processing` by a previous
     // process are reset first; if the worker were already consuming, it could claim a row
     // between the reset and its own post-send update and the row would be sent twice.
-    await this.database.db.update(reminderDeliveries)
-      .set({ status: "pending" })
-      .where(eq(reminderDeliveries.status, "processing"));
+    await this.database.db.update(reminderDeliveries).set({ status: "pending" }).where(eq(reminderDeliveries.status, "processing"));
     await this.enqueuePending(new Date(Date.now() + BOOT_HORIZON_MS));
     await this.queue.work<{ deliveryId: string }>(REMINDER_QUEUE, (data) => this.deliver(data.deliveryId));
     // Periodic reconciliation never touches in-flight work; it only repairs pending rows
     // whose queue job was lost (a failed enqueue, an expired job).
-    this.reconcileTimer = setInterval(() => void this.reconcile().catch((error) => console.error("reminder queue reconciliation failed", safeError(error))), RECONCILE_INTERVAL_MS);
+    this.reconcileTimer = setInterval(
+      () => void this.reconcile().catch((error) => logger.error("reminder queue reconciliation failed", { error: safeError(error) })),
+      RECONCILE_INTERVAL_MS,
+    );
     this.reconcileTimer.unref();
   }
 
@@ -64,10 +77,12 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
 
   /** Queue depth for /status: what is waiting and what could not be confirmed as delivered. */
   async queueSummary(): Promise<{ pending: number; ambiguous: number; deadLettered: number }> {
-    const [row] = await this.database.db.select({
-      pending: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'pending')::int`,
-      ambiguous: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'ambiguous')::int`,
-    }).from(reminderDeliveries);
+    const [row] = await this.database.db
+      .select({
+        pending: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'pending')::int`,
+        ambiguous: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'ambiguous')::int`,
+      })
+      .from(reminderDeliveries);
     const deadLettered = await this.queue.deadLetterCount(REMINDER_QUEUE).catch(() => 0);
     return { pending: row?.pending ?? 0, ambiguous: row?.ambiguous ?? 0, deadLettered };
   }
@@ -79,10 +94,14 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
 
   async enqueue(deliveryId: string, scheduledFor: Date): Promise<void> {
     const startAfter = scheduledFor > new Date() ? scheduledFor : new Date();
-    await this.queue.send(REMINDER_QUEUE, { deliveryId }, {
-      startAfter,
-      singletonKey: `${deliveryId}:${scheduledFor.toISOString()}`,
-    });
+    await this.queue.send(
+      REMINDER_QUEUE,
+      { deliveryId },
+      {
+        startAfter,
+        singletonKey: `${deliveryId}:${scheduledFor.toISOString()}`,
+      },
+    );
   }
 
   /** Walks every pending delivery due before `horizon` in (scheduled_for, id) order; no row is skipped past the batch size. */
@@ -91,15 +110,14 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
     for (;;) {
       const cursor: { scheduledFor: Date; id: string } | null = after;
       const keyset = cursor
-        ? or(
-          gt(reminderDeliveries.scheduledFor, cursor.scheduledFor),
-          and(eq(reminderDeliveries.scheduledFor, cursor.scheduledFor), gt(reminderDeliveries.id, cursor.id)),
-        )
+        ? or(gt(reminderDeliveries.scheduledFor, cursor.scheduledFor), and(eq(reminderDeliveries.scheduledFor, cursor.scheduledFor), gt(reminderDeliveries.id, cursor.id)))
         : undefined;
-      const pending: Array<{ id: string; scheduledFor: Date }> = await this.database.db.select({
-        id: reminderDeliveries.id,
-        scheduledFor: reminderDeliveries.scheduledFor,
-      }).from(reminderDeliveries)
+      const pending: Array<{ id: string; scheduledFor: Date }> = await this.database.db
+        .select({
+          id: reminderDeliveries.id,
+          scheduledFor: reminderDeliveries.scheduledFor,
+        })
+        .from(reminderDeliveries)
         .where(and(eq(reminderDeliveries.status, "pending"), lte(reminderDeliveries.scheduledFor, horizon), keyset))
         .orderBy(asc(reminderDeliveries.scheduledFor), asc(reminderDeliveries.id))
         .limit(ENQUEUE_BATCH);
@@ -107,7 +125,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         try {
           await this.enqueue(delivery.id, delivery.scheduledFor);
         } catch (error) {
-          console.error("failed to reconcile reminder", { deliveryId: delivery.id, error: safeError(error) });
+          logger.error("failed to reconcile reminder", { deliveryId: delivery.id, error: safeError(error) });
         }
       }
       const last = pending[pending.length - 1];
@@ -129,23 +147,11 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       })
       .from(reminderDeliveries)
       .innerJoin(users, eq(users.id, reminderDeliveries.recipientUserId))
-      .innerJoin(workspaceMembers, and(
-        eq(workspaceMembers.workspaceId, reminderDeliveries.workspaceId),
-        eq(workspaceMembers.userId, reminderDeliveries.recipientUserId),
-      ))
-      .innerJoin(tasks, and(
-        eq(tasks.workspaceId, reminderDeliveries.workspaceId),
-        eq(tasks.id, reminderDeliveries.taskId),
-      ))
-      .innerJoin(reminderRules, and(
-        eq(reminderRules.workspaceId, reminderDeliveries.workspaceId),
-        eq(reminderRules.id, reminderDeliveries.reminderRuleId),
-      ))
+      .innerJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, reminderDeliveries.workspaceId), eq(workspaceMembers.userId, reminderDeliveries.recipientUserId)))
+      .innerJoin(tasks, and(eq(tasks.workspaceId, reminderDeliveries.workspaceId), eq(tasks.id, reminderDeliveries.taskId)))
+      .innerJoin(reminderRules, and(eq(reminderRules.workspaceId, reminderDeliveries.workspaceId), eq(reminderRules.id, reminderDeliveries.reminderRuleId)))
       .innerJoin(userSettings, eq(userSettings.userId, reminderDeliveries.recipientUserId))
-      .leftJoin(taskOccurrences, and(
-        eq(taskOccurrences.workspaceId, reminderDeliveries.workspaceId),
-        eq(taskOccurrences.id, reminderDeliveries.occurrenceId),
-      ))
+      .leftJoin(taskOccurrences, and(eq(taskOccurrences.workspaceId, reminderDeliveries.workspaceId), eq(taskOccurrences.id, reminderDeliveries.occurrenceId)))
       .where(eq(reminderDeliveries.id, deliveryId))
       .limit(1);
     const row = rows[0];
@@ -183,7 +189,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       settings: reminderSettingsFromRow(row.settings),
     });
     if (policy.suppressedReason) {
-      console.warn("reminder suppressed by delivery-time policy", {
+      logger.warn("reminder suppressed by delivery-time policy", {
         deliveryId,
         taskId: row.task.id,
         occurrenceId: row.occurrence?.id ?? null,
@@ -196,7 +202,8 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       return;
     }
     if (policy.scheduledFor.getTime() > now.getTime() + 500) {
-      await this.database.db.update(reminderDeliveries)
+      await this.database.db
+        .update(reminderDeliveries)
         .set({ scheduledFor: policy.scheduledFor })
         .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "pending")));
       await this.enqueue(deliveryId, policy.scheduledFor);
@@ -217,14 +224,17 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
     }
 
     const nextAttempt = row.delivery.attempts + 1;
-    const [claimed] = await this.database.db.update(reminderDeliveries)
+    const [claimed] = await this.database.db
+      .update(reminderDeliveries)
       .set({ status: "processing", attempts: nextAttempt })
       .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "pending")))
       .returning();
     if (!claimed) return;
 
     try {
-      const checklist = await this.database.db.select({ text: taskChecklistItems.text, done: taskChecklistItems.done }).from(taskChecklistItems)
+      const checklist = await this.database.db
+        .select({ text: taskChecklistItems.text, done: taskChecklistItems.done })
+        .from(taskChecklistItems)
         .where(and(eq(taskChecklistItems.workspaceId, row.task.workspaceId), eq(taskChecklistItems.taskId, row.task.id)))
         .orderBy(taskChecklistItems.sortOrder)
         .catch(() => []);
@@ -232,10 +242,8 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       // A reminder pushed out of quiet hours says so; an escalation says which one it is and offers to stop.
       const deferredByQuiet = row.settings.quietHoursEnabled && row.delivery.scheduledFor.getTime() - row.delivery.intendedFor.getTime() > 60_000;
       const escalation = isCriticalEscalation(row) ? await this.escalationNumber(row) : 0;
-      const header = [
-        ...(deferredByQuiet ? [t(locale, "quiet_deferred_notice")] : []),
-        ...(escalation >= 2 ? [t(locale, "escalation_header", { n: escalation })] : []),
-      ].join("\n") || null;
+      const header =
+        [...(deferredByQuiet ? [t(locale, "quiet_deferred_notice")] : []), ...(escalation >= 2 ? [t(locale, "escalation_header", { n: escalation })] : [])].join("\n") || null;
       const text = reminderCardText({
         task: { ...row.task, checklist },
         occurrence: row.occurrence,
@@ -244,22 +252,25 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         locale,
         header,
       });
-      const telegramMessageId = await this.telegram.sendReminder(
-        row.telegramUserId,
-        text,
-        row.delivery.occurrenceId ?? undefined,
-        row.occurrence?.status ?? "open",
-        locale,
-        { mute: escalation >= 2 },
-      );
+      const telegramMessageId = await this.telegram.sendReminder(row.telegramUserId, text, row.delivery.occurrenceId ?? undefined, row.occurrence?.status ?? "open", locale, {
+        mute: escalation >= 2,
+      });
       const sentAt = new Date();
-      await this.database.db.update(reminderDeliveries)
+      await this.database.db
+        .update(reminderDeliveries)
         .set({ status: "sent", sentAt, telegramMessageId })
         .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "processing")));
       if (row.rule.purpose === "follow_up" && row.occurrence?.status === "in_progress" && row.rule.origin === "system") {
-        await this.database.db.insert(taskEvents).values({
-          workspaceId: row.delivery.workspaceId, taskId: row.task.id, occurrenceId: row.occurrence.id, eventType: "occurrence:result_check_sent", createdAt: sentAt,
-        }).catch((error) => console.error("result-check event persistence failed", { occurrenceId: row.occurrence?.id, error: safeError(error) }));
+        await this.database.db
+          .insert(taskEvents)
+          .values({
+            workspaceId: row.delivery.workspaceId,
+            taskId: row.task.id,
+            occurrenceId: row.occurrence.id,
+            eventType: "occurrence:result_check_sent",
+            createdAt: sentAt,
+          })
+          .catch((error) => logger.error("result-check event persistence failed", { occurrenceId: row.occurrence?.id, error: safeError(error) }));
       }
       await this.scheduleNextCriticalEscalation(row, sentAt);
     } catch (error) {
@@ -285,15 +296,16 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         return;
       }
       case "rejected":
-        console.warn("reminder rejected by Telegram", { deliveryId, errorCode: outcome.errorCode });
+        logger.warn("reminder rejected by Telegram", { deliveryId, errorCode: outcome.errorCode });
         await this.database.db.update(reminderDeliveries).set({ status: "failed" }).where(processing);
         return;
       case "ambiguous":
-        console.warn("reminder send outcome ambiguous", { deliveryId, error: safeError(error) });
+        logger.warn("reminder send outcome ambiguous", { deliveryId, error: safeError(error) });
         await this.database.db.update(reminderDeliveries).set({ status: "ambiguous", sentAt: new Date() }).where(processing);
         return;
       default:
-        await this.database.db.update(reminderDeliveries)
+        await this.database.db
+          .update(reminderDeliveries)
           .set({ status: nextAttempt >= MAX_DELIVERY_ATTEMPTS ? "failed" : "pending" })
           .where(processing);
         throw error;
@@ -304,21 +316,28 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
     if (row.rule.origin !== "default" || row.task.timeMode !== "deadline" || row.task.importance === "normal") return "none";
     const lower = new Date(row.delivery.scheduledFor.getTime() - 60_000);
     const upper = new Date(row.delivery.scheduledFor.getTime() + 60_000);
-    const candidates = await this.database.db.select({
-      scheduledFor: briefingDeliveries.scheduledFor,
-      status: briefingDeliveries.status,
-    }).from(briefingDeliveries).where(and(
-      eq(briefingDeliveries.workspaceId, row.delivery.workspaceId),
-      eq(briefingDeliveries.recipientUserId, row.delivery.recipientUserId),
-      gte(briefingDeliveries.scheduledFor, lower),
-      lte(briefingDeliveries.scheduledFor, upper),
-      inArray(briefingDeliveries.status, ["pending", "processing", "sent", "ambiguous"]),
-    ));
+    const candidates = await this.database.db
+      .select({
+        scheduledFor: briefingDeliveries.scheduledFor,
+        status: briefingDeliveries.status,
+      })
+      .from(briefingDeliveries)
+      .where(
+        and(
+          eq(briefingDeliveries.workspaceId, row.delivery.workspaceId),
+          eq(briefingDeliveries.recipientUserId, row.delivery.recipientUserId),
+          gte(briefingDeliveries.scheduledFor, lower),
+          lte(briefingDeliveries.scheduledFor, upper),
+          inArray(briefingDeliveries.status, ["pending", "processing", "sent", "ambiguous"]),
+        ),
+      );
     let wait = false;
     for (const candidate of candidates) {
       const decision = reminderBriefingBundleDecision({
-        reminderScheduledFor: row.delivery.scheduledFor, briefingScheduledFor: candidate.scheduledFor,
-        briefingStatus: candidate.status as "pending" | "processing" | "sent" | "ambiguous", now,
+        reminderScheduledFor: row.delivery.scheduledFor,
+        briefingScheduledFor: candidate.scheduledFor,
+        briefingStatus: candidate.status as "pending" | "processing" | "sent" | "ambiguous",
+        now,
       });
       if (decision === "suppress") return "suppress";
       if (decision === "wait") wait = true;
@@ -329,38 +348,70 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
   /** How many deliveries of this critical rule already reached the user for this occurrence, plus the one being sent. */
   private async escalationNumber(row: ReminderDeliveryRow): Promise<number> {
     if (!row.occurrence) return 0;
-    const [count] = await this.database.db.select({ sent: sql<number>`count(*)::int` }).from(reminderDeliveries).where(and(
-      eq(reminderDeliveries.workspaceId, row.delivery.workspaceId),
-      eq(reminderDeliveries.reminderRuleId, row.rule.id),
-      eq(reminderDeliveries.occurrenceId, row.occurrence.id),
-      inArray(reminderDeliveries.status, ["sent", "ambiguous"]),
-    ));
+    const [count] = await this.database.db
+      .select({ sent: sql<number>`count(*)::int` })
+      .from(reminderDeliveries)
+      .where(
+        and(
+          eq(reminderDeliveries.workspaceId, row.delivery.workspaceId),
+          eq(reminderDeliveries.reminderRuleId, row.rule.id),
+          eq(reminderDeliveries.occurrenceId, row.occurrence.id),
+          inArray(reminderDeliveries.status, ["sent", "ambiguous"]),
+        ),
+      );
     return (count?.sent ?? 0) + 1;
   }
 
   private async scheduleNextCriticalEscalation(row: ReminderDeliveryRow, sentAt: Date): Promise<void> {
-    if (row.rule.origin !== "default" || row.rule.purpose !== "follow_up" || row.task.kind !== "task" || row.task.timeMode !== "deadline" || row.task.importance !== "critical" || !row.occurrence) return;
+    if (
+      row.rule.origin !== "default" ||
+      row.rule.purpose !== "follow_up" ||
+      row.task.kind !== "task" ||
+      row.task.timeMode !== "deadline" ||
+      row.task.importance !== "critical" ||
+      !row.occurrence
+    )
+      return;
     const dueAt = row.occurrence.dueAt ?? row.task.dueAt;
     if (!dueAt || dueAt > sentAt || !["open", "in_progress"].includes(row.occurrence.status)) return;
     const next = nextCriticalEscalationAt(sentAt, row.settings.criticalPostDueMinutes);
     const deduplicationKey = `${row.rule.id}:${row.occurrence.id}:critical-escalation:${next.toISOString()}`;
-    const [created] = await this.database.db.insert(reminderDeliveries).values({
-      workspaceId: row.delivery.workspaceId, recipientUserId: row.delivery.recipientUserId, reminderRuleId: row.rule.id,
-      taskId: row.task.id, occurrenceId: row.occurrence.id, intendedFor: next, scheduledFor: next, status: "pending", deduplicationKey,
-    }).onConflictDoNothing().returning({ id: reminderDeliveries.id });
-    if (created) await this.enqueue(created.id, next).catch((error) => {
-      console.error("critical escalation enqueue deferred", { deliveryId: created.id, error: safeError(error) });
-    });
+    const [created] = await this.database.db
+      .insert(reminderDeliveries)
+      .values({
+        workspaceId: row.delivery.workspaceId,
+        recipientUserId: row.delivery.recipientUserId,
+        reminderRuleId: row.rule.id,
+        taskId: row.task.id,
+        occurrenceId: row.occurrence.id,
+        intendedFor: next,
+        scheduledFor: next,
+        status: "pending",
+        deduplicationKey,
+      })
+      .onConflictDoNothing()
+      .returning({ id: reminderDeliveries.id });
+    if (created)
+      await this.enqueue(created.id, next).catch((error) => {
+        logger.error("critical escalation enqueue deferred", { deliveryId: created.id, error: safeError(error) });
+      });
   }
 
   private async suppress(deliveryId: string, reason: "access" | "quiet_stale" | "snooze_stale" | "no_longer_applicable" | "superseded" | "orphaned"): Promise<void> {
-    await this.database.db.update(reminderDeliveries)
+    await this.database.db
+      .update(reminderDeliveries)
       .set({ status: "suppressed", suppressedReason: reason })
       .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "pending")));
   }
 }
 
 function isCriticalEscalation(row: ReminderDeliveryRow): boolean {
-  return row.rule.origin === "default" && row.rule.purpose === "follow_up" && row.task.kind === "task" && row.task.timeMode === "deadline" && row.task.importance === "critical" && Boolean(row.occurrence);
+  return (
+    row.rule.origin === "default" &&
+    row.rule.purpose === "follow_up" &&
+    row.task.kind === "task" &&
+    row.task.timeMode === "deadline" &&
+    row.task.importance === "critical" &&
+    Boolean(row.occurrence)
+  );
 }
-
