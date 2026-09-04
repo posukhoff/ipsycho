@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSystemPrompt } from "../../dist/ai/ai.service.js";
+import { AiTurnSchema } from "../../dist/core/ai-contract.js";
 
 const at = new Date("2026-08-11T12:00:00.000Z");
 const prompt = buildSystemPrompt({ timezone: "Europe/Kyiv", now: at });
@@ -102,8 +103,8 @@ test("AI prompt contains no vocabulary of the removed contract", () => {
 test("AI prompt stays inside its size budget without context", () => {
   // The budget exists so rules keep moving into code rather than accumulating here.
   // It is a budget, not a rule: raising it is a decision, and the number says by how much.
-  // 2026-09-04: raised from 9400 for the reply-length rule (§12) and the n1/n2 same-message references (§7).
-  assert.ok(prompt.length < 9600, `prompt is ${prompt.length} characters`);
+  // 2026-09-04: raised from 9600 for the three worked examples (§16), which sit in the cacheable prefix.
+  assert.ok(prompt.length < 11_500, `prompt is ${prompt.length} characters`);
 });
 
 test("AI prompt ends with one local CURRENT_TIME line and the context when given", () => {
@@ -122,4 +123,18 @@ test("AI prompt ends with one local CURRENT_TIME line and the context when given
   assert.match(withContext, /CURRENT_CONTEXT=\{"tasks":\[\{"id":"t1","title":"Позвонить врачу","when":"сегодня 18:00"\}\]\}/);
   assert.match(withContext, /Correction required: Return intent for every action\.$/);
   assert.ok(withContext.indexOf("CURRENT_TIME=") < withContext.indexOf("CURRENT_CONTEXT="));
+});
+
+test("every worked example in the prompt is a turn the contract actually accepts", () => {
+  const prompt = buildSystemPrompt({ now: new Date("2026-09-04T09:00:00Z"), timezone: "Europe/Kyiv", language: "ru" });
+  const examples = prompt
+    .slice(prompt.indexOf("EXAMPLES."))
+    .split("\n")
+    .filter((line) => line.startsWith("user:"))
+    .map((line) => line.slice(line.indexOf("→ ") + 2));
+  assert.equal(examples.length, 3, "the prompt must carry three worked examples");
+  for (const example of examples) {
+    const parsed = AiTurnSchema.safeParse(JSON.parse(example));
+    assert.ok(parsed.success, `example rejected by the contract: ${parsed.error?.issues?.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+  }
 });
