@@ -27,7 +27,7 @@ const QUICK_RESCHEDULE_CALLBACK = new RegExp(`^resched:(1h|evening|tomorrow|cust
 const QUICK_RESCHEDULE_REASON_CALLBACK = new RegExp(`^rr:(h|e|t):(t|d|e|o):(${UUID})$`);
 const FOLLOW_UP_CALLBACK = new RegExp(`^follow:(seen|result):(15m|1h|evening|custom|none):(${UUID})$`);
 const SERIES_CALLBACK = new RegExp(`^series:(pause|cancel):(${UUID})$`);
-const REMINDER_CALLBACK = new RegExp(`^rem:cancel:(${UUID})$`);
+const REMINDER_CALLBACK = new RegExp(`^rem:(cancel|mute):(${UUID})$`);
 const ACTION_CALLBACK = new RegExp(`^act:(confirm|cancel|undo):(${UUID})$`);
 const TOPIC_CONTROL_CALLBACK = new RegExp(`^topic:end:(${UUID})$`);
 
@@ -129,7 +129,7 @@ export class TaskCallbacksService {
       await ctx.answerCallbackQuery({ text: t(locale, action === "start" ? "started_toast" : action === "done" ? "done_occurrence_toast" : action === "skip" ? "skipped_toast" : "cancelled_occurrence_toast") });
       if (state === "started") {
         const current = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
-        if (current) await ctx.editMessageText(await this.screens.taskCard(access.workspaceId, current), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId) }).catch(() => undefined);
+        if (current) await ctx.editMessageText(await this.screens.taskCard(access.workspaceId, current, locale), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId) }).catch(() => undefined);
         return;
       }
       // A one-tap terminal change keeps its way back on the card itself.
@@ -178,7 +178,7 @@ export class TaskCallbacksService {
     const applied = await this.applyReschedule(access, occurrenceId, schedule, reason);
     const current = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
     await ctx.answerCallbackQuery({ text: t(locale, "rescheduled_toast") }).catch(() => undefined);
-    if (current) await ctx.editMessageText(await this.screens.taskCard(access.workspaceId, current), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button") }).catch(() => undefined);
+    if (current) await ctx.editMessageText(await this.screens.taskCard(access.workspaceId, current, locale), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button") }).catch(() => undefined);
   }
 
   private async quickReschedule(ctx: CallbackQueryContext<AppContext>): Promise<void> {
@@ -294,8 +294,18 @@ export class TaskCallbacksService {
 
   private async cancelReminder(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
-    const deliveryId = REMINDER_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (!deliveryId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    const match = REMINDER_CALLBACK.exec(ctx.callbackQuery.data);
+    const operation = match?.[1];
+    const deliveryId = match?.[2];
+    if (!operation || !deliveryId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (operation === "mute") {
+      // On an escalation card the id is the occurrence: stop every default reminder for it.
+      await this.reminders.muteDefaultReminders({ workspaceId: access.workspaceId, userId: access.user.id, occurrenceId: deliveryId }).catch((error) => console.error("mute escalation failed", { occurrenceId: deliveryId, error: safeError(error) }));
+      await ctx.answerCallbackQuery({ text: t(locale, "mute_escalation_toast") }).catch(() => undefined);
+      const context = await this.tasks.getOccurrenceContext(access.workspaceId, deliveryId);
+      await ctx.editMessageReplyMarkup({ reply_markup: context ? this.screens.occurrenceKeyboard(ctx, context) : new InlineKeyboard() }).catch(() => undefined);
+      return;
+    }
     try {
       const cancelled = await this.reminders.cancelUpcoming({ workspaceId: access.workspaceId, userId: access.user.id, deliveryId });
       await ctx.answerCallbackQuery({ text: t(locale, cancelled ? "reminder_cancelled_toast" : "reminder_already_toast") });

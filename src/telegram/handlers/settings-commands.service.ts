@@ -70,7 +70,7 @@ export class SettingsCommandsService {
     const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
     if (!parts.length) {
       const now = new Date();
-      const briefing = await this.briefings.build({ workspaceId: access.workspaceId, kind, localDate: localDateAt(now, settings.timezone), timezone: settings.timezone, now });
+      const briefing = await this.briefings.build({ workspaceId: access.workspaceId, kind, localDate: localDateAt(now, settings.timezone), timezone: settings.timezone, now, locale });
       await ctx.reply(briefing.text);
       return;
     }
@@ -90,7 +90,7 @@ export class SettingsCommandsService {
     const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
     if (!parts.length) {
       const now = new Date();
-      const briefing = await this.briefings.build({ workspaceId: access.workspaceId, kind: "weekly", localDate: localDateAt(now, settings.timezone), timezone: settings.timezone, now });
+      const briefing = await this.briefings.build({ workspaceId: access.workspaceId, kind: "weekly", localDate: localDateAt(now, settings.timezone), timezone: settings.timezone, now, locale });
       await ctx.reply(briefing.text);
       return;
     }

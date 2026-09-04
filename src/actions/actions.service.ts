@@ -22,7 +22,7 @@ import {
   createTaskInputFromBody, InvalidAiActionError, reminderRuleFromReminder, rescheduleFieldsFromWhen,
   seriesDefinitionFromReschedule, taskDefinitionFromBody, validateUpdateTaskPatch, type ScheduleContext,
 } from "./action-conversion.js";
-import { describeAction, settingsPatchForAction } from "./action-describe.js";
+import { describeAction, settingsPatchForAction, type ActionNames } from "./action-describe.js";
 import { resolveActions } from "./action-resolver.js";
 import { ActionGroupRepository, type ActionGroupStep, type ActionGroupStepResult } from "./action-group.repository.js";
 import { ActionMutationsRepository } from "./action-mutations.repository.js";
@@ -30,6 +30,7 @@ import { ActionsRepository } from "./actions.repository.js";
 import { DomainRuleError } from "../core/errors.js";
 import { isConnectionLevelError } from "../database/pg-errors.js";
 import { foldNewTaskRefs } from "../core/new-task-refs.js";
+import { interfaceLocale } from "../core/language.js";
 
 export interface ActionScope {
   workspaceId: string;
@@ -37,6 +38,8 @@ export interface ActionScope {
   recipientUserId: string;
   sourceMessageId?: string;
   now?: Date;
+  /** Interface language of the acting user; card titles are worded in it. */
+  language?: string | null;
 }
 
 export interface ProposedActionsResult {
@@ -319,15 +322,19 @@ export class ActionsService implements OnApplicationBootstrap {
   }
 
   /** The proposal a typed "да"/"нет" refers to, resolved from the card the bot actually sent. */
-  async pendingGroupSummary(workspaceId: string, actorUserId: string, groupId: string, now = new Date()): Promise<PendingGroupSummary | null> {
+  async pendingGroupSummary(workspaceId: string, actorUserId: string, groupId: string, now = new Date(), language?: string | null): Promise<PendingGroupSummary | null> {
     const group = await this.repository.findPendingGroup(workspaceId, actorUserId, groupId, now);
     if (!group) return null;
     const actions: ResolvedAction[] = [];
+    for (const row of group.actions) {
+      const parsed = ResolvedActionSchema.safeParse(row.payload);
+      if (parsed.success) actions.push(parsed.data as ResolvedAction);
+    }
+    const locale = interfaceLocale(language);
+    const names = await this.actionNames(workspaceId, actorUserId, actions);
     const titles = group.actions.map((row) => {
       const parsed = ResolvedActionSchema.safeParse(row.payload);
-      if (!parsed.success) return row.actionType;
-      actions.push(parsed.data as ResolvedAction);
-      return describeAction(parsed.data as ResolvedAction);
+      return parsed.success ? describeAction(parsed.data as ResolvedAction, locale, names) : row.actionType;
     });
     return { groupId: group.groupId, createdAt: group.createdAt, titles, actions };
   }
@@ -419,7 +426,29 @@ export class ActionsService implements OnApplicationBootstrap {
         throw new InvalidAiActionError("habit mode was already offered for this task", "habit_not_eligible");
       }
     }
-    return { groupId, count: actions.length, titles: actions.map(describeAction) };
+    const locale = interfaceLocale(scope.language);
+    const names = await this.actionNames(scope.workspaceId, scope.actorUserId, actions);
+    return { groupId, count: actions.length, titles: actions.map((action) => describeAction(action, locale, names)) };
+  }
+
+  /** Titles of the tasks, goals and notes a package addresses, so a card says «Отменить «Созвон»», not «Отменить». */
+  private async actionNames(workspaceId: string, userId: string, actions: readonly ResolvedAction[]): Promise<ActionNames> {
+    const taskIds = new Set<string>();
+    const goalIds = new Set<string>();
+    const memoryIds = new Set<string>();
+    for (const action of actions) {
+      if (action.type === "update_task") taskIds.add(action.taskId);
+      if (action.type === "set_task_state" || action.type === "reschedule" || action.type === "set_reminder") taskIds.add(action.target.taskId);
+      if (action.type === "goal") { if (action.taskId) taskIds.add(action.taskId); if (action.goalId) goalIds.add(action.goalId); }
+      if (action.type === "memory" && action.memoryId) memoryIds.add(action.memoryId);
+    }
+    const [tasks, goals, memory] = await Promise.all([
+      Promise.all([...taskIds].map(async (id) => [id, (await this.tasks.getTask(workspaceId, id).catch(() => null))?.title] as const)),
+      Promise.all([...goalIds].map(async (id) => [id, (await this.context.findGoal(workspaceId, id).catch(() => null))?.title] as const)),
+      Promise.all([...memoryIds].map(async (id) => [id, (await this.context.findMemory(workspaceId, userId, id).catch(() => null))?.content] as const)),
+    ]);
+    const map = (entries: ReadonlyArray<readonly [string, string | undefined]>) => new Map(entries.filter((entry): entry is readonly [string, string] => typeof entry[1] === "string"));
+    return { tasks: map(tasks), goals: map(goals), memory: map(memory) };
   }
 
   /** Pure-ish compilation outside the transaction: task plans and definitions are built first. */

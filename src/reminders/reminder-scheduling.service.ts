@@ -62,6 +62,25 @@ export class ReminderSchedulingService {
     return Boolean(cancelled);
   }
 
+  /** The user asked the escalation to stop: default reminders for this occurrence are off and their pending deliveries withdrawn. */
+  async muteDefaultReminders(input: { workspaceId: string; userId: string; occurrenceId: string }): Promise<void> {
+    await this.database.db.transaction(async (tx) => {
+      await tx.update(taskOccurrences).set({ defaultRemindersSuppressed: true })
+        .where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(taskOccurrences.id, input.occurrenceId)));
+      const defaultRules = await tx.select({ id: reminderRules.id }).from(reminderRules)
+        .where(and(eq(reminderRules.workspaceId, input.workspaceId), eq(reminderRules.origin, "default"), sql`(${reminderRules.occurrenceId} IS NULL OR ${reminderRules.occurrenceId} = ${input.occurrenceId})`));
+      if (!defaultRules.length) return;
+      await tx.update(reminderDeliveries).set({ status: "suppressed", suppressedReason: "user_cancelled" })
+        .where(and(
+          eq(reminderDeliveries.workspaceId, input.workspaceId),
+          eq(reminderDeliveries.recipientUserId, input.userId),
+          eq(reminderDeliveries.occurrenceId, input.occurrenceId),
+          inArray(reminderDeliveries.reminderRuleId, defaultRules.map((rule) => rule.id)),
+          inArray(reminderDeliveries.status, ["pending", "processing"]),
+        ));
+    });
+  }
+
   async scheduleSeenFallback(input: { workspaceId: string; userId: string; occurrenceId: string; now?: Date }): Promise<string | null> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
     if (isTerminal(row.occurrence.status)) return null;

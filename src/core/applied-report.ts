@@ -100,26 +100,29 @@ const COPY: Record<ReportLocale, {
 const fill = (template: string, params: Record<string, string | number>) => template.replace(/\{(\w+)\}/gu, (match, name: string) => name in params ? String(params[name]) : match);
 
 /** Diff of the stored mutable task fields, in the order the user reads them. */
-export function taskFieldChanges(before: Record<string, unknown>, after: Record<string, unknown>, locale: ReportLocale = "ru"): TaskFieldChange[] {
+/**
+ * Values are stored locale-neutral (enum keys, `checklist:total:done`, `on`/`off`) because the
+ * diff is computed inside the write transaction; `renderAppliedReport` words them for the reader.
+ */
+export function taskFieldChanges(before: Record<string, unknown>, after: Record<string, unknown>): TaskFieldChange[] {
   const changes: TaskFieldChange[] = [];
   for (const field of Object.keys(FIELD_LABELS.ru) as TaskFieldChange["field"][]) {
-    const previous = describeFieldValue(field, before[field], locale);
-    const next = describeFieldValue(field, after[field], locale);
+    const previous = describeFieldValue(field, before[field]);
+    const next = describeFieldValue(field, after[field]);
     if (previous !== next) changes.push({ field, before: previous, after: next });
   }
   return changes;
 }
 
-function describeFieldValue(field: TaskFieldChange["field"], value: unknown, locale: ReportLocale): string | null {
+function describeFieldValue(field: TaskFieldChange["field"], value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  const copy = COPY[locale];
   if (field === "checklist") {
     if (!Array.isArray(value)) return null;
     const done = value.filter((item) => item && typeof item === "object" && (item as { done?: boolean }).done).length;
-    return value.length ? `${value.length} ${plural(locale, value.length, "пункт", "пункта", "пунктов", "пункт", "пункти", "пунктів", "item", "items")}${done ? `, ${copy.itemsDone} ${done}` : ""}` : null;
+    return value.length ? `checklist:${value.length}:${done}` : null;
   }
-  if (field === "habitMode") return value === true ? copy.habitOn : value === false ? copy.habitOff : null;
-  if (field === "importance") return typeof value === "string" && value in IMPORTANCE_LABELS[locale] ? IMPORTANCE_LABELS[locale][value as Importance] : String(value);
+  if (field === "habitMode") return value === true ? "on" : value === false ? "off" : null;
+  if (field === "importance") return typeof value === "string" ? value : String(value);
   if (typeof value === "string") return value.trim() || null;
   return String(value);
 }
@@ -227,9 +230,26 @@ function createdWhen(task: Extract<AppliedReportItem, { kind: "task_created" }>,
 }
 
 function renderChange(change: TaskFieldChange, locale: ReportLocale): string {
-  if (change.before === null) return `«${change.after ?? ""}»`;
-  if (change.after === null) return `«${change.before}» → ${COPY[locale].removed}`;
-  return `«${change.before}» → «${change.after}»`;
+  const before = change.before === null ? null : renderValue(change.field, change.before, locale);
+  const after = change.after === null ? null : renderValue(change.field, change.after, locale);
+  if (before === null) return `«${after ?? ""}»`;
+  if (after === null) return `«${before}» → ${COPY[locale].removed}`;
+  return `«${before}» → «${after}»`;
+}
+
+function renderValue(field: TaskFieldChange["field"], value: string, locale: ReportLocale): string {
+  const copy = COPY[locale];
+  if (field === "importance" && value in IMPORTANCE_LABELS[locale]) return IMPORTANCE_LABELS[locale][value as Importance];
+  if (field === "habitMode") return value === "on" ? copy.habitOn : value === "off" ? copy.habitOff : value;
+  if (field === "checklist") {
+    const match = /^checklist:(\d+):(\d+)$/u.exec(value);
+    if (match) {
+      const total = Number(match[1]);
+      const done = Number(match[2]);
+      return `${total} ${plural(locale, total, "пункт", "пункта", "пунктов", "пункт", "пункти", "пунктів", "item", "items")}${done ? `, ${copy.itemsDone} ${done}` : ""}`;
+    }
+  }
+  return value;
 }
 
 /** Reminder relative to the displayed anchor: same minute, same day, or a full timestamp. */

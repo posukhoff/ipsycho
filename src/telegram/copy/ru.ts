@@ -237,6 +237,12 @@ export const ru = {
   review_end_evening_button: "Закончить разбор",
   review_end_weekly_button: "Закончить планирование",
 
+  // Reminder notices
+  quiet_deferred_notice: "🔕 Было в тихие часы, показываю сейчас",
+  escalation_header: "🔴 Срок прошёл — {n}-е напоминание",
+  mute_escalation_button: "🔕 Хватит по этой задаче",
+  mute_escalation_toast: "Больше не напоминаю по этой задаче",
+
   // Voice
   voice_suspended: "AI-обработка для аккаунта приостановлена. Голосовой ввод недоступен.",
   voice_too_long: "Голосовое слишком длинное или большое. Отправь запись до {minutes} мин и {mb} МБ либо текст.",

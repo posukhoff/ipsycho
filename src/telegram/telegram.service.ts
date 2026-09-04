@@ -109,8 +109,8 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     return `https://t.me/${bot.username}?start=join_${token}`;
   }
 
-  async sendReminder(telegramUserId: number, text: string, occurrenceId?: string, occurrenceStatus: TelegramOccurrenceStatus = "open", locale = telegramLocale(null, undefined)): Promise<number> {
-    const replyMarkup = occurrenceId ? taskKeyboard(occurrenceId, occurrenceStatus, locale, { snooze: true }) : undefined;
+  async sendReminder(telegramUserId: number, text: string, occurrenceId?: string, occurrenceStatus: TelegramOccurrenceStatus = "open", locale = telegramLocale(null, undefined), options: { mute?: boolean } = {}): Promise<number> {
+    const replyMarkup = occurrenceId ? taskKeyboard(occurrenceId, occurrenceStatus, locale, { snooze: true, ...(options.mute ? { mute: true } : {}) }) : undefined;
     const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), replyMarkup ? { reply_markup: replyMarkup } : {});
     return message.message_id;
   }

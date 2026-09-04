@@ -86,7 +86,7 @@ test("an analysis topic or a weekly review switches the model mode to deep and a
   const review = await weekly.service.build({ workspaceId: "workspace", userId: "user", timezone, query: "давай", now });
   assert.equal(review.modelMode, "deep");
   assert.equal(review.activeTopic.reviewKind, "weekly");
-  assert.deepEqual(weekly.calls.briefings, [{ workspaceId: "workspace", kind: "weekly", localDate: "2026-09-04", timezone, now }]);
+  assert.deepEqual(weekly.calls.briefings, [{ workspaceId: "workspace", kind: "weekly", localDate: "2026-09-04", timezone, now, locale: "ru" }]);
   assert.deepEqual(review.model.review, {
     kind: "weekly", questionsAsked: 1, questionLimit: 5, snapshot: "СНИМОК НЕДЕЛИ",
     state: { outcome: { status: "provided", summary: "релиз" }, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },

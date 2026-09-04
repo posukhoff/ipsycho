@@ -3,7 +3,7 @@ import { assignShortIds, buildRefMap, type RefMap } from "./ai-refs.js";
 import { habitOfferEligible } from "./habit-policy.js";
 import { recurrenceLabel } from "./recurrence-label.js";
 import { reviewQuestionLimit, type ReviewKind } from "./review-policy.js";
-import { formatLocalDateTime, formatWhenForModel } from "./time-presentation.js";
+import { formatLocalDateTime, formatWhenForModel, type PresentationLocale } from "./time-presentation.js";
 import { startOfLocalDateUtc } from "./timezone.js";
 import type { Importance, OccurrenceStatus, TaskKind, TaskStatus, TimeMode } from "./types.js";
 import type { WeeklyReviewState } from "./weekly-review-state.js";
@@ -249,7 +249,9 @@ export function selectTasksForContext<T extends ContextTaskRow>(
   return { shown, total: sorted.length, truncated: shown.length < sorted.length };
 }
 
-export function tasksNote(total: number, shown: number): string {
+export function tasksNote(total: number, shown: number, locale: PresentationLocale = "ru"): string {
+  if (locale === "en") return `Showing ${shown} of ${total} active tasks: the nearest by time and the matches for the message. If the needed one is missing, ask for its exact title.`;
+  if (locale === "uk") return `Показано ${shown} із ${total} активних завдань: найближчі за часом і збіги з повідомленням. Якщо потрібного немає — попроси уточнити назву.`;
   return `Показаны ${shown} из ${total} активных задач: ближайшие по времени и совпадения с сообщением. Если нужной нет — попроси уточнить название.`;
 }
 
@@ -274,14 +276,22 @@ export interface TurnContextInput {
   pendingProposal?: { createdAt: Date; titles: readonly string[] } | null;
   focus?: { taskId: string; action: "reschedule" | "blocker" } | null;
   review?: { kind: ReviewKind; questionsAsked: number; snapshot?: string; state?: WeeklyReviewState | null } | null;
+  /** The user's interface language; the context's own words (weekdays, notes) follow it so the payload does not pull the model toward Russian. */
+  locale?: PresentationLocale;
 }
 
 export interface ComposedTurnContext { model: ModelContext; refs: RefMap }
 
-const WEEKDAY_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"] as const;
+const WEEKDAY_SHORT: Record<PresentationLocale, readonly string[]> = {
+  ru: ["пн", "вт", "ср", "чт", "пт", "сб", "вс"],
+  uk: ["пн", "вт", "ср", "чт", "пт", "сб", "нд"],
+  en: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+};
+const WEEKEND_WORD: Record<PresentationLocale, string> = { ru: "выходные", uk: "вихідні", en: "weekends" };
 const MEMORY_MATCH_LIMIT = 5;
 
 export function composeTurnContext(input: TurnContextInput): ComposedTurnContext {
+  const locale = input.locale ?? "ru";
   const taskEntries = assignShortIds("tasks", input.tasks);
   const shortIdByTask = new Map(taskEntries.map((task) => [task.id, task.shortId]));
   const goalEntries = assignShortIds("goals", input.goals);
@@ -331,11 +341,11 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
     const line: ModelTaskLine = {
       id: task.shortId,
       title: task.title,
-      when: formatWhenForModel(current ?? task, input.timezone, input.now),
+      when: formatWhenForModel(current ?? task, input.timezone, input.now, locale),
     };
     if (task.importance !== "normal") line.importance = task.importance;
     if (task.kind === "event") line.kind = "event";
-    const repeat = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate ?? null);
+    const repeat = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate ?? null, locale);
     if (repeat) line.repeat = repeat;
     const state = taskState(task, current, signals?.seenWithoutStart ?? 0, input.now);
     if (state) line.state = state;
@@ -382,10 +392,10 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
 
   const model: ModelContext = {
     tasks,
-    ...(input.truncated ? { tasksNote: tasksNote(input.tasksTotal, tasks.length) } : {}),
+    ...(input.truncated ? { tasksNote: tasksNote(input.tasksTotal, tasks.length, locale) } : {}),
     goals,
     memory: memoryEntries.map((item) => ({ id: item.shortId, type: item.type, content: item.content })),
-    settings: input.settings ? modelSettings(input.settings, input.now) : null,
+    settings: input.settings ? modelSettings(input.settings, input.now, locale) : null,
     topic: {
       active: active ? {
         title: active.title,
@@ -421,7 +431,7 @@ function taskState(task: ContextTaskRow, current: ContextOccurrenceRow | null, s
   return null;
 }
 
-function modelSettings(settings: ContextSettingsRow, now: Date): ModelSettings {
+function modelSettings(settings: ContextSettingsRow, now: Date, locale: PresentationLocale): ModelSettings {
   const offsets = Array.isArray(settings.eventReminderOffsetsMinutes)
     ? settings.eventReminderOffsetsMinutes.filter((value): value is number => typeof value === "number")
     : [];
@@ -430,9 +440,9 @@ function modelSettings(settings: ContextSettingsRow, now: Date): ModelSettings {
     language: settings.pinnedLanguage?.trim() || "auto",
     morningDigest: settings.morningDigestEnabled ? settings.morningReferenceTime : "off",
     eveningDigest: settings.eveningDigestEnabled ? settings.eveningReferenceTime : "off",
-    weeklyReview: settings.weeklyReviewEnabled ? `${WEEKDAY_SHORT[settings.weeklyReviewWeekday - 1] ?? "вс"} ${settings.weeklyReviewTime}` : "off",
+    weeklyReview: settings.weeklyReviewEnabled ? `${WEEKDAY_SHORT[locale][settings.weeklyReviewWeekday - 1] ?? WEEKDAY_SHORT[locale][6]} ${settings.weeklyReviewTime}` : "off",
     quietHours: settings.quietHoursEnabled
-      ? `${settings.weekdayQuietStart}–${settings.weekdayQuietEnd}, выходные ${settings.weekendQuietStart}–${settings.weekendQuietEnd}`
+      ? `${settings.weekdayQuietStart}–${settings.weekdayQuietEnd}, ${WEEKEND_WORD[locale]} ${settings.weekendQuietStart}–${settings.weekendQuietEnd}`
       : "off",
     ...(settings.notificationsSnoozedUntil && settings.notificationsSnoozedUntil.getTime() > now.getTime()
       ? { snoozedUntil: formatLocalDateTime(settings.notificationsSnoozedUntil, settings.timezone, now) }
@@ -468,7 +478,7 @@ const TASKS_MINIMUM = 20;
  * topic summaries, long memory notes, then task lines from the far end of the list. Nothing
  * else bounded the context; thirty memory items of two thousand characters alone exceeded it.
  */
-export function budgetModelContext(model: ModelContext, maxChars = MODEL_CONTEXT_MAX_CHARS): ModelContext {
+export function budgetModelContext(model: ModelContext, maxChars = MODEL_CONTEXT_MAX_CHARS, locale: PresentationLocale = "ru"): ModelContext {
   const size = (value: ModelContext): number => JSON.stringify(value).length;
   if (size(model) <= maxChars) return model;
   let current: ModelContext = { ...model, topic: { ...model.topic, recent: [] } };
@@ -482,10 +492,10 @@ export function budgetModelContext(model: ModelContext, maxChars = MODEL_CONTEXT
   if (size(current) <= maxChars) return current;
   const total = model.tasks.length;
   let tasks = current.tasks;
-  while (tasks.length > TASKS_MINIMUM && size({ ...current, tasks, tasksNote: tasksNote(total, tasks.length) }) > maxChars) {
+  while (tasks.length > TASKS_MINIMUM && size({ ...current, tasks, tasksNote: tasksNote(total, tasks.length, locale) }) > maxChars) {
     tasks = tasks.slice(0, -1);
   }
   if (tasks.length === current.tasks.length) return current;
-  return { ...current, tasks, tasksNote: tasksNote(total, tasks.length) };
+  return { ...current, tasks, tasksNote: tasksNote(total, tasks.length, locale) };
 }
 

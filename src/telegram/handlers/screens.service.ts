@@ -8,6 +8,7 @@ import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.s
 import { TasksService } from "../../tasks/tasks.service.js";
 import { t } from "../copy/index.js";
 import { activeState, type AppContext } from "../telegram-context.js";
+import type { TelegramLocale } from "../telegram-locale.js";
 import {
   fuzzyTaskCardText, fuzzyTaskDetailKeyboard, goalsOverviewText, remindersKeyboard, screenFooterKeyboard, settingsKeyboard, settingsText,
   startedTaskKeyboard, taskCardText, taskDetailKeyboard, taskKeyboard, taskListKeyboard, tasksOverviewText, todayText,
@@ -80,19 +81,19 @@ export class ScreensService {
   }
 
   /** Full task card: row fields plus checklist, goal and the next reminder that will actually fire. */
-  async taskCard(workspaceId: string, context: OccurrenceContext): Promise<string> {
+  async taskCard(workspaceId: string, context: OccurrenceContext, locale: TelegramLocale = "ru"): Promise<string> {
     const [extras, nextReminderAt] = await Promise.all([
       this.tasks.getTaskCardExtras(workspaceId, context.task.id).catch(() => ({ checklist: [], goalTitle: null })),
       this.reminders.nextUserReminderAt(workspaceId, context.occurrence.id).catch(() => null),
     ]);
-    return taskCardText({ ...context.task, ...extras, nextReminderAt }, context.occurrence);
+    return taskCardText({ ...context.task, ...extras, nextReminderAt }, context.occurrence, new Date(), locale);
   }
 
   async showOccurrence(ctx: AppContext, occurrenceId: string): Promise<boolean> {
     const { access, locale } = activeState(ctx);
     const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
     if (!context) return false;
-    await ctx.editMessageText(await this.taskCard(access.workspaceId, context), { reply_markup: taskDetailKeyboard(occurrenceId, context.occurrence.status, locale) }).catch(() => undefined);
+    await ctx.editMessageText(await this.taskCard(access.workspaceId, context, locale), { reply_markup: taskDetailKeyboard(occurrenceId, context.occurrence.status, locale) }).catch(() => undefined);
     return true;
   }
 
@@ -101,7 +102,7 @@ export class ScreensService {
     const task = await this.tasks.getTask(access.workspaceId, taskId);
     if (!task || task.status !== "active" || task.timeMode !== "fuzzy") return false;
     const extras = await this.tasks.getTaskCardExtras(access.workspaceId, task.id).catch(() => ({ checklist: [], goalTitle: null }));
-    await ctx.editMessageText(fuzzyTaskCardText({ ...task, ...extras }), { reply_markup: fuzzyTaskDetailKeyboard(locale) }).catch(() => undefined);
+    await ctx.editMessageText(fuzzyTaskCardText({ ...task, ...extras }, new Date(), locale), { reply_markup: fuzzyTaskDetailKeyboard(locale) }).catch(() => undefined);
     return true;
   }
 

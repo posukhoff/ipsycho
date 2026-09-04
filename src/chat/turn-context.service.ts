@@ -3,6 +3,7 @@ import { BriefingContentService } from "../briefings/briefing-content.service.js
 import { ContextRepository } from "../context/context.repository.js";
 import type { RefMap } from "../core/ai-refs.js";
 import type { ReviewKind } from "../core/review-policy.js";
+import { interfaceLocale } from "../core/language.js";
 import { localDateAt } from "../core/timezone.js";
 import { budgetModelContext, composeTurnContext, selectTasksForContext, type ModelContext } from "../core/turn-context.js";
 import { parseWeeklyReviewState, type WeeklyReviewState } from "../core/weekly-review-state.js";
@@ -97,12 +98,14 @@ export class TurnContextService {
     } : null;
     const reviewKind = input.review ?? activeTopic?.reviewKind ?? null;
     const snapshot = reviewKind === "weekly"
-      ? (await this.briefings.build({ workspaceId, kind: "weekly", localDate: localDateAt(now, input.timezone), timezone: input.timezone, now })).text
+      ? (await this.briefings.build({ workspaceId, kind: "weekly", localDate: localDateAt(now, input.timezone), timezone: input.timezone, now, locale: interfaceLocale(input.language) })).text
       : null;
 
+    const locale = interfaceLocale(input.language);
     const composed = composeTurnContext({
       now,
       timezone: input.timezone,
+      locale,
       tasks: selection.shown,
       tasksTotal: selection.total,
       truncated: selection.truncated,
@@ -127,7 +130,7 @@ export class TurnContextService {
     });
 
     return {
-      model: budgetModelContext(composed.model),
+      model: budgetModelContext(composed.model, undefined, locale),
       refs: composed.refs,
       activeTopic,
       // Existing rows may still carry mode=analysis; the chat layer no longer sets it from the model.

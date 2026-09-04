@@ -401,7 +401,7 @@ export class ChatService {
       const now = new Date();
       const scope: TurnScope = { workspaceId: input.workspaceId, userId: input.userId, timezone: input.timezone, ...(input.language !== undefined ? { language: input.language } : {}), now };
 
-      const liveCard = await this.liveCard(input.workspaceId, input.userId, now);
+      const liveCard = await this.liveCard(input.workspaceId, input.userId, now, input.language);
       const cardReply = await this.resolveCardReply(input, liveCard, now);
       if (cardReply) return cardReply;
 
@@ -441,7 +441,7 @@ export class ChatService {
       if (control === "no_persist") turn = { ...turn, actions: [] };
       if (review && currentTopicId) turn = { ...turn, topic: reviewTopicDirective(turn.topic, input.inbound.content, review) };
 
-      const actionScope = { workspaceId: input.workspaceId, actorUserId: input.userId, recipientUserId: input.userId, now };
+      const actionScope = { workspaceId: input.workspaceId, actorUserId: input.userId, recipientUserId: input.userId, now, language: input.language ?? null };
       const prepared = turn.actions.length
         ? await this.actions.prepare(turn.actions, ctx.refs, actionScope)
         : { resolved: [] as ResolvedAction[], issues: [] as ActionIssue[] };
@@ -572,10 +572,10 @@ export class ChatService {
   }
 
   /** The confirmation card the user is still looking at, if the bot's last message was one. */
-  private async liveCard(workspaceId: string, userId: string, now: Date): Promise<PendingGroupSummary | null> {
+  private async liveCard(workspaceId: string, userId: string, now: Date, language?: string | null): Promise<PendingGroupSummary | null> {
     const last = await this.messages.findLastAssistantMessage(workspaceId, userId).catch(() => null);
     if (!last?.pendingGroupId) return null;
-    return this.actions.pendingGroupSummary(workspaceId, userId, last.pendingGroupId, now).catch(() => null);
+    return this.actions.pendingGroupSummary(workspaceId, userId, last.pendingGroupId, now, language).catch(() => null);
   }
 
   /**

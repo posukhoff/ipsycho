@@ -7,6 +7,7 @@ import { TelegramService } from "../telegram/telegram.service.js";
 import { classifyTelegramSendError } from "../telegram/telegram-send-outcome.js";
 import { reminderCardText } from "../telegram/telegram-ui.js";
 import { telegramLocale } from "../telegram/telegram-locale.js";
+import { t } from "../telegram/copy/index.js";
 import { occurrenceProjectionFromRow, reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { applyNotificationPolicy } from "../core/reminder-planning.js";
 import { nextCriticalEscalationAt, reminderBriefingBundleDecision } from "../core/reminder-escalation.js";
@@ -227,18 +228,29 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         .where(and(eq(taskChecklistItems.workspaceId, row.task.workspaceId), eq(taskChecklistItems.taskId, row.task.id)))
         .orderBy(taskChecklistItems.sortOrder)
         .catch(() => []);
+      const locale = telegramLocale(row.settings.pinnedLanguage);
+      // A reminder pushed out of quiet hours says so; an escalation says which one it is and offers to stop.
+      const deferredByQuiet = row.settings.quietHoursEnabled && row.delivery.scheduledFor.getTime() - row.delivery.intendedFor.getTime() > 60_000;
+      const escalation = isCriticalEscalation(row) ? await this.escalationNumber(row) : 0;
+      const header = [
+        ...(deferredByQuiet ? [t(locale, "quiet_deferred_notice")] : []),
+        ...(escalation >= 2 ? [t(locale, "escalation_header", { n: escalation })] : []),
+      ].join("\n") || null;
       const text = reminderCardText({
         task: { ...row.task, checklist },
         occurrence: row.occurrence,
         purpose: row.rule.purpose,
         now,
+        locale,
+        header,
       });
       const telegramMessageId = await this.telegram.sendReminder(
         row.telegramUserId,
         text,
         row.delivery.occurrenceId ?? undefined,
         row.occurrence?.status ?? "open",
-        telegramLocale(row.settings.pinnedLanguage),
+        locale,
+        { mute: escalation >= 2 },
       );
       const sentAt = new Date();
       await this.database.db.update(reminderDeliveries)
@@ -314,6 +326,18 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
     return wait ? "wait" : "none";
   }
 
+  /** How many deliveries of this critical rule already reached the user for this occurrence, plus the one being sent. */
+  private async escalationNumber(row: ReminderDeliveryRow): Promise<number> {
+    if (!row.occurrence) return 0;
+    const [count] = await this.database.db.select({ sent: sql<number>`count(*)::int` }).from(reminderDeliveries).where(and(
+      eq(reminderDeliveries.workspaceId, row.delivery.workspaceId),
+      eq(reminderDeliveries.reminderRuleId, row.rule.id),
+      eq(reminderDeliveries.occurrenceId, row.occurrence.id),
+      inArray(reminderDeliveries.status, ["sent", "ambiguous"]),
+    ));
+    return (count?.sent ?? 0) + 1;
+  }
+
   private async scheduleNextCriticalEscalation(row: ReminderDeliveryRow, sentAt: Date): Promise<void> {
     if (row.rule.origin !== "default" || row.rule.purpose !== "follow_up" || row.task.kind !== "task" || row.task.timeMode !== "deadline" || row.task.importance !== "critical" || !row.occurrence) return;
     const dueAt = row.occurrence.dueAt ?? row.task.dueAt;
@@ -335,3 +359,8 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "pending")));
   }
 }
+
+function isCriticalEscalation(row: ReminderDeliveryRow): boolean {
+  return row.rule.origin === "default" && row.rule.purpose === "follow_up" && row.task.kind === "task" && row.task.timeMode === "deadline" && row.task.importance === "critical" && Boolean(row.occurrence);
+}
+

@@ -5,3 +5,14 @@ export function normalizeLanguageTag(value: string): string {
   const region = match[2]?.toUpperCase();
   return region ? `${language}-${region}` : language;
 }
+
+export type InterfaceLocale = "ru" | "uk" | "en";
+
+/** The interface locale for a stored or Telegram language tag; Russian when unknown. */
+export function interfaceLocale(language: string | null | undefined): InterfaceLocale {
+  const value = language?.trim().toLowerCase() ?? "";
+  if (value.startsWith("uk")) return "uk";
+  if (value.startsWith("en")) return "en";
+  return "ru";
+}
+

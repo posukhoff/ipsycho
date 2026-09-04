@@ -124,7 +124,7 @@ export class TextService {
         const schedule = await this.taskCallbacks.buildQuickReschedule(access, pending.occurrenceId, pending.choice);
         const applied = await this.taskCallbacks.applyReschedule(access, pending.occurrenceId, schedule, reason);
         const current = await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId);
-        if (current) await ctx.reply(await this.screens.taskCard(access.workspaceId, current), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button") });
+        if (current) await ctx.reply(await this.screens.taskCard(access.workspaceId, current, locale), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button") });
         else await ctx.reply(t(locale, "rescheduled_text"));
         return;
       }

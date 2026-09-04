@@ -221,6 +221,11 @@ export const en: Record<keyof typeof ru, string> = {
   review_end_evening_button: "Finish the review",
   review_end_weekly_button: "Finish planning",
 
+  quiet_deferred_notice: "🔕 Was in quiet hours, showing it now",
+  escalation_header: "🔴 Past the deadline — reminder #{n}",
+  mute_escalation_button: "🔕 Enough for this task",
+  mute_escalation_toast: "No more reminders for this task",
+
   voice_suspended: "AI processing is suspended for this account. Voice input is unavailable.",
   voice_too_long: "The voice message is too long or too large. Send a recording up to {minutes} min and {mb} MB, or text.",
   voice_openai_only: "Voice input is available only with OpenAI configured.",

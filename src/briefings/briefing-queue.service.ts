@@ -80,7 +80,7 @@ export class BriefingQueueService implements OnApplicationBootstrap {
       .where(and(eq(briefingDeliveries.id, deliveryId), eq(briefingDeliveries.status, "pending"))).returning({ id: briefingDeliveries.id });
     if (!claimed) return;
     try {
-      const built = await this.content.build({ workspaceId: row.delivery.workspaceId, kind: row.delivery.kind as BriefingKind, localDate: row.delivery.localDate, timezone: row.settings.digestTimezone, now });
+      const built = await this.content.build({ workspaceId: row.delivery.workspaceId, kind: row.delivery.kind as BriefingKind, localDate: row.delivery.localDate, timezone: row.settings.digestTimezone, now, locale: telegramLocale(row.settings.pinnedLanguage) });
       if (!built.hasContent) {
         await this.database.db.update(briefingDeliveries).set({ status: "suppressed", suppressedReason: "empty" }).where(and(eq(briefingDeliveries.id, deliveryId), eq(briefingDeliveries.status, "processing")));
         return;

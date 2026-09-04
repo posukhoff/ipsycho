@@ -1,7 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import { compactText } from "../core/telegram-ux.js";
 import { localDateAt } from "../core/timezone.js";
-import { formatLocalDateTime } from "../core/time-presentation.js";
+import { formatLocalDateTime, intlLocale } from "../core/time-presentation.js";
 import { recurrenceLabel } from "../core/recurrence-label.js";
 import { selectCardDetails } from "../core/card-details.js";
 import { t } from "./copy/index.js";
@@ -43,27 +43,39 @@ export interface TelegramOccurrenceCard {
 
 export type TelegramTaskListRow = { task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null };
 
-export function taskCardText(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard, now: Date = new Date()): string {
+const CARD_COPY = {
+  ru: { inProgress: "▶️ В работе", overdue: "⚠️ Просрочено", noDate: "🫧 Без точной даты", comeBack: "🗓 Вернуться:", planningReview: "Пора решить, когда вернуться к задаче.", howGoing: "Как идёт?", why: "💡 Зачем:", nextStep: "➡️ Следующий шаг:", checklist: "☑️ Чеклист", more: "… ещё", goal: "🎯 Цель:", by: "до", overdueShort: "⚠️ просрочено", now: "сейчас", in: "через", min: "мин", h: "ч", d: "дн", forWord: "на" },
+  uk: { inProgress: "▶️ У роботі", overdue: "⚠️ Прострочено", noDate: "🫧 Без точної дати", comeBack: "🗓 Повернутися:", planningReview: "Час вирішити, коли повернутися до завдання.", howGoing: "Як іде?", why: "💡 Навіщо:", nextStep: "➡️ Наступний крок:", checklist: "☑️ Чекліст", more: "… ще", goal: "🎯 Ціль:", by: "до", overdueShort: "⚠️ прострочено", now: "зараз", in: "через", min: "хв", h: "год", d: "дн", forWord: "на" },
+  en: { inProgress: "▶️ In progress", overdue: "⚠️ Overdue", noDate: "🫧 No exact date", comeBack: "🗓 Come back:", planningReview: "Time to decide when to return to this task.", howGoing: "How is it going?", why: "💡 Why:", nextStep: "➡️ Next step:", checklist: "☑️ Checklist", more: "… more", goal: "🎯 Goal:", by: "by", overdueShort: "⚠️ overdue", now: "now", in: "in", min: "min", h: "h", d: "d", forWord: "by" },
+} as const;
+
+type CardLocale = TelegramLocale;
+
+function cardCopy(locale: CardLocale) { return CARD_COPY[locale]; }
+
+export function taskCardText(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard, now: Date = new Date(), locale: CardLocale = "ru"): string {
+  const copy = cardCopy(locale);
   const title = `${importanceIcon(task.importance)} ${task.title}`.trim();
   const head = [title];
-  const when = scheduleLine(task, occurrence, now);
+  const when = scheduleLine(task, occurrence, now, "", locale);
   if (when) head.push(when);
-  const recurrence = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate);
+  const recurrence = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate, locale);
   if (recurrence) head.push(`🔁 ${recurrence}`);
-  const state = occurrence.status === "in_progress" ? "▶️ В работе"
-    : occurrence.overdue ? `⚠️ Просрочено${overdueFor(occurrence, now)}`
-    : occurrence.status === "scheduled" ? "" : "";
+  const state = occurrence.status === "in_progress" ? copy.inProgress
+    : occurrence.overdue ? `${copy.overdue}${overdueFor(occurrence, now, locale)}`
+    : "";
   if (state) head.push(state);
-  const details = detailLines(task);
+  const details = detailLines(task, locale);
   return details.length ? `${head.join("\n")}\n\n${details.join("\n")}` : head.join("\n");
 }
 
-export function fuzzyTaskCardText(task: TelegramTaskCard, now: Date = new Date()): string {
+export function fuzzyTaskCardText(task: TelegramTaskCard, now: Date = new Date(), locale: CardLocale = "ru"): string {
+  const copy = cardCopy(locale);
   const title = `${importanceIcon(task.importance)} ${task.title}`.trim();
-  const horizon = task.fuzzyHorizonText ? `🫧 ${task.fuzzyHorizonText}` : "🫧 Без точной даты";
-  const review = task.reviewAt ? `🗓 Вернуться: ${formatLocalDateTime(new Date(task.reviewAt), task.timezone, now)} (${task.timezone})` : "";
+  const horizon = task.fuzzyHorizonText ? `🫧 ${task.fuzzyHorizonText}` : copy.noDate;
+  const review = task.reviewAt ? `${copy.comeBack} ${formatLocalDateTime(new Date(task.reviewAt), task.timezone, now, intlLocale(locale))} (${task.timezone})` : "";
   const head = [title, horizon, review].filter(Boolean);
-  const details = detailLines(task);
+  const details = detailLines(task, locale);
   return details.length ? `${head.join("\n")}\n\n${details.join("\n")}` : head.join("\n");
 }
 
@@ -72,94 +84,106 @@ export function reminderCardText(input: {
   occurrence?: TelegramOccurrenceCard | null;
   purpose: "user_reminder" | "planning_review" | "follow_up";
   now: Date;
+  locale?: CardLocale;
+  /** A line above the card: "was in quiet hours", "3rd reminder since the deadline". */
+  header?: string | null;
 }): string {
+  const locale = input.locale ?? "ru";
+  const copy = cardCopy(locale);
   const icon = input.purpose === "planning_review" ? "🗓" : input.purpose === "follow_up" ? "↩️" : "🔔";
   const title = `${icon} ${importanceIcon(input.task.importance)} ${input.task.title}`.replace(/\s+/g, " ").trim();
-  const prompt = input.purpose === "planning_review" ? "Пора решить, когда вернуться к задаче."
-    : input.purpose === "follow_up" && input.occurrence?.status === "in_progress" ? "Как идёт?" : "";
-  const lines = [title];
+  const prompt = input.purpose === "planning_review" ? copy.planningReview
+    : input.purpose === "follow_up" && input.occurrence?.status === "in_progress" ? copy.howGoing : "";
+  const lines = input.header ? [input.header, title] : [title];
   if (input.occurrence) {
-    const when = scheduleLine(input.task, input.occurrence, input.now, relativeDue(input.occurrence, input.now));
+    const when = scheduleLine(input.task, input.occurrence, input.now, relativeDue(input.occurrence, input.now, locale), locale);
     if (when) lines.push(when);
   } else if (input.task.fuzzyHorizonText) {
     lines.push(`🫧 ${input.task.fuzzyHorizonText}`);
   }
-  const recurrence = recurrenceLabel(input.task.recurrenceRule, input.task.recurrenceEndLocalDate);
+  const recurrence = recurrenceLabel(input.task.recurrenceRule, input.task.recurrenceEndLocalDate, locale);
   if (recurrence) lines.push(`🔁 ${recurrence}`);
   // At the moment of the reminder the next concrete step matters more than the rationale.
   const details = selectCardDetails(input.task);
   if (details.nextAction) lines.push(`➡️ ${compactText(details.nextAction, 300)}`);
   if (details.context) lines.push(`📝 ${compactText(details.context, 200)}`);
-  const checklist = checklistLines(input.task.checklist, 3);
+  const checklist = checklistLines(input.task.checklist, 3, locale);
   if (checklist.length) lines.push(...checklist);
   if (prompt) lines.push("", prompt);
   return lines.join("\n").trimEnd();
 }
 
 /** One line with the persisted time of an occurrence: start(–end) / deadline / date, plus the next reminder. */
-function scheduleLine(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard, now: Date, relative = ""): string {
-  const when = occurrenceWhen(occurrence, now);
+function scheduleLine(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard, now: Date, relative = "", locale: CardLocale = "ru"): string {
+  const when = occurrenceWhen(occurrence, now, locale);
   if (!when) return "";
-  const reminder = task.nextReminderAt ? ` · 🔔 ${reminderTimeLabel(new Date(task.nextReminderAt), occurrence, now)}` : "";
+  const reminder = task.nextReminderAt ? ` · 🔔 ${reminderTimeLabel(new Date(task.nextReminderAt), occurrence, now, locale)}` : "";
   const suffix = relative ? ` · ${relative}` : "";
   return `📅 ${when} (${occurrence.timezone})${reminder}${suffix}`;
 }
 
-function occurrenceWhen(occurrence: TelegramOccurrenceCard, now: Date): string {
+function occurrenceWhen(occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale = "ru"): string {
   const tz = occurrence.timezone;
+  const tag = intlLocale(locale);
+  const by = cardCopy(locale).by;
   if (occurrence.plannedStartAt && occurrence.plannedEndAt) {
     const start = new Date(occurrence.plannedStartAt);
     const end = new Date(occurrence.plannedEndAt);
-    const endLabel = localDateAt(start, tz) === localDateAt(end, tz) ? formatTime(end, tz) : formatLocalDateTime(end, tz, now);
-    return `${formatLocalDateTime(start, tz, now)}–${endLabel}`;
+    const endLabel = localDateAt(start, tz) === localDateAt(end, tz) ? formatTime(end, tz, locale) : formatLocalDateTime(end, tz, now, tag);
+    return `${formatLocalDateTime(start, tz, now, tag)}–${endLabel}`;
   }
-  if (occurrence.plannedStartAt) return formatLocalDateTime(new Date(occurrence.plannedStartAt), tz, now);
-  if (occurrence.dueAt) return `до ${formatLocalDateTime(new Date(occurrence.dueAt), tz, now)}`;
+  if (occurrence.plannedStartAt) return formatLocalDateTime(new Date(occurrence.plannedStartAt), tz, now, tag);
+  if (occurrence.dueAt) return `${by} ${formatLocalDateTime(new Date(occurrence.dueAt), tz, now, tag)}`;
   if (occurrence.plannedLocalDate) return formatDateLabel(occurrence.plannedLocalDate, tz, now);
-  if (occurrence.dueLocalDate) return `до ${formatDateLabel(occurrence.dueLocalDate, tz, now)}`;
+  if (occurrence.dueLocalDate) return `${by} ${formatDateLabel(occurrence.dueLocalDate, tz, now)}`;
   return "";
 }
 
-function reminderTimeLabel(reminderAt: Date, occurrence: TelegramOccurrenceCard, now: Date): string {
+function reminderTimeLabel(reminderAt: Date, occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {
   const anchor = occurrence.plannedStartAt ? new Date(occurrence.plannedStartAt) : occurrence.dueAt ? new Date(occurrence.dueAt) : null;
-  if (anchor && localDateAt(anchor, occurrence.timezone) === localDateAt(reminderAt, occurrence.timezone)) return formatTime(reminderAt, occurrence.timezone);
-  return formatLocalDateTime(reminderAt, occurrence.timezone, now);
+  if (anchor && localDateAt(anchor, occurrence.timezone) === localDateAt(reminderAt, occurrence.timezone)) return formatTime(reminderAt, occurrence.timezone, locale);
+  return formatLocalDateTime(reminderAt, occurrence.timezone, now, intlLocale(locale));
 }
 
-function overdueFor(occurrence: TelegramOccurrenceCard, now: Date): string {
+function overdueFor(occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {
+  const copy = cardCopy(locale);
   const target = occurrence.dueAt ? new Date(occurrence.dueAt) : occurrence.plannedStartAt ? new Date(occurrence.plannedStartAt) : null;
   if (!target) return "";
   const minutes = Math.round((now.getTime() - target.getTime()) / 60_000);
   if (minutes < 1) return "";
-  if (minutes < 60) return ` на ${minutes} мин`;
-  if (minutes < 48 * 60) return ` на ${Math.round(minutes / 60)} ч`;
-  return ` на ${Math.round(minutes / (24 * 60))} дн`;
+  if (minutes < 60) return ` ${copy.forWord} ${minutes} ${copy.min}`;
+  if (minutes < 48 * 60) return ` ${copy.forWord} ${Math.round(minutes / 60)} ${copy.h}`;
+  return ` ${copy.forWord} ${Math.round(minutes / (24 * 60))} ${copy.d}`;
 }
 
 /** Detail lines in reading order; fields that only repeat the title, goal or checklist are dropped (see selectCardDetails). */
-function detailLines(task: TelegramTaskCard): string[] {
+function detailLines(task: TelegramTaskCard, locale: CardLocale): string[] {
+  const copy = cardCopy(locale);
   const lines: string[] = [];
   const details = selectCardDetails(task);
-  if (details.why) lines.push(`💡 Зачем: ${compactText(details.why, 300)}`);
-  if (details.nextAction) lines.push(`➡️ Следующий шаг: ${compactText(details.nextAction, 300)}`);
+  if (details.why) lines.push(`${copy.why} ${compactText(details.why, 300)}`);
+  if (details.nextAction) lines.push(`${copy.nextStep} ${compactText(details.nextAction, 300)}`);
   if (details.context) lines.push(`📝 ${compactText(details.context, 400)}`);
-  lines.push(...checklistLines(task.checklist, 12));
-  if (task.goalTitle?.trim()) lines.push(`🎯 Цель: «${task.goalTitle.trim()}»`);
+  lines.push(...checklistLines(task.checklist, 12, locale));
+  if (task.goalTitle?.trim()) lines.push(`${copy.goal} «${task.goalTitle.trim()}»`);
   return lines;
 }
 
-function checklistLines(checklist: TelegramTaskCard["checklist"], limit: number): string[] {
+function checklistLines(checklist: TelegramTaskCard["checklist"], limit: number, locale: CardLocale): string[] {
   if (!checklist?.length) return [];
+  const copy = cardCopy(locale);
   const done = checklist.filter((item) => item.done).length;
-  const lines = [`☑️ Чеклист ${done}/${checklist.length}`];
+  const lines = [`${copy.checklist} ${done}/${checklist.length}`];
   for (const item of checklist.slice(0, limit)) lines.push(`${item.done ? "✅" : "◻️"} ${compactText(item.text, 120)}`);
-  if (checklist.length > limit) lines.push(`… ещё ${checklist.length - limit}`);
+  if (checklist.length > limit) lines.push(`${copy.more} ${checklist.length - limit}`);
   return lines;
 }
 
 export interface TaskKeyboardOptions {
   /** A reminder card offers to be repeated later without touching the task's own time. */
   snooze?: boolean;
+  /** A critical escalation offers to stop repeating for this occurrence. */
+  mute?: boolean;
 }
 
 export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
@@ -168,6 +192,7 @@ export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceSta
   keyboard.text(label(locale, "start"), `occ:start:${occurrenceId}`).text(label(locale, "done"), `occ:done:${occurrenceId}`).row();
   if (options.snooze) keyboard.text(t(locale, "snooze_15m_button"), `follow:seen:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:seen:1h:${occurrenceId}`).row();
   keyboard.text(label(locale, "later"), `occ:resched:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
+  if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
   return keyboard;
 }
 
@@ -177,7 +202,9 @@ export function startedTaskKeyboard(occurrenceId: string, locale: TelegramLocale
     .text(label(locale, "later"), `occ:resched:${occurrenceId}`)
     .row();
   if (options.snooze) keyboard.text(t(locale, "snooze_15m_button"), `follow:seen:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:seen:1h:${occurrenceId}`).row();
-  return keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
+  keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
+  if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
+  return keyboard;
 }
 
 /** The destructive actions live one tap deeper, behind an explicit label rather than "•••". */
@@ -337,7 +364,7 @@ export function tasksOverviewText(rows: Array<{ task: TelegramTaskCard & { id: s
     for (const [index, row] of uniqueRows.slice(0, 8).entries()) {
       const icon = importanceIcon(row.task.importance) || (row.task.recurrenceRule ? "🔁" : row.occurrence ? "•" : "🫧");
       const state = row.occurrence?.overdue ? " · overdue" : row.occurrence?.status === "in_progress" ? " · in progress" : "";
-      lines.push(`${index + 1}. ${icon} ${row.task.title}${overviewWhen(row.task, row.occurrence, now)}${state}`);
+      lines.push(`${index + 1}. ${icon} ${row.task.title}${overviewWhen(row.task, row.occurrence, now, locale)}${state}`);
     }
     if (uniqueRows.length > 8) lines.push(`+ ${uniqueRows.length - 8} more`);
     lines.push("", "To change, complete, or reschedule a task, just write it in a message.");
@@ -349,7 +376,7 @@ export function tasksOverviewText(rows: Array<{ task: TelegramTaskCard & { id: s
   for (const [index, row] of uniqueRows.slice(0, 8).entries()) {
     const icon = importanceIcon(row.task.importance) || (row.task.recurrenceRule ? "🔁" : row.occurrence ? "•" : "🫧");
     const state = row.occurrence?.overdue ? (uk ? " · прострочено" : " · просрочено") : row.occurrence?.status === "in_progress" ? (uk ? " · у роботі" : " · в работе") : "";
-    lines.push(`${index + 1}. ${icon} ${row.task.title}${overviewWhen(row.task, row.occurrence, now)}${state}`);
+    lines.push(`${index + 1}. ${icon} ${row.task.title}${overviewWhen(row.task, row.occurrence, now, locale)}${state}`);
   }
   if (uniqueRows.length > 8) lines.push(uk ? `+ ще ${uniqueRows.length - 8}` : `+ ещё ${uniqueRows.length - 8}`);
   lines.push("", uk ? "Щоб змінити, завершити або перенести завдання, напиши це звичайним повідомленням." : "Чтобы изменить, завершить или перенести задачу, напиши это обычным сообщением.");
@@ -478,17 +505,17 @@ export function todayLine(task: TelegramTaskCard, occurrence: TelegramOccurrence
   if (!occurrence) {
     const fuzzyIcon = importanceIcon(task.importance) || "🫧";
     const review = task.reviewAt
-      ? ` · ${locale === "en" ? "review at" : locale === "uk" ? "переглянути о" : "пересмотреть в"} ${formatTime(new Date(task.reviewAt), task.timezone)}`
+      ? ` · ${locale === "en" ? "review at" : locale === "uk" ? "переглянути о" : "пересмотреть в"} ${formatTime(new Date(task.reviewAt), task.timezone, locale)}`
       : "";
     return `${fuzzyIcon} ${task.title}${review}`;
   }
   const tz = occurrence.timezone;
   const sameDay = (value: Date | string | null | undefined) => Boolean(value) && localDateAt(new Date(value!), tz) === localDate;
   let when = "";
-  if (occurrence.plannedStartAt && occurrence.plannedEndAt && sameDay(occurrence.plannedStartAt)) when = `${formatTime(new Date(occurrence.plannedStartAt), tz)}–${formatTime(new Date(occurrence.plannedEndAt), tz)}`;
-  else if (occurrence.plannedStartAt && sameDay(occurrence.plannedStartAt)) when = formatTime(new Date(occurrence.plannedStartAt), tz);
-  else if (occurrence.dueAt && sameDay(occurrence.dueAt)) when = `${locale === "en" ? "by" : "до"} ${formatTime(new Date(occurrence.dueAt), tz)}`;
-  else if (occurrence.plannedStartAt || occurrence.dueAt) when = formatLocalDateTime(new Date((occurrence.plannedStartAt ?? occurrence.dueAt)!), tz, now);
+  if (occurrence.plannedStartAt && occurrence.plannedEndAt && sameDay(occurrence.plannedStartAt)) when = `${formatTime(new Date(occurrence.plannedStartAt), tz, locale)}–${formatTime(new Date(occurrence.plannedEndAt), tz, locale)}`;
+  else if (occurrence.plannedStartAt && sameDay(occurrence.plannedStartAt)) when = formatTime(new Date(occurrence.plannedStartAt), tz, locale);
+  else if (occurrence.dueAt && sameDay(occurrence.dueAt)) when = `${locale === "en" ? "by" : "до"} ${formatTime(new Date(occurrence.dueAt), tz, locale)}`;
+  else if (occurrence.plannedStartAt || occurrence.dueAt) when = formatLocalDateTime(new Date((occurrence.plannedStartAt ?? occurrence.dueAt)!), tz, now, intlLocale(locale));
   else if (occurrence.dueLocalDate && occurrence.dueLocalDate !== localDate) when = `${locale === "en" ? "by" : "до"} ${formatDateLabel(occurrence.dueLocalDate, tz, now)}`;
   const state = occurrence.overdue ? (locale === "en" ? "overdue" : locale === "uk" ? "прострочено" : "просрочено")
     : occurrence.status === "in_progress" ? (locale === "en" ? "in progress" : locale === "uk" ? "у роботі" : "в работе") : "";
@@ -497,25 +524,26 @@ export function todayLine(task: TelegramTaskCard, occurrence: TelegramOccurrence
 }
 
 /** Compact "when" for list screens: exact time, deadline, date or fuzzy horizon. */
-function overviewWhen(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard | null, now: Date): string {
+function overviewWhen(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard | null, now: Date, locale: TelegramLocale = "ru"): string {
   if (!occurrence) return task.fuzzyHorizonText ? ` · 🫧 ${task.fuzzyHorizonText}` : "";
-  const when = occurrenceWhen(occurrence, now);
+  const when = occurrenceWhen(occurrence, now, locale);
   return when ? ` · ${when}` : "";
 }
 
-function relativeDue(occurrence: TelegramOccurrenceCard, now: Date): string {
+function relativeDue(occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {
+  const copy = cardCopy(locale);
   const target = occurrence.dueAt ? new Date(occurrence.dueAt) : occurrence.plannedStartAt ? new Date(occurrence.plannedStartAt) : null;
-  if (!target) return occurrence.overdue ? "⚠️ просрочено" : "";
+  if (!target) return occurrence.overdue ? copy.overdueShort : "";
   const minutes = Math.round((target.getTime() - now.getTime()) / 60_000);
-  if (minutes < -1) return `⚠️ просрочено${overdueFor(occurrence, now)}`;
-  if (minutes <= 1) return "сейчас";
-  if (minutes < 60) return `через ${minutes} мин`;
+  if (minutes < -1) return `${copy.overdueShort}${overdueFor(occurrence, now, locale)}`;
+  if (minutes <= 1) return copy.now;
+  if (minutes < 60) return `${copy.in} ${minutes} ${copy.min}`;
   if (minutes < 24 * 60) {
     const hours = Math.floor(minutes / 60);
     const rest = minutes % 60;
-    return rest && hours < 6 ? `через ${hours} ч ${rest} мин` : `через ${Math.round(minutes / 60)} ч`;
+    return rest && hours < 6 ? `${copy.in} ${hours} ${copy.h} ${rest} ${copy.min}` : `${copy.in} ${Math.round(minutes / 60)} ${copy.h}`;
   }
-  return `через ${Math.round(minutes / (24 * 60))} дн`;
+  return `${copy.in} ${Math.round(minutes / (24 * 60))} ${copy.d}`;
 }
 
 function importanceIcon(importance: TelegramImportance): string {
@@ -526,8 +554,8 @@ function formatLocal(at: Date, timezone: string): string {
   return formatLocalDateTime(at, timezone, new Date());
 }
 
-function formatTime(at: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("ru-RU", { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(at);
+function formatTime(at: Date, timezone: string, locale: CardLocale = "ru"): string {
+  return new Intl.DateTimeFormat(intlLocale(locale), { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(at);
 }
 
 function formatDateLabel(value: string, timezone?: string, now?: Date): string {

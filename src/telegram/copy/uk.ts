@@ -221,6 +221,11 @@ export const uk: Record<keyof typeof ru, string> = {
   review_end_evening_button: "Закінчити розбір",
   review_end_weekly_button: "Закінчити планування",
 
+  quiet_deferred_notice: "🔕 Було в тихі години, показую зараз",
+  escalation_header: "🔴 Термін минув — {n}-те нагадування",
+  mute_escalation_button: "🔕 Досить по цьому завданню",
+  mute_escalation_toast: "Більше не нагадую по цьому завданню",
+
   voice_suspended: "AI-обробку для акаунта призупинено. Голосове введення недоступне.",
   voice_too_long: "Голосове надто довге або велике. Надішли запис до {minutes} хв і {mb} МБ або текст.",
   voice_openai_only: "Голосове введення зараз доступне лише з налаштованим OpenAI.",
