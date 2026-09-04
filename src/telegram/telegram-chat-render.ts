@@ -29,7 +29,7 @@ export function renderChatResult(result: Extract<ChatProcessResult, { kind: "ok"
 export function chatResultKeyboard(
   appliedGroupId?: string,
   pendingGroupId?: string,
-  checkpointTopicId?: string,
+  _checkpointTopicId?: string,
   topicId?: string,
   review?: { kind: "evening" | "weekly"; step?: number; totalSteps?: number; completed: boolean },
   locale: TelegramLocale = "ru",

@@ -180,15 +180,6 @@ export class TasksRepository {
       .orderBy(asc(taskChecklistItems.sortOrder));
   }
 
-  async listRecurrenceExclusions(workspaceId: string, taskIds: readonly string[]) {
-    if (!taskIds.length) return [];
-    return this.database.db
-      .select()
-      .from(taskRecurrenceExclusions)
-      .where(and(eq(taskRecurrenceExclusions.workspaceId, workspaceId), inArray(taskRecurrenceExclusions.taskId, [...taskIds])))
-      .orderBy(asc(taskRecurrenceExclusions.taskId), asc(taskRecurrenceExclusions.localDate));
-  }
-
   async listActiveOccurrencesForTasks(workspaceId: string, taskIds: readonly string[]) {
     if (!taskIds.length) return [];
     return this.database.db
@@ -261,39 +252,11 @@ export class TasksRepository {
     return row?.settings ?? null;
   }
 
-  async createPlan(plan: PersistedTaskPlan): Promise<void> {
-    await this.createPlans([plan]);
-  }
-
   async createPlans(plans: readonly PersistedTaskPlan[]): Promise<void> {
     if (!plans.length) return;
     await this.database.db.transaction(async (tx) => {
       for (const plan of plans) await insertTaskPlan(tx, plan);
     });
-  }
-
-  async deleteTasksIfVersions(workspaceId: string, expected: readonly { id: string; version: number }[]): Promise<void> {
-    if (!expected.length) return;
-    await this.database.db.transaction(async (tx) => {
-      const ids = expected.map((item) => item.id);
-      const rows = await tx
-        .select({ id: tasks.id, version: tasks.version })
-        .from(tasks)
-        .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids)));
-      if (rows.length !== expected.length) throw new DomainRuleError("undo target missing");
-      const versions = new Map(rows.map((row) => [row.id, row.version]));
-      for (const item of expected) {
-        if (versions.get(item.id) !== item.version) throw new DomainRuleError("undo target changed after action");
-      }
-      await tx.delete(tasks).where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids)));
-    });
-  }
-
-  async findTasksBySourceActionGroup(workspaceId: string, groupId: string) {
-    return this.database.db
-      .select({ id: tasks.id, version: tasks.version, title: tasks.title })
-      .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.sourceActionGroupId, groupId)));
   }
 
   async recordEvent(input: { workspaceId: string; taskId: string; occurrenceId?: string; actorUserId?: string; eventType: string; details?: string }): Promise<void> {

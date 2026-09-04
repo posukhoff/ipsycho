@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { BriefingContentService } from "../briefings/briefing-content.service.js";
 import { ActionStateUncertainError, ActionsService, InvalidAiActionError, type PendingGroupSummary, type ProposedActionsResult } from "../actions/actions.service.js";
 import { AiService } from "../ai/ai.service.js";
 import type { AiMessage } from "../ai/ai-provider.js";
@@ -81,7 +80,6 @@ export class ChatService {
     private readonly messages: MessagesRepository,
     private readonly turnContext: TurnContextService,
     private readonly context: ContextService,
-    private readonly briefings: BriefingContentService,
   ) {}
 
   get providerName(): string {

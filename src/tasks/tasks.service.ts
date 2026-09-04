@@ -86,10 +86,6 @@ export class TasksService {
     }
   }
 
-  async undoCreatedTasks(workspaceId: string, tasksToDelete: readonly { id: string; version: number }[]): Promise<void> {
-    await this.repository.deleteTasksIfVersions(workspaceId, tasksToDelete);
-  }
-
   private async buildTaskPlan(input: CreateTaskInput): Promise<BuiltTaskPlan> {
     const title = input.title.trim();
     if (!title) throw new DomainRuleError("task title is required");
@@ -226,7 +222,7 @@ export class TasksService {
           .filter((delivery) => delivery.status === "pending")
           .map((delivery) => ({
             scheduledFor: delivery.scheduledFor,
-            purpose: ruleSpecs.find((rule, index) => ruleIds[index] === delivery.reminderRuleId)?.purpose ?? "user_reminder",
+            purpose: ruleSpecs.find((_rule, index) => ruleIds[index] === delivery.reminderRuleId)?.purpose ?? "user_reminder",
           })),
         ...(occurrenceRows[0]
           ? {
@@ -352,10 +348,6 @@ export class TasksService {
     if (!context) throw new DomainRuleError("occurrence not found");
     const previous = await this.repository.countReschedules(workspaceId, occurrenceId);
     return isRescheduleReasonRequired(context.task.importance, previous);
-  }
-
-  async getCreatedTasksForActionGroup(workspaceId: string, groupId: string) {
-    return this.repository.findTasksBySourceActionGroup(workspaceId, groupId);
   }
 
   async setOccurrenceStatus(input: {

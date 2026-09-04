@@ -11,7 +11,6 @@ import { rescheduledDefinition, rescheduledOccurrenceStatus } from "../core/resc
 import { normalizeLanguageTag } from "../core/language.js";
 import { localDateAndTimeToUtc } from "../core/timezone.js";
 import type { AppliedReportItem } from "../core/applied-report.js";
-import { ContextActionsRepository } from "../context/context-actions.repository.js";
 import { ContextService } from "../context/context.service.js";
 import { taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { TasksService } from "../tasks/tasks.service.js";
@@ -30,7 +29,6 @@ import {
 import { describeAction, settingsPatchForAction, type ActionNames } from "./action-describe.js";
 import { resolveActions } from "./action-resolver.js";
 import { ActionGroupRepository, type ActionGroupStep, type ActionGroupStepResult } from "./action-group.repository.js";
-import { ActionMutationsRepository } from "./action-mutations.repository.js";
 import { ActionsRepository } from "./actions.repository.js";
 import { DomainRuleError } from "../core/errors.js";
 import { isConnectionLevelError } from "../database/pg-errors.js";
@@ -87,12 +85,10 @@ const KNOWN_ACTION_TYPES = new Set<string>(AI_ACTION_TYPES);
 export class ActionsService implements OnApplicationBootstrap {
   constructor(
     private readonly repository: ActionsRepository,
-    private readonly mutations: ActionMutationsRepository,
     private readonly groups: ActionGroupRepository,
     private readonly tasks: TasksService,
     private readonly reminders: ReminderSchedulingService,
     private readonly context: ContextService,
-    private readonly contextActions: ContextActionsRepository,
     private readonly settings: SettingsService,
   ) {}
 

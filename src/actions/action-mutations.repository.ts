@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { rescheduledDefinition, rescheduledOccurrenceStatus, type RescheduleFields } from "../core/reschedule.js";
@@ -9,7 +8,7 @@ import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import { taskFieldChanges, type AppliedReportItem, type TaskFieldChange } from "../core/applied-report.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
 import type { TaskDefinition, TimeMode } from "../core/types.js";
-import { DatabaseService } from "../database/database.service.js";
+import { type DatabaseService } from "../database/database.service.js";
 import {
   actionEvents,
   reminderDeliveries,
@@ -24,7 +23,6 @@ import {
 import { taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { defaultReminderRuleRows } from "../tasks/task-plan-rules.js";
 import { seriesOperationState } from "../core/series-policy.js";
-import { finalizeGroup } from "./action-group.repository.js";
 import { DomainRuleError } from "../core/errors.js";
 
 export type DbTransaction = Parameters<Parameters<DatabaseService["db"]["transaction"]>[0]>[0];
@@ -254,118 +252,6 @@ export interface MutationAppliedResult {
   /** Schedule before a reschedule, so the report can show old → new. */
   previousSchedule?: OccurrenceScheduleView;
   scheduledReminderAt?: Date;
-}
-
-/** Single-action entry points: one transaction each, the step body plus the group finalisation. */
-@Injectable()
-export class ActionMutationsRepository {
-  constructor(private readonly database: DatabaseService) {}
-
-  async applyUpdateSettings(input: Omit<UpdateSettingsInput, "now"> & { now?: Date; undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      await updateSettingsInTx(tx, { ...input, now: input.now ?? new Date() });
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: ["Настройки"] };
-    });
-  }
-
-  async applyUpdateOccurrence(input: UpdateOccurrenceInput & { undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await updateOccurrenceInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title] };
-    });
-  }
-
-  async applyOccurrenceInteraction(input: OccurrenceInteractionInput): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await occurrenceInteractionInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.now);
-      return { groupId: input.groupId, undoable: false, count: 1, titles: [result.title] };
-    });
-  }
-
-  async applyUpdateTask(input: Omit<UpdateTaskInput, "now"> & { now?: Date; undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await updateTaskInTx(tx, { ...input, now: input.now ?? new Date() });
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return {
-        groupId: input.groupId,
-        count: 1,
-        titles: [result.title],
-        ...(result.renamedFrom !== null ? { renamedFrom: result.renamedFrom } : {}),
-        changes: result.changes,
-      };
-    });
-  }
-
-  async applyCompleteOccurrence(input: CompleteOccurrenceInput & { undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await completeOccurrenceInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title] };
-    });
-  }
-
-  /**
-   * Completion is addressed by task. A task with a live occurrence closes through that
-   * occurrence; a task with no exact time has no occurrence at all and closes directly,
-   * which is the only way "I already did it" can work for an undated task.
-   */
-  async applyCompleteTask(input: CompleteTaskInput & { undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await completeTaskInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title] };
-    });
-  }
-
-  async applyCancelTask(input: CancelTaskInput & { undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await cancelTaskInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title] };
-    });
-  }
-
-  async applyRescheduleOccurrence(input: RescheduleOccurrenceInput & { undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await rescheduleOccurrenceInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return {
-        groupId: input.groupId,
-        count: 1,
-        titles: [result.title],
-        reminderRebuildOccurrenceId: input.occurrenceId,
-        previousSchedule: result.previousSchedule,
-        occurrenceSchedule: result.occurrenceSchedule,
-      };
-    });
-  }
-
-  async applyConcretiseTask(input: ConcretiseTaskInput & { undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await concretiseTaskInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title], reminderRebuildOccurrenceId: result.occurrenceId, occurrenceSchedule: result.occurrenceSchedule };
-    });
-  }
-
-  async applyChangeReminder(input: Omit<ChangeReminderInput, "now"> & { now?: Date; undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await changeReminderInTx(tx, { ...input, now: input.now ?? new Date() });
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title], reminderRebuildOccurrenceId: input.occurrenceId, occurrenceSchedule: result.occurrenceSchedule };
-    });
-  }
-
-  async applyChangeSeries(input: ChangeSeriesInput & { undoExpiresAt: Date }): Promise<MutationAppliedResult> {
-    return this.database.db.transaction(async (tx) => {
-      const result = await changeSeriesInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title], ...(result.reconcile ? { recurrenceReconcileTaskId: input.taskId } : {}) };
-    });
-  }
 }
 
 export async function updateSettingsInTx(tx: DbTransaction, input: UpdateSettingsInput): Promise<InTx<UpdateSettingsStepResult>> {

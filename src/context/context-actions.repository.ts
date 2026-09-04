@@ -1,9 +1,6 @@
-import { Injectable } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
-import { DatabaseService } from "../database/database.service.js";
 import { actionEvents, goals, memoryItems, taskGoals, tasks } from "../database/schema.js";
 import { insertTaskPlan, type PersistedTaskPlan } from "../tasks/tasks.repository.js";
-import { finalizeGroup } from "../actions/action-group.repository.js";
 import type { DbTransaction, InTx, TouchedVersion } from "../actions/action-mutations.repository.js";
 import { DomainRuleError } from "../core/errors.js";
 
@@ -115,110 +112,6 @@ export interface GoalPlanStepResult {
   goalTitle: string;
   taskIds: string[];
   taskTitles: string[];
-}
-
-/** Single-action entry points: one transaction each, the step body plus the group finalisation. */
-@Injectable()
-export class ContextActionsRepository {
-  constructor(private readonly database: DatabaseService) {}
-
-  async applyCreateGoal(input: Omit<CreateGoalInput, "now"> & { now?: Date; undoExpiresAt: Date }) {
-    return this.database.db.transaction(async (tx) => {
-      const result = await createGoalInTx(tx, { ...input, now: input.now ?? new Date() });
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title] };
-    });
-  }
-
-  async applyUpdateGoal(input: UpdateGoalInput & { undoExpiresAt: Date }) {
-    return this.database.db.transaction(async (tx) => {
-      const result = await updateGoalInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [result.title] };
-    });
-  }
-
-  async applySaveMemory(input: Omit<SaveMemoryInput, "now"> & { now?: Date; undoExpiresAt: Date }) {
-    return this.applySaveMemories({
-      ...input,
-      memories: [
-        {
-          memoryType: input.memoryType,
-          content: input.content,
-          sensitive: input.sensitive,
-          source: input.source,
-        },
-      ],
-    });
-  }
-
-  async applySaveMemories(
-    input: GroupScope & {
-      memories: Array<{ memoryType: MemoryType; content: string; sensitive: boolean; source: LinkSource }>;
-      sourceMessageId?: string;
-      now?: Date;
-      undoExpiresAt: Date;
-    },
-  ) {
-    return this.database.db.transaction(async (tx) => {
-      const now = input.now ?? new Date();
-      const results: SaveMemoryStepResult[] = [];
-      for (const memory of input.memories) {
-        results.push(
-          await saveMemoryInTx(tx, {
-            workspaceId: input.workspaceId,
-            groupId: input.groupId,
-            actorUserId: input.actorUserId,
-            ...memory,
-            ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
-            now,
-          }),
-        );
-      }
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: results.length, titles: results.map(() => "Сохранить в память") };
-    });
-  }
-
-  async applyDeleteMemory(input: Omit<DeleteMemoryInput, "now"> & { now?: Date; undoExpiresAt: Date }) {
-    return this.database.db.transaction(async (tx) => {
-      await deleteMemoryInTx(tx, { ...input, now: input.now ?? new Date() });
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: ["Удалить из памяти"] };
-    });
-  }
-
-  async applyUpdateMemory(input: UpdateMemoryInput & { undoExpiresAt: Date }) {
-    return this.database.db.transaction(async (tx) => {
-      await updateMemoryInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: ["Изменить память"] };
-    });
-  }
-
-  async applyLinkTaskToGoal(input: Omit<LinkTaskToGoalInput, "now"> & { now?: Date; undoExpiresAt: Date }) {
-    return this.database.db.transaction(async (tx) => {
-      const result = await linkTaskToGoalInTx(tx, { ...input, now: input.now ?? new Date() });
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [`Связать «${result.taskTitle}» с целью «${result.goalTitle}»`] };
-    });
-  }
-
-  async applyUnlinkTaskToGoal(input: Omit<UnlinkTaskToGoalInput, "now"> & { now?: Date; undoExpiresAt: Date }) {
-    return this.database.db.transaction(async (tx) => {
-      const result = await unlinkTaskToGoalInTx(tx, { ...input, now: input.now ?? new Date() });
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1, titles: [`Отвязать «${result.taskTitle}» от цели «${result.goalTitle}»`] };
-    });
-  }
-
-  async applyGoalPlan(input: GoalPlanInput & { undoExpiresAt: Date }) {
-    return this.database.db.transaction(async (tx) => {
-      const result = await goalPlanInTx(tx, input);
-      await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt);
-      return { groupId: input.groupId, count: 1 + result.taskIds.length, titles: [result.goalTitle, ...result.taskTitles] };
-    });
-  }
 }
 
 export async function createGoalInTx(tx: DbTransaction, input: CreateGoalInput): Promise<InTx<CreateGoalStepResult>> {

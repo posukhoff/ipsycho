@@ -24,22 +24,6 @@ export class AccessService {
     return rows[0] ?? null;
   }
 
-  async resolveUserAnyStatus(telegramUserId: number) {
-    const rows = await this.database.db
-      .select({ user: users, workspaceId: workspaceMembers.workspaceId })
-      .from(users)
-      .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
-      .innerJoin(workspaces, and(eq(workspaces.id, workspaceMembers.workspaceId), eq(workspaces.ownerUserId, users.id), eq(workspaces.kind, "personal")))
-      .where(eq(users.telegramUserId, telegramUserId))
-      .limit(1);
-    return rows[0] ?? null;
-  }
-
-  async getUserSettings(userId: string) {
-    const [settings] = await this.database.db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
-    return settings ?? null;
-  }
-
   async addUser(telegramUserId: number): Promise<string> {
     return this.database.db.transaction(async (tx) => {
       const existing = await tx.select().from(users).where(eq(users.telegramUserId, telegramUserId)).limit(1);

@@ -12,7 +12,6 @@ import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.s
 import { SettingsService } from "../../settings/settings.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
 import { t } from "../copy/index.js";
-import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
 import { activeState, type ActiveAccess, type AppContext } from "../telegram-context.js";
 import {
   quickRescheduleKeyboard,
@@ -48,7 +47,6 @@ export class TaskCallbacksService {
     private readonly settings: SettingsService,
     private readonly actions: ActionsService,
     private readonly chat: ChatService,
-    private readonly chatReply: TelegramChatReplyService,
     private readonly screens: ScreensService,
   ) {}
 

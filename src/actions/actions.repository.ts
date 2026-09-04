@@ -3,7 +3,6 @@ import { and, eq, gt, inArray, isNotNull, lte, or } from "drizzle-orm";
 import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
 import { actionEvents, actionGroups, pendingActions } from "../database/schema.js";
-import { DomainRuleError } from "../core/errors.js";
 
 @Injectable()
 export class ActionsRepository {
@@ -153,40 +152,6 @@ export class ActionsRepository {
     });
   }
 
-  async finalizeApplied(input: {
-    workspaceId: string;
-    groupId: string;
-    undoExpiresAt: Date;
-    events: Array<{ actionType: string; entityType: string; entityId: string; postVersion?: number; afterState?: unknown }>;
-  }): Promise<void> {
-    await this.database.db.transaction(async (tx) => {
-      if (input.events.length) {
-        await tx.insert(actionEvents).values(
-          input.events.map((event) => ({
-            workspaceId: input.workspaceId,
-            groupId: input.groupId,
-            actionType: event.actionType,
-            entityType: event.entityType,
-            entityId: event.entityId,
-            ...(event.postVersion !== undefined ? { postVersion: event.postVersion } : {}),
-            ...(event.afterState !== undefined ? { afterState: event.afterState } : {}),
-          })),
-        );
-      }
-      await tx.delete(pendingActions).where(and(eq(pendingActions.workspaceId, input.workspaceId), eq(pendingActions.groupId, input.groupId)));
-      const [updated] = await tx
-        .update(actionGroups)
-        .set({
-          status: "applied",
-          appliedAt: new Date(),
-          undoExpiresAt: input.undoExpiresAt,
-        })
-        .where(and(eq(actionGroups.workspaceId, input.workspaceId), eq(actionGroups.id, input.groupId), eq(actionGroups.status, "applying")))
-        .returning({ id: actionGroups.id });
-      if (!updated) throw new DomainRuleError("action group is not claimable as applied");
-    });
-  }
-
   async markFailed(workspaceId: string, groupId: string): Promise<void> {
     await this.database.db.transaction(async (tx) => {
       await tx
@@ -224,22 +189,6 @@ export class ActionsRepository {
       .update(actionGroups)
       .set({ status: "applied" })
       .where(and(eq(actionGroups.workspaceId, workspaceId), eq(actionGroups.id, groupId), eq(actionGroups.status, "undoing")));
-  }
-
-  async finalizeUndo(workspaceId: string, groupId: string): Promise<void> {
-    const [updated] = await this.database.db
-      .update(actionGroups)
-      .set({ status: "undone", undoneAt: new Date() })
-      .where(and(eq(actionGroups.workspaceId, workspaceId), eq(actionGroups.id, groupId), eq(actionGroups.status, "undoing")))
-      .returning({ id: actionGroups.id });
-    if (!updated) throw new DomainRuleError("undo group is not in progress");
-  }
-
-  async listEventsForGroup(workspaceId: string, groupId: string) {
-    return this.database.db
-      .select()
-      .from(actionEvents)
-      .where(and(eq(actionEvents.workspaceId, workspaceId), eq(actionEvents.groupId, groupId)));
   }
 
   async expirePendingGroups(now = new Date()): Promise<number> {

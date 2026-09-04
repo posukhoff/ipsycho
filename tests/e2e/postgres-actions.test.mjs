@@ -3,10 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../../dist/database/database.service.js";
 import { ActionsRepository } from "../../dist/actions/actions.repository.js";
-import { ContextActionsRepository } from "../../dist/context/context-actions.repository.js";
 import { ContextRepository } from "../../dist/context/context.repository.js";
 import { ContextService } from "../../dist/context/context.service.js";
-import { ActionMutationsRepository } from "../../dist/actions/action-mutations.repository.js";
 import { ActionGroupRepository } from "../../dist/actions/action-group.repository.js";
 import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
@@ -21,10 +19,8 @@ if (!url) throw new Error("TEST_DATABASE_URL is required; run npm run test:e2e")
 
 const database = new DatabaseService({ databaseUrl: url });
 const actions = new ActionsRepository(database);
-const mutations = new ActionMutationsRepository(database);
 const groups = new ActionGroupRepository(database);
 const tasksRepository = new TasksRepository(database);
-const contextActions = new ContextActionsRepository(database);
 const contextRepository = new ContextRepository(database);
 const context = new ContextService(contextRepository);
 const access = new AccessService(database);
@@ -66,16 +62,14 @@ test("profile update is transactional and undo restores the prior fact", async (
   const memoryId = await createMemory(workspaceId, userId);
   const groupId = randomUUID();
   const now = new Date("2026-08-12T09:00:00Z");
-  await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
-  await contextActions.applyUpdateMemory({
+  await groups.apply({
     workspaceId,
-    groupId,
     actorUserId: userId,
-    memoryId,
-    expectedVersion: 1,
-    patch: { content: "Обычно ложусь в 00:30", sensitive: true },
+    groupId,
+    groupExists: false,
     now,
     undoExpiresAt: new Date(now.getTime() + 60_000),
+    steps: [{ kind: "update_memory", memoryId, expectedVersion: 1, patch: { content: "Обычно ложусь в 00:30", sensitive: true } }],
   });
 
   const [updated] = await database.db
@@ -104,17 +98,14 @@ test("stale concurrent profile edits cannot both overwrite one fact", async () =
   const memoryId = await createMemory(workspaceId, userId);
   const now = new Date();
   const attempt = async (content) => {
-    const groupId = randomUUID();
-    await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
-    return contextActions.applyUpdateMemory({
+    return groups.apply({
       workspaceId,
-      groupId,
       actorUserId: userId,
-      memoryId,
-      expectedVersion: 1,
-      patch: { content },
+      groupId: randomUUID(),
+      groupExists: false,
       now,
       undoExpiresAt: new Date(now.getTime() + 60_000),
+      steps: [{ kind: "update_memory", memoryId, expectedVersion: 1, patch: { content } }],
     });
   };
   const results = await Promise.allSettled([attempt("Ложусь в 23:30"), attempt("Ложусь в 00:30")]);
@@ -131,15 +122,14 @@ test("chat settings update is atomic, versioned and undoable", async () => {
   const { workspaceId, userId } = await fixture();
   const groupId = randomUUID();
   const now = new Date("2026-08-12T09:00:00Z");
-  await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
-  await mutations.applyUpdateSettings({
+  await groups.apply({
     workspaceId,
-    groupId,
     actorUserId: userId,
-    expectedVersion: 1,
-    patch: { morningDigestEnabled: true, morningReferenceTime: "08:30" },
+    groupId,
+    groupExists: false,
     now,
     undoExpiresAt: new Date(now.getTime() + 60_000),
+    steps: [{ kind: "update_settings", expectedVersion: 1, patch: { morningDigestEnabled: true, morningReferenceTime: "08:30" } }],
   });
   let [settings] = await database.db.select().from(userSettings).where(eq(userSettings.userId, userId));
   assert.equal(settings?.morningDigestEnabled, true);
@@ -158,16 +148,14 @@ test("stale chat settings cannot overwrite a newer settings version", async () =
   const { workspaceId, userId } = await fixture();
   const now = new Date();
   const attempt = async (time) => {
-    const groupId = randomUUID();
-    await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
-    return mutations.applyUpdateSettings({
+    return groups.apply({
       workspaceId,
-      groupId,
       actorUserId: userId,
-      expectedVersion: 1,
-      patch: { morningReferenceTime: time },
+      groupId: randomUUID(),
+      groupExists: false,
       now,
       undoExpiresAt: new Date(now.getTime() + 60_000),
+      steps: [{ kind: "update_settings", expectedVersion: 1, patch: { morningReferenceTime: time } }],
     });
   };
   const results = await Promise.allSettled([attempt("08:00"), attempt("08:30")]);
@@ -249,16 +237,14 @@ test("task-card lifecycle and action journal commit in one transaction and undo 
   const { occurrenceId } = await createOccurrence(workspaceId, userId);
   const groupId = randomUUID();
   const now = new Date();
-  await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
-  await mutations.applyUpdateOccurrence({
+  await groups.apply({
     workspaceId,
-    groupId,
     actorUserId: userId,
-    occurrenceId,
-    expectedVersion: 1,
-    operation: "start",
+    groupId,
+    groupExists: false,
     now,
     undoExpiresAt: new Date(now.getTime() + 60_000),
+    steps: [{ kind: "update_occurrence", occurrenceId, expectedVersion: 1, operation: "start" }],
   });
   let [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
   let [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
@@ -277,17 +263,17 @@ test("Seen interaction and its action group commit atomically", async () => {
   const { workspaceId, userId } = await fixture();
   const { occurrenceId } = await createOccurrence(workspaceId, userId);
   const groupId = randomUUID();
-  await actions.createImmediateGroup({ id: groupId, workspaceId, actorUserId: userId });
-  const result = await mutations.applyOccurrenceInteraction({
+  const now = new Date();
+  const result = await groups.apply({
     workspaceId,
-    groupId,
     actorUserId: userId,
-    occurrenceId,
-    expectedVersion: 1,
-    operation: "seen",
-    now: new Date(),
+    groupId,
+    groupExists: false,
+    now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
+    steps: [{ kind: "occurrence_interaction", occurrenceId, expectedVersion: 1, operation: "seen" }],
   });
-  assert.equal(result.undoable, false);
+  assert.equal(result.steps[0].kind, "occurrence_interaction");
   const [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
   const events = await database.db
     .select()
@@ -925,7 +911,7 @@ test("an invite creates one isolated personal workspace and cannot be reused", a
   assert.ok(owner);
   assert.notEqual(joined.workspaceId, owner.workspaceId);
   assert.notEqual(joined.user.id, owner.user.id);
-  assert.ok(await access.getUserSettings(joined.user.id));
+  assert.ok((await database.db.select().from(userSettings).where(eq(userSettings.userId, joined.user.id))).length);
 
   const secondAttempt = await access.registerFromInvite(invite.token, ++telegramUserSequence, new Date("2026-08-12T09:06:00Z"));
   assert.equal(secondAttempt.kind, "invalid");
