@@ -6,6 +6,7 @@ import { localDateAt } from "../core/timezone.js";
 import { DatabaseService } from "../database/database.service.js";
 import { briefingDeliveries, userSettings, users, workspaceMembers } from "../database/schema.js";
 import { JobQueueService } from "../queue/job-queue.service.js";
+import { telegramLocale } from "../telegram/telegram-locale.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { classifyTelegramSendError } from "../telegram/telegram-send-outcome.js";
 import { BriefingContentService } from "./briefing-content.service.js";
@@ -84,7 +85,7 @@ export class BriefingQueueService implements OnApplicationBootstrap {
         await this.database.db.update(briefingDeliveries).set({ status: "suppressed", suppressedReason: "empty" }).where(and(eq(briefingDeliveries.id, deliveryId), eq(briefingDeliveries.status, "processing")));
         return;
       }
-      const messageId = await this.telegram.sendBriefing(row.user.telegramUserId, row.delivery.kind as BriefingKind, built.text, built.decisionOccurrenceIds, built.reviewKinds, row.delivery.id);
+      const messageId = await this.telegram.sendBriefing(row.user.telegramUserId, row.delivery.kind as BriefingKind, built.text, built.decisionOccurrenceIds, built.reviewKinds, row.delivery.id, telegramLocale(row.settings.pinnedLanguage));
       await this.database.db.update(briefingDeliveries).set({ status: "sent", sentAt: new Date(), telegramMessageId: messageId })
         .where(and(eq(briefingDeliveries.id, deliveryId), eq(briefingDeliveries.status, "processing")));
     } catch (error) {

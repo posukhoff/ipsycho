@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
+import { AccessModule } from "../access/access.module.js";
 import { ConfigModule } from "../config.module.js";
 import { DatabaseModule } from "../database/database.module.js";
+import { SettingsModule } from "../settings/settings.module.js";
 import { TelegramService } from "./telegram.service.js";
 
-@Module({ imports: [ConfigModule, DatabaseModule], providers: [TelegramService], exports: [TelegramService] })
+@Module({ imports: [ConfigModule, DatabaseModule, AccessModule, SettingsModule], providers: [TelegramService], exports: [TelegramService] })
 export class TelegramModule {}

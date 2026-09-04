@@ -7,6 +7,7 @@ import { userSettings } from "../database/schema.js";
 
 
 export type PendingInput =
+  | { kind: "timezone"; onboarding: boolean }
   | { kind: "reschedule"; occurrenceId: string }
   | { kind: "quick_reschedule_reason"; occurrenceId: string; choice: "1h" | "evening" | "tomorrow" }
   | { kind: "blocker"; occurrenceId: string }
@@ -75,9 +76,14 @@ export class SettingsService {
     await this.database.db.update(userSettings).set({ ...values, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
   }
 
-  async setTimezone(userId: string, timezone: string): Promise<void> {
+  async setTimezone(userId: string, timezone: string, options: { applyTo?: "digests" | "quiet" | "both" } = {}): Promise<void> {
     new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date());
-    await this.database.db.update(userSettings).set({ timezone, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
+    await this.database.db.update(userSettings).set({
+      timezone,
+      ...(options.applyTo === "digests" || options.applyTo === "both" ? { digestTimezone: timezone } : {}),
+      ...(options.applyTo === "quiet" || options.applyTo === "both" ? { quietHoursTimezone: timezone } : {}),
+      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
+    }).where(eq(userSettings.userId, userId));
   }
 
   async applyProfileTimezone(userId: string, target: "digests" | "quiet" | "both"): Promise<void> {

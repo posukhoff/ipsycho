@@ -4,8 +4,10 @@ import { and, eq, gt, inArray, isNull, lte } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { adminAuditLog, briefingDeliveries, registrationInvites, reminderDeliveries, userSettings, users, workspaceMembers, workspaces } from "../database/schema.js";
 
-const DELETION_GRACE_MS = 14 * 24 * 60 * 60_000;
-const REGISTRATION_INVITE_TTL_MS = 7 * 24 * 60 * 60_000;
+export const DELETION_GRACE_DAYS = 14;
+export const REGISTRATION_INVITE_TTL_DAYS = 7;
+const DELETION_GRACE_MS = DELETION_GRACE_DAYS * 24 * 60 * 60_000;
+const REGISTRATION_INVITE_TTL_MS = REGISTRATION_INVITE_TTL_DAYS * 24 * 60 * 60_000;
 
 @Injectable()
 export class AccessService {

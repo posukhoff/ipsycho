@@ -73,6 +73,8 @@ export class ChatService {
 
   isAiConfigured(): boolean { return this.ai.isConfigured(); }
 
+  get maxMessagesPerHour(): number { return this.ai.maxMessagesPerHour; }
+
   async voiceGate(userId: string): Promise<"ready" | "consent" | "unavailable" | "rate_limited" | "suspended"> {
     if (!this.ai.isConfigured()) return "unavailable";
     if (!await this.messages.isAiProcessingAllowed(userId)) return "suspended";

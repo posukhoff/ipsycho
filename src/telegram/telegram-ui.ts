@@ -4,6 +4,7 @@ import { localDateAt } from "../core/timezone.js";
 import { formatLocalDateTime } from "../core/time-presentation.js";
 import { recurrenceLabel } from "../core/recurrence-label.js";
 import { selectCardDetails } from "../core/card-details.js";
+import { t } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 
 export type TelegramImportance = "normal" | "required" | "critical";
@@ -156,83 +157,100 @@ function checklistLines(checklist: TelegramTaskCard["checklist"], limit: number)
   return lines;
 }
 
-export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus): InlineKeyboard {
+export interface TaskKeyboardOptions {
+  /** A reminder card offers to be repeated later without touching the task's own time. */
+  snooze?: boolean;
+}
+
+export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  if (status !== "in_progress") keyboard.text("▶️ Начать", `occ:start:${occurrenceId}`);
-  keyboard.text("✅ Готово", `occ:done:${occurrenceId}`).row();
-  keyboard.text("🕒 Позже", `occ:resched:${occurrenceId}`).text("•••", `occ:more:${occurrenceId}`);
+  if (status === "in_progress") return startedTaskKeyboard(occurrenceId, locale, options);
+  keyboard.text(label(locale, "start"), `occ:start:${occurrenceId}`).text(label(locale, "done"), `occ:done:${occurrenceId}`).row();
+  if (options.snooze) keyboard.text(t(locale, "snooze_15m_button"), `follow:seen:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:seen:1h:${occurrenceId}`).row();
+  keyboard.text(label(locale, "later"), `occ:resched:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
   return keyboard;
 }
 
-export function startedTaskKeyboard(occurrenceId: string): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("✅ Готово", `occ:done:${occurrenceId}`)
-    .text("🕒 Позже", `occ:resched:${occurrenceId}`)
-    .row()
-    .text("🧱 Застрял", `occ:cant:${occurrenceId}`)
-    .text("•••", `occ:more:${occurrenceId}`);
+export function startedTaskKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text(label(locale, "done"), `occ:done:${occurrenceId}`)
+    .text(label(locale, "later"), `occ:resched:${occurrenceId}`)
+    .row();
+  if (options.snooze) keyboard.text(t(locale, "snooze_15m_button"), `follow:seen:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:seen:1h:${occurrenceId}`).row();
+  return keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
 }
 
-export function taskMoreKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, recurring = false, taskId?: string): InlineKeyboard {
+/** The destructive actions live one tap deeper, behind an explicit label rather than "•••". */
+export function taskMoreKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, recurring = false, taskId?: string, locale: TelegramLocale = "ru"): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  if (status === "in_progress") keyboard.text("🔔 Проверить", `occ:check:${occurrenceId}`).row();
-  if (recurring) keyboard.text("⏭ Пропустить это", `occ:skip:${occurrenceId}`).row();
-  if (recurring && taskId) keyboard.text("⏸ Поставить серию на паузу", `series:pause:${taskId}`).row();
+  if (status === "in_progress") keyboard.text(label(locale, "check"), `occ:check:${occurrenceId}`).row();
+  if (recurring) keyboard.text(label(locale, "skip"), `occ:skip:${occurrenceId}`).row();
+  if (recurring && taskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${taskId}`).row();
+  if (status !== "in_progress") keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).row();
   return keyboard
-    .text("🧱 Застрял", `occ:cant:${occurrenceId}`)
-    .text("❌ Отменить", `occ:cancel:${occurrenceId}`)
+    .text(label(locale, "cancel"), `occ:cancel:${occurrenceId}`)
     .row()
-    .text("← Назад", `occ:back:${occurrenceId}`);
+    .text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
-export function quickRescheduleKeyboard(occurrenceId: string): InlineKeyboard {
+export function quickRescheduleKeyboard(occurrenceId: string, locale: TelegramLocale = "ru"): InlineKeyboard {
   return new InlineKeyboard()
-    .text("+1 час", `resched:1h:${occurrenceId}`)
-    .text("Вечером", `resched:evening:${occurrenceId}`)
+    .text(label(locale, "plusHour"), `resched:1h:${occurrenceId}`)
+    .text(label(locale, "evening"), `resched:evening:${occurrenceId}`)
     .row()
-    .text("Завтра", `resched:tomorrow:${occurrenceId}`)
-    .text("📅 Другая дата", `resched:custom:${occurrenceId}`)
+    .text(label(locale, "tomorrow"), `resched:tomorrow:${occurrenceId}`)
+    .text(label(locale, "otherDate"), `resched:custom:${occurrenceId}`)
     .row()
-    .text("← Назад", `occ:back:${occurrenceId}`);
+    .text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
 
 export type QuickRescheduleReasonCode = "time" | "dependency" | "energy" | "other";
 
-export function quickRescheduleReasonKeyboard(occurrenceId: string, choice: "1h" | "evening" | "tomorrow"): InlineKeyboard {
+export function quickRescheduleReasonKeyboard(occurrenceId: string, choice: "1h" | "evening" | "tomorrow", locale: TelegramLocale = "ru"): InlineKeyboard {
   const choiceCode = choice === "1h" ? "h" : choice === "evening" ? "e" : "t";
   return new InlineKeyboard()
-    .text("Не успеваю", `rr:${choiceCode}:t:${occurrenceId}`)
-    .text("Зависит от другого", `rr:${choiceCode}:d:${occurrenceId}`)
+    .text(quickRescheduleReasonText("time", locale) ?? "", `rr:${choiceCode}:t:${occurrenceId}`)
+    .text(quickRescheduleReasonText("dependency", locale) ?? "", `rr:${choiceCode}:d:${occurrenceId}`)
     .row()
-    .text("Нет сил", `rr:${choiceCode}:e:${occurrenceId}`)
-    .text("Другое", `rr:${choiceCode}:o:${occurrenceId}`)
+    .text(quickRescheduleReasonText("energy", locale) ?? "", `rr:${choiceCode}:e:${occurrenceId}`)
+    .text(label(locale, "other"), `rr:${choiceCode}:o:${occurrenceId}`)
     .row()
-    .text("← Назад", `occ:resched:${occurrenceId}`);
+    .text(t(locale, "back_button"), `occ:resched:${occurrenceId}`);
 }
 
-export function quickRescheduleReasonText(code: QuickRescheduleReasonCode): string | null {
-  if (code === "time") return "Не успеваю";
-  if (code === "dependency") return "Зависит от другого";
-  if (code === "energy") return "Нет сил";
+export function quickRescheduleReasonText(code: QuickRescheduleReasonCode, locale: TelegramLocale = "ru"): string | null {
+  if (code === "time") return label(locale, "reasonTime");
+  if (code === "dependency") return label(locale, "reasonDependency");
+  if (code === "energy") return label(locale, "reasonEnergy");
   return null;
 }
 
-export function resultCheckKeyboard(occurrenceId: string): InlineKeyboard {
+export function resultCheckKeyboard(occurrenceId: string, locale: TelegramLocale = "ru"): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Через 15 мин", `follow:result:15m:${occurrenceId}`)
-    .text("Через 1 час", `follow:result:1h:${occurrenceId}`)
+    .text(label(locale, "in15"), `follow:result:15m:${occurrenceId}`)
+    .text(label(locale, "in1h"), `follow:result:1h:${occurrenceId}`)
     .row()
-    .text("Вечером", `follow:result:evening:${occurrenceId}`)
-    .text("Без проверки", `follow:result:none:${occurrenceId}`)
+    .text(label(locale, "evening"), `follow:result:evening:${occurrenceId}`)
+    .text(label(locale, "noCheck"), `follow:result:none:${occurrenceId}`)
     .row()
-    .text("← Назад", `occ:back:${occurrenceId}`);
+    .text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
-export function terminalTaskText(task: TelegramTaskCard, status: "done" | "skipped" | "cancelled", now: Date): string {
-  if (status === "done") return `✅ ${task.title}\nГотово · ${formatTime(now, task.timezone)}`;
-  if (status === "skipped") return `⏭ ${task.title}\nПропущено`;
-  return `❌ ${task.title}\nОтменено`;
+const BUTTON_LABELS = {
+  ru: { start: "▶️ Начать", done: "✅ Готово", later: "🕒 Позже", more: "⚙️ Ещё", stuck: "🧱 Застрял", check: "🔔 Проверить", skip: "⏭ Пропустить это", pauseSeries: "⏸ Поставить серию на паузу", cancel: "❌ Отменить задачу", plusHour: "+1 час", evening: "Вечером", tomorrow: "Завтра", otherDate: "📅 Другая дата", other: "Другое", reasonTime: "Не успеваю", reasonDependency: "Зависит от другого", reasonEnergy: "Нет сил", in15: "Через 15 мин", in1h: "Через 1 час", noCheck: "Без проверки" },
+  uk: { start: "▶️ Почати", done: "✅ Готово", later: "🕒 Пізніше", more: "⚙️ Ще", stuck: "🧱 Застряг", check: "🔔 Перевірити", skip: "⏭ Пропустити це", pauseSeries: "⏸ Поставити серію на паузу", cancel: "❌ Скасувати завдання", plusHour: "+1 година", evening: "Увечері", tomorrow: "Завтра", otherDate: "📅 Інша дата", other: "Інше", reasonTime: "Не встигаю", reasonDependency: "Залежить від іншого", reasonEnergy: "Немає сил", in15: "Через 15 хв", in1h: "Через 1 годину", noCheck: "Без перевірки" },
+  en: { start: "▶️ Start", done: "✅ Done", later: "🕒 Later", more: "⚙️ More", stuck: "🧱 Stuck", check: "🔔 Check", skip: "⏭ Skip this one", pauseSeries: "⏸ Pause the series", cancel: "❌ Cancel the task", plusHour: "+1 hour", evening: "This evening", tomorrow: "Tomorrow", otherDate: "📅 Another date", other: "Other", reasonTime: "Out of time", reasonDependency: "Depends on something", reasonEnergy: "No energy", in15: "In 15 min", in1h: "In 1 hour", noCheck: "No check" },
+} as const;
+
+function label(locale: TelegramLocale, key: keyof typeof BUTTON_LABELS["ru"]): string {
+  return BUTTON_LABELS[locale][key];
+}
+
+export function terminalTaskText(task: TelegramTaskCard, status: "done" | "skipped" | "cancelled", now: Date, locale: TelegramLocale = "ru"): string {
+  if (status === "done") return `✅ ${task.title}\n${t(locale, "done_toast")} · ${formatTime(now, task.timezone)}`;
+  if (status === "skipped") return `⏭ ${task.title}\n${t(locale, "skipped_toast")}`;
+  return `❌ ${task.title}\n${t(locale, "cancelled_occurrence_toast")}`;
 }
 
 export function settingsText(row: {
@@ -285,18 +303,27 @@ export function settingsText(row: {
   ].join("\n");
 }
 
-export function settingsKeyboard(locale: TelegramLocale = "ru"): InlineKeyboard {
-  if (locale === "en") return new InlineKeyboard()
-    .text("🔕 Until morning", "prefs:snooze:morning").row()
-    .text("🧭 Context", "profile:open").row()
-    .text("🧠 Clear AI history", "history:clear");
-  const uk = locale === "uk";
-  return new InlineKeyboard()
-    .text(uk ? "🔕 До ранку" : "🔕 До утра", "prefs:snooze:morning")
+/** Every toggle the settings card shows is one tap; free text remains for values (times, days). */
+export function settingsKeyboard(locale: TelegramLocale = "ru", row?: { morningDigestEnabled: boolean; eveningDigestEnabled: boolean; weeklyReviewEnabled: boolean; quietHoursEnabled: boolean }): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (row) {
+    keyboard
+      .text(t(locale, row.morningDigestEnabled ? "prefs_morning_on" : "prefs_morning_off"), "prefs:morning:toggle")
+      .text(t(locale, row.eveningDigestEnabled ? "prefs_evening_on" : "prefs_evening_off"), "prefs:evening:toggle")
+      .row()
+      .text(t(locale, row.weeklyReviewEnabled ? "prefs_weekly_on" : "prefs_weekly_off"), "prefs:weekly:toggle")
+      .text(t(locale, row.quietHoursEnabled ? "prefs_quiet_on" : "prefs_quiet_off"), "prefs:quiet:toggle")
+      .row();
+  }
+  return keyboard
+    .text(t(locale, "prefs_snooze_morning"), "prefs:snooze:morning")
+    .text(t(locale, "prefs_weekly_start"), "review:weekly:start")
     .row()
-    .text(uk ? "🧭 Контекст" : "🧭 Контекст", "profile:open")
+    .text(t(locale, "prefs_context"), "profile:open")
+    .text(t(locale, "prefs_clear_history"), "history:clear")
     .row()
-    .text(uk ? "🧠 Очистити AI-історію" : "🧠 Очистить AI-историю", "history:clear");
+    .text(t(locale, "today_button"), "nav:today")
+    .text(t(locale, "tasks_button"), "nav:tasks");
 }
 
 export function tasksOverviewText(rows: Array<{ task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null }>, locale: TelegramLocale = "ru", now: Date = new Date()): string {
@@ -330,31 +357,41 @@ export function tasksOverviewText(rows: Array<{ task: TelegramTaskCard & { id: s
 }
 
 /** Opens the numbered item shown in a compact overview. */
-export function taskListKeyboard(rows: TelegramTaskListRow[], locale: TelegramLocale = "ru", options: { showAll?: boolean; allCount?: number; visibleCount?: number } = {}): InlineKeyboard {
+export function taskListKeyboard(rows: TelegramTaskListRow[], locale: TelegramLocale = "ru", options: { showAll?: boolean; allCount?: number; visibleCount?: number; expanded?: boolean } = {}): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const visible = rows.slice(0, options.visibleCount ?? 6);
   for (const [index, row] of visible.entries()) {
     const target = row.occurrence ? `view:occ:${row.occurrence.id}` : `view:task:${row.task.id}`;
-    const title = row.task.title.length > 22 ? `${row.task.title.slice(0, 21)}…` : row.task.title;
+    const title = row.task.title.length > 30 ? `${row.task.title.slice(0, 29)}…` : row.task.title;
     keyboard.text(`${index + 1}. ${title}`, target).row();
   }
-  if (options.showAll && (options.allCount ?? rows.length) > visible.length) {
-    const label = locale === "en" ? `Show all (${options.allCount})` : locale === "uk" ? `Показати всі (${options.allCount})` : `Показать все (${options.allCount})`;
-    keyboard.text(label, "nav:today_all").row();
-  }
-  const tasksLabel = locale === "en" ? "📋 All tasks" : locale === "uk" ? "📋 Усі завдання" : "📋 Все задачи";
-  const todayLabel = locale === "en" ? "☀️ Today" : locale === "uk" ? "☀️ Сьогодні" : "☀️ Сегодня";
-  keyboard.text(todayLabel, "nav:today").text(tasksLabel, "nav:tasks");
+  if (options.showAll && (options.allCount ?? rows.length) > visible.length) keyboard.text(t(locale, "show_all_button", { count: options.allCount ?? rows.length }), "nav:today_all").row();
+  if (options.expanded) keyboard.text(t(locale, "collapse_button"), "nav:today").row();
+  keyboard.text(t(locale, "today_button"), "nav:today").text(t(locale, "tasks_button"), "nav:tasks");
   return keyboard;
 }
 
-export function taskDetailKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus): InlineKeyboard {
-  const keyboard = status === "in_progress" ? startedTaskKeyboard(occurrenceId) : taskKeyboard(occurrenceId, status);
-  return keyboard.row().text("← К задачам", "nav:tasks");
+/** Each upcoming reminder is a button that cancels it; the footer leads back to the main screens. */
+export function remindersKeyboard(rows: ReadonlyArray<{ deliveryId: string; title: string; when: string }>, locale: TelegramLocale = "ru"): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const row of rows) {
+    const title = row.title.length > 24 ? `${row.title.slice(0, 23)}…` : row.title;
+    keyboard.text(t(locale, "reminder_cancel_button", { title, when: row.when }), `rem:cancel:${row.deliveryId}`).row();
+  }
+  keyboard.text(t(locale, "today_button"), "nav:today").text(t(locale, "tasks_button"), "nav:tasks");
+  return keyboard;
 }
 
-export function fuzzyTaskDetailKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("← К задачам", "nav:tasks").text("☀️ Сегодня", "nav:today");
+export function screenFooterKeyboard(locale: TelegramLocale = "ru"): InlineKeyboard {
+  return new InlineKeyboard().text(t(locale, "today_button"), "nav:today").text(t(locale, "tasks_button"), "nav:tasks");
+}
+
+export function taskDetailKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, locale: TelegramLocale = "ru"): InlineKeyboard {
+  return taskKeyboard(occurrenceId, status, locale).row().text(t(locale, "to_tasks_button"), "nav:tasks");
+}
+
+export function fuzzyTaskDetailKeyboard(locale: TelegramLocale = "ru"): InlineKeyboard {
+  return new InlineKeyboard().text(t(locale, "to_tasks_button"), "nav:tasks").text(t(locale, "today_button"), "nav:today");
 }
 
 export function todayText(rows: Array<{ task: TelegramTaskCard; occurrence: TelegramOccurrenceCard | null }>, localDate: string, locale: TelegramLocale = "ru", completedCount = 0, visibleLimit = 6, now: Date = new Date()): string {

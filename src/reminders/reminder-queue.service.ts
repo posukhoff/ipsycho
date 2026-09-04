@@ -1,11 +1,12 @@
 import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from "@nestjs/common";
-import { and, asc, eq, gt, gte, inArray, lte, or } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { JobQueueService } from "../queue/job-queue.service.js";
 import { briefingDeliveries, reminderDeliveries, reminderRules, taskChecklistItems, taskEvents, taskOccurrences, tasks, users, userSettings, workspaceMembers } from "../database/schema.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { classifyTelegramSendError } from "../telegram/telegram-send-outcome.js";
 import { reminderCardText } from "../telegram/telegram-ui.js";
+import { telegramLocale } from "../telegram/telegram-locale.js";
 import { occurrenceProjectionFromRow, reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { applyNotificationPolicy } from "../core/reminder-planning.js";
 import { nextCriticalEscalationAt, reminderBriefingBundleDecision } from "../core/reminder-escalation.js";
@@ -58,6 +59,16 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
 
   onApplicationShutdown(): void {
     if (this.reconcileTimer) clearInterval(this.reconcileTimer);
+  }
+
+  /** Queue depth for /status: what is waiting and what could not be confirmed as delivered. */
+  async queueSummary(): Promise<{ pending: number; ambiguous: number; deadLettered: number }> {
+    const [row] = await this.database.db.select({
+      pending: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'pending')::int`,
+      ambiguous: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'ambiguous')::int`,
+    }).from(reminderDeliveries);
+    const deadLettered = await this.queue.deadLetterCount(REMINDER_QUEUE).catch(() => 0);
+    return { pending: row?.pending ?? 0, ambiguous: row?.ambiguous ?? 0, deadLettered };
   }
 
   async reconcile(now = new Date()): Promise<void> {
@@ -227,6 +238,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         text,
         row.delivery.occurrenceId ?? undefined,
         row.occurrence?.status ?? "open",
+        telegramLocale(row.settings.pinnedLanguage),
       );
       const sentAt = new Date();
       await this.database.db.update(reminderDeliveries)

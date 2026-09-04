@@ -1,0 +1,368 @@
+import { Injectable } from "@nestjs/common";
+import { InlineKeyboard, type Bot, type CallbackQueryContext } from "grammy";
+import { whenFromRescheduleFields } from "../../actions/action-conversion.js";
+import { ActionStateUncertainError, ActionsService } from "../../actions/actions.service.js";
+import { ChatService } from "../../chat/chat.service.js";
+import type { ResolvedAction } from "../../core/ai-contract.js";
+import { renderAppliedReport } from "../../core/applied-report.js";
+import type { RescheduleFields } from "../../core/reschedule.js";
+import { quickRescheduleSchedule, type QuickRescheduleChoice } from "../../core/telegram-ux.js";
+import { safeError } from "../../observability/safe-error.js";
+import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.service.js";
+import { SettingsService } from "../../settings/settings.service.js";
+import { TasksService } from "../../tasks/tasks.service.js";
+import { t } from "../copy/index.js";
+import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
+import { activeState, type ActiveAccess, type AppContext } from "../telegram-context.js";
+import {
+  quickRescheduleKeyboard, quickRescheduleReasonKeyboard, quickRescheduleReasonText, resultCheckKeyboard, startedTaskKeyboard, taskKeyboard, taskMoreKeyboard, terminalTaskText,
+  type QuickRescheduleReasonCode,
+} from "../telegram-ui.js";
+import { ScreensService, type OccurrenceContext } from "./screens.service.js";
+
+const UUID = "[0-9a-f-]{36}";
+const VIEW_CALLBACK = new RegExp(`^view:(occ|task):(${UUID})$`);
+const OCCURRENCE_CALLBACK = new RegExp(`^occ:(start|done|skip|cant|cancel|cancel_one|resched|more|back|check):(${UUID})$`);
+const QUICK_RESCHEDULE_CALLBACK = new RegExp(`^resched:(1h|evening|tomorrow|custom):(${UUID})$`);
+const QUICK_RESCHEDULE_REASON_CALLBACK = new RegExp(`^rr:(h|e|t):(t|d|e|o):(${UUID})$`);
+const FOLLOW_UP_CALLBACK = new RegExp(`^follow:(seen|result):(15m|1h|evening|custom|none):(${UUID})$`);
+const SERIES_CALLBACK = new RegExp(`^series:(pause|cancel):(${UUID})$`);
+const REMINDER_CALLBACK = new RegExp(`^rem:cancel:(${UUID})$`);
+const ACTION_CALLBACK = new RegExp(`^act:(confirm|cancel|undo):(${UUID})$`);
+const TOPIC_CONTROL_CALLBACK = new RegExp(`^topic:end:(${UUID})$`);
+
+/** Buttons on task, reminder and confirmation cards. Every state change goes through the action journal so it can be undone. */
+@Injectable()
+export class TaskCallbacksService {
+  constructor(
+    private readonly tasks: TasksService,
+    private readonly reminders: ReminderSchedulingService,
+    private readonly settings: SettingsService,
+    private readonly actions: ActionsService,
+    private readonly chat: ChatService,
+    private readonly chatReply: TelegramChatReplyService,
+    private readonly screens: ScreensService,
+  ) {}
+
+  register(bot: Bot<AppContext>): void {
+    bot.callbackQuery(VIEW_CALLBACK, (ctx) => this.view(ctx));
+    bot.callbackQuery(OCCURRENCE_CALLBACK, (ctx) => this.occurrence(ctx));
+    bot.callbackQuery(QUICK_RESCHEDULE_CALLBACK, (ctx) => this.quickReschedule(ctx));
+    bot.callbackQuery(QUICK_RESCHEDULE_REASON_CALLBACK, (ctx) => this.quickRescheduleReason(ctx));
+    bot.callbackQuery(FOLLOW_UP_CALLBACK, (ctx) => this.followUp(ctx));
+    bot.callbackQuery(SERIES_CALLBACK, (ctx) => this.series(ctx));
+    bot.callbackQuery(REMINDER_CALLBACK, (ctx) => this.cancelReminder(ctx));
+    bot.callbackQuery(ACTION_CALLBACK, (ctx) => this.action(ctx));
+    bot.callbackQuery(TOPIC_CONTROL_CALLBACK, (ctx) => this.endTopic(ctx));
+  }
+
+  private async view(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const match = VIEW_CALLBACK.exec(ctx.callbackQuery.data);
+    const kind = match?.[1];
+    const id = match?.[2];
+    if (!kind || !id) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    const shown = kind === "occ" ? await this.screens.showOccurrence(ctx, id) : await this.screens.showFuzzyTask(ctx, id);
+    if (!shown) return this.stale(ctx, "task_unavailable_toast");
+    await ctx.answerCallbackQuery();
+  }
+
+  private async occurrence(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const match = OCCURRENCE_CALLBACK.exec(ctx.callbackQuery.data);
+    const action = match?.[1];
+    const occurrenceId = match?.[2];
+    if (!action || !occurrenceId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    try {
+      const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
+      if (!context) return this.stale(ctx, "task_not_found_toast");
+      const recurring = Boolean(context.task.recurrenceRule);
+
+      if (action === "more") {
+        await ctx.answerCallbackQuery();
+        await ctx.editMessageReplyMarkup({ reply_markup: taskMoreKeyboard(occurrenceId, context.occurrence.status, recurring, context.task.id, locale) }).catch(() => undefined);
+        return;
+      }
+      if (action === "back") {
+        // "Back" also leaves a pending free-text prompt (a blocker, a new time) so the next message goes to the model again.
+        await this.settings.setPendingInput(access.user.id, null);
+        await ctx.answerCallbackQuery();
+        await ctx.editMessageReplyMarkup({ reply_markup: this.screens.occurrenceKeyboard(ctx, context) }).catch(() => undefined);
+        return;
+      }
+      if (action === "check") {
+        if (context.occurrence.status !== "in_progress") return void await ctx.answerCallbackQuery({ text: t(locale, "not_in_progress_toast") });
+        await ctx.answerCallbackQuery({ text: t(locale, "check_prompt_toast") });
+        await ctx.editMessageReplyMarkup({ reply_markup: resultCheckKeyboard(occurrenceId, locale) }).catch(() => undefined);
+        return;
+      }
+      if (action === "resched") {
+        await ctx.answerCallbackQuery({ text: t(locale, "resched_prompt_toast") });
+        await ctx.editMessageReplyMarkup({ reply_markup: quickRescheduleKeyboard(occurrenceId, locale) }).catch(() => undefined);
+        return;
+      }
+      if (action === "cant") {
+        await this.tasks.recordInteraction({ workspaceId: access.workspaceId, occurrenceId, actorUserId: access.user.id, eventType: "occurrence:cant_start" });
+        await this.settings.setPendingInput(access.user.id, { kind: "blocker", occurrenceId });
+        await ctx.answerCallbackQuery({ text: t(locale, "blocker_prompt_toast") });
+        await ctx.editMessageText(t(locale, "blocker_prompt_text", { title: context.task.title }), {
+          reply_markup: new InlineKeyboard()
+            .text(t(locale, "reschedule_button"), `occ:resched:${occurrenceId}`).text(t(locale, "cancel_task_button"), `occ:cancel:${occurrenceId}`).row()
+            .text(t(locale, "not_now_button"), `occ:back:${occurrenceId}`),
+        }).catch(() => undefined);
+        return;
+      }
+      if (action === "cancel" && recurring) {
+        await ctx.answerCallbackQuery({ text: t(locale, "cancel_what_toast") });
+        await ctx.editMessageReplyMarkup({
+          reply_markup: new InlineKeyboard()
+            .text(t(locale, "cancel_one_button"), `occ:cancel_one:${occurrenceId}`)
+            .text(t(locale, "cancel_series_button"), `series:cancel:${context.task.id}`)
+            .row()
+            .text(t(locale, "back_button"), `occ:back:${occurrenceId}`),
+        }).catch(() => undefined);
+        return;
+      }
+
+      const state = action === "start" ? "started" : action === "done" ? "done" : action === "skip" ? "skipped" : "cancelled";
+      const applied = await this.applyState(access, context, state);
+      await ctx.answerCallbackQuery({ text: t(locale, action === "start" ? "started_toast" : action === "done" ? "done_occurrence_toast" : action === "skip" ? "skipped_toast" : "cancelled_occurrence_toast") });
+      if (state === "started") {
+        const current = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
+        if (current) await ctx.editMessageText(await this.screens.taskCard(access.workspaceId, current), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId) }).catch(() => undefined);
+        return;
+      }
+      // A one-tap terminal change keeps its way back on the card itself.
+      await ctx.editMessageText(terminalTaskText(context.task, state === "done" ? "done" : state === "skipped" ? "skipped" : "cancelled", new Date(), locale), {
+        reply_markup: new InlineKeyboard().text(t(locale, "undo_button"), `act:undo:${applied.groupId}`),
+      }).catch(() => ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined));
+    } catch (error) {
+      console.error("occurrence callback failed", { action, occurrenceId, error: safeError(error) });
+      await this.stale(ctx, "state_changed_toast");
+    }
+  }
+
+  /** The button is an explicit instruction; it is journaled like the same change typed in chat, with Undo. */
+  private async applyState(access: ActiveAccess, context: OccurrenceContext, state: "started" | "done" | "skipped" | "cancelled") {
+    const settings = await this.settings.get(access.user.id);
+    const action: ResolvedAction = {
+      type: "set_task_state", intent: "explicit", timezone: context.occurrence.timezone, reviewTime: settings?.morningReferenceTime ?? "09:00",
+      target: { kind: "occurrence", taskId: context.task.id, taskVersion: context.task.version, occurrenceId: context.occurrence.id, occurrenceVersion: context.occurrence.version, timezone: context.occurrence.timezone },
+      state, note: null,
+    };
+    return this.actions.applyResolved([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
+  }
+
+  async applyReschedule(access: ActiveAccess, occurrenceId: string, schedule: RescheduleFields, reason?: string) {
+    const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
+    if (!context) throw new Error("occurrence not found");
+    const settings = await this.settings.get(access.user.id);
+    const action: ResolvedAction = {
+      type: "reschedule", intent: "explicit", timezone: context.occurrence.timezone, reviewTime: settings?.morningReferenceTime ?? "09:00",
+      target: { kind: "occurrence", taskId: context.task.id, taskVersion: context.task.version, occurrenceId, occurrenceVersion: context.occurrence.version, timezone: context.occurrence.timezone },
+      when: whenFromRescheduleFields(schedule, context.occurrence.timezone), recurrence: null, reason: reason ?? null,
+    };
+    return this.actions.applyResolved([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
+  }
+
+  async buildQuickReschedule(access: ActiveAccess, occurrenceId: string, choice: QuickRescheduleChoice): Promise<RescheduleFields> {
+    const [context, settings] = await Promise.all([this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId), this.settings.get(access.user.id)]);
+    if (!context) throw new Error("occurrence not found");
+    if (!settings) throw new Error("settings missing");
+    return quickRescheduleSchedule({ choice, timeMode: context.task.timeMode, occurrence: context.occurrence, now: new Date(), morningReferenceTime: settings.morningReferenceTime, eveningReferenceTime: settings.eveningReferenceTime });
+  }
+
+  private async completeQuickReschedule(ctx: CallbackQueryContext<AppContext>, occurrenceId: string, choice: QuickRescheduleChoice, reason?: string): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const schedule = await this.buildQuickReschedule(access, occurrenceId, choice);
+    const applied = await this.applyReschedule(access, occurrenceId, schedule, reason);
+    const current = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
+    await ctx.answerCallbackQuery({ text: t(locale, "rescheduled_toast") }).catch(() => undefined);
+    if (current) await ctx.editMessageText(await this.screens.taskCard(access.workspaceId, current), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button") }).catch(() => undefined);
+  }
+
+  private async quickReschedule(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const match = QUICK_RESCHEDULE_CALLBACK.exec(ctx.callbackQuery.data);
+    const choice = match?.[1] as QuickRescheduleChoice | "custom" | undefined;
+    const occurrenceId = match?.[2];
+    if (!choice || !occurrenceId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
+    if (!context) return this.stale(ctx, "task_not_found_toast");
+    if (choice === "custom") {
+      await this.settings.setPendingInput(access.user.id, { kind: "reschedule", occurrenceId });
+      await ctx.answerCallbackQuery({ text: t(locale, "resched_custom_toast") });
+      const hint = t(locale, context.task.timeMode === "window" ? "resched_hint_window" : context.task.timeMode === "deadline" ? "resched_hint_deadline" : "resched_hint_point");
+      await ctx.editMessageText(`🕒 ${context.task.title}\n\n${t(locale, "resched_prompt", { hint })}`, {
+        reply_markup: new InlineKeyboard().text(t(locale, "not_now_button"), `occ:back:${occurrenceId}`),
+      }).catch(() => undefined);
+      return;
+    }
+    try {
+      if (await this.tasks.isRescheduleReasonRequired(access.workspaceId, occurrenceId)) {
+        await ctx.answerCallbackQuery({ text: t(locale, "reason_toast") });
+        await ctx.editMessageReplyMarkup({ reply_markup: quickRescheduleReasonKeyboard(occurrenceId, choice, locale) }).catch(() => undefined);
+        return;
+      }
+      await this.completeQuickReschedule(ctx, occurrenceId, choice);
+    } catch (error) {
+      console.error("quick reschedule failed", { occurrenceId, choice, error: safeError(error) });
+      await ctx.answerCallbackQuery({ text: t(locale, "resched_failed_toast") }).catch(() => undefined);
+    }
+  }
+
+  private async quickRescheduleReason(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const match = QUICK_RESCHEDULE_REASON_CALLBACK.exec(ctx.callbackQuery.data);
+    const choice = quickChoiceFromCode(match?.[1]);
+    const code = quickReasonFromCode(match?.[2]);
+    const occurrenceId = match?.[3];
+    if (!choice || !code || !occurrenceId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    if (code === "other") {
+      await this.settings.setPendingInput(access.user.id, { kind: "quick_reschedule_reason", occurrenceId, choice });
+      const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
+      await ctx.answerCallbackQuery({ text: t(locale, "reason_write_toast") });
+      if (context) {
+        await ctx.editMessageText(t(locale, "reason_prompt_text", { title: context.task.title }), {
+          reply_markup: new InlineKeyboard().text(t(locale, "back_button"), `occ:resched:${occurrenceId}`).text(t(locale, "not_now_button"), `occ:back:${occurrenceId}`),
+        }).catch(() => undefined);
+      }
+      return;
+    }
+    try {
+      const reason = quickRescheduleReasonText(code, locale);
+      if (!reason) throw new Error("reason missing");
+      await this.completeQuickReschedule(ctx, occurrenceId, choice, reason);
+    } catch (error) {
+      console.error("quick reschedule reason failed", { occurrenceId, choice, code, error: safeError(error) });
+      await ctx.answerCallbackQuery({ text: t(locale, "resched_failed_toast") }).catch(() => undefined);
+    }
+  }
+
+  /** `follow:seen:*` on a reminder card repeats the reminder later without touching the task's time. */
+  private async followUp(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const match = FOLLOW_UP_CALLBACK.exec(ctx.callbackQuery.data);
+    const mode = match?.[1] as "seen" | "result" | undefined;
+    const choice = match?.[2] as "15m" | "1h" | "evening" | "custom" | "none" | undefined;
+    const occurrenceId = match?.[3];
+    if (!mode || !choice || !occurrenceId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    try {
+      if (choice === "none") {
+        if (mode !== "result") return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+        await ctx.answerCallbackQuery({ text: t(locale, "followup_none_toast") });
+        await ctx.editMessageReplyMarkup({ reply_markup: startedTaskKeyboard(occurrenceId, locale) }).catch(() => undefined);
+        return;
+      }
+      if (choice === "custom") {
+        await this.settings.setPendingInput(access.user.id, { kind: "follow_up_custom", occurrenceId, mode });
+        await ctx.answerCallbackQuery({ text: t(locale, "followup_custom_toast") });
+        await ctx.reply(t(locale, "followup_custom_prompt"), { reply_markup: new InlineKeyboard().text(t(locale, "not_now_button"), `occ:back:${occurrenceId}`) });
+        return;
+      }
+      const scheduled = await this.reminders.scheduleFollowUpChoice({ workspaceId: access.workspaceId, userId: access.user.id, occurrenceId, choice, mode });
+      if (!scheduled) return this.stale(ctx, "task_unavailable_toast");
+      await ctx.answerCallbackQuery({ text: t(locale, mode === "seen" ? "snooze_reminder_toast" : "followup_updated_toast") });
+      const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
+      const keyboard = context ? (context.occurrence.status === "in_progress" ? startedTaskKeyboard(occurrenceId, locale) : taskKeyboard(occurrenceId, context.occurrence.status, locale)) : new InlineKeyboard();
+      await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => undefined);
+    } catch (error) {
+      console.error("follow-up callback failed", { occurrenceId, error: safeError(error) });
+      await ctx.answerCallbackQuery({ text: t(locale, "followup_failed_toast") }).catch(() => undefined);
+    }
+  }
+
+  private async series(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const match = SERIES_CALLBACK.exec(ctx.callbackQuery.data);
+    const operation = match?.[1] as "pause" | "cancel" | undefined;
+    const taskId = match?.[2];
+    if (!operation || !taskId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    const task = await this.tasks.getTask(access.workspaceId, taskId);
+    if (!task) return this.stale(ctx, "series_not_found_toast");
+    try {
+      const result = await this.actions.applySeriesOperation({ workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id }, taskId, task.version, operation);
+      const message = t(locale, operation === "pause" ? "series_paused" : "series_cancelled");
+      await ctx.answerCallbackQuery({ text: message });
+      await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+      if (result.applied) await ctx.reply(`${message}.`, { reply_markup: new InlineKeyboard().text(t(locale, "undo_button"), `act:undo:${result.applied.groupId}`) });
+    } catch (error) {
+      console.error("series callback failed", { taskId, error: safeError(error) });
+      await this.stale(ctx, "series_changed_toast");
+    }
+  }
+
+  private async cancelReminder(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const deliveryId = REMINDER_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
+    if (!deliveryId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    try {
+      const cancelled = await this.reminders.cancelUpcoming({ workspaceId: access.workspaceId, userId: access.user.id, deliveryId });
+      await ctx.answerCallbackQuery({ text: t(locale, cancelled ? "reminder_cancelled_toast" : "reminder_already_toast") });
+      await this.screens.reminders_(ctx, true);
+    } catch (error) {
+      console.error("reminder cancellation failed", { deliveryId, error: safeError(error) });
+      await ctx.answerCallbackQuery({ text: t(locale, "reminder_cancel_failed_toast") }).catch(() => undefined);
+    }
+  }
+
+  private async action(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const match = ACTION_CALLBACK.exec(ctx.callbackQuery.data);
+    const action = match?.[1];
+    const groupId = match?.[2];
+    if (!action || !groupId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    try {
+      if (action === "confirm") {
+        const result = await this.actions.confirm(access.workspaceId, access.user.id, access.user.id, groupId);
+        await ctx.answerCallbackQuery({ text: result.count === 1 ? t(locale, "confirm_toast") : t(locale, "confirm_toast_many", { count: result.count }) }).catch(() => undefined);
+        await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+        // The toast disappears; the persisted outcome deserves a message of its own, with Undo attached.
+        const report = result.items?.length ? renderAppliedReport(result.items, new Date(), locale) : "";
+        const text = `${t(locale, "confirmed_text")}${report ? `\n\n${report}` : ""}\n\n${t(locale, "action_done_undo_hint")}`;
+        await ctx.reply(text, { reply_markup: new InlineKeyboard().text(t(locale, "undo_button"), `act:undo:${groupId}`) }).catch(() => undefined);
+        return;
+      }
+      if (action === "cancel") {
+        const cancelled = await this.actions.cancel(access.workspaceId, access.user.id, groupId);
+        await ctx.answerCallbackQuery({ text: t(locale, cancelled ? "declined_toast" : "already_handled_toast") }).catch(() => undefined);
+        await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+        return;
+      }
+      await this.actions.undo(access.workspaceId, access.user.id, groupId);
+      await ctx.answerCallbackQuery({ text: t(locale, "undo_toast") }).catch(() => undefined);
+      // The message still describes the change; say on it that the change is gone.
+      const current = ctx.callbackQuery.message && "text" in ctx.callbackQuery.message ? ctx.callbackQuery.message.text : undefined;
+      if (current) await ctx.editMessageText(`${t(locale, "undo_text")}\n\n${current}`, { reply_markup: new InlineKeyboard() }).catch(() => ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined));
+      else await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+    } catch (error) {
+      console.error("action callback failed", { action, groupId, error: safeError(error) });
+      if (error instanceof ActionStateUncertainError) return void await ctx.answerCallbackQuery({ text: t(locale, "action_uncertain_toast") }).catch(() => undefined);
+      await this.stale(ctx, "action_stale_toast");
+    }
+  }
+
+  private async endTopic(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const topicId = TOPIC_CONTROL_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
+    if (!topicId) return void await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") });
+    const ended = await this.chat.endConversation(access.workspaceId, access.user.id, topicId);
+    await ctx.answerCallbackQuery({ text: t(locale, ended ? "topic_ended_toast" : "topic_already_ended_toast") });
+    await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+    if (ended) await ctx.reply(t(locale, "end_done")).catch(() => undefined);
+  }
+
+  /** A stale button answers with a toast and loses its keyboard, so the card stops inviting the same failing tap. */
+  private async stale(ctx: CallbackQueryContext<AppContext>, key: "task_not_found_toast" | "task_unavailable_toast" | "state_changed_toast" | "series_not_found_toast" | "series_changed_toast" | "action_stale_toast"): Promise<void> {
+    await ctx.answerCallbackQuery({ text: t(ctx.state.locale, key) }).catch(() => undefined);
+    await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+  }
+}
+
+function quickChoiceFromCode(value?: string): QuickRescheduleChoice | undefined {
+  return value === "h" ? "1h" : value === "e" ? "evening" : value === "t" ? "tomorrow" : undefined;
+}
+
+function quickReasonFromCode(value?: string): QuickRescheduleReasonCode | undefined {
+  return value === "t" ? "time" : value === "d" ? "dependency" : value === "e" ? "energy" : value === "o" ? "other" : undefined;
+}
