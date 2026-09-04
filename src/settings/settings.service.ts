@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { eq, sql } from "drizzle-orm";
-import { localDateAndTimeToUtc, localDateAt, parseLocalTime, shiftLocalDate } from "../core/timezone.js";
+import { localDateAndTimeToUtc, localDateAt, shiftLocalDate } from "../core/timezone.js";
 import { normalizeLanguageTag } from "../core/language.js";
+import { buildSettingsPatch, type SettingsChange } from "../core/settings-change.js";
 import { DatabaseService } from "../database/database.service.js";
 import { userSettings } from "../database/schema.js";
 
@@ -34,56 +35,30 @@ export class SettingsService {
     await this.database.db.update(userSettings).set({ onboardingCompletedAt: now }).where(eq(userSettings.userId, userId));
   }
 
-  async setDigestPreset(userId: string, enabled: boolean): Promise<void> {
+  /** Every setting change goes through one validated patch builder; the version bumps on each write. */
+  async apply(userId: string, change: SettingsChange, now = new Date()): Promise<void> {
     const current = await this.get(userId);
     if (!current) throw new Error("settings missing");
-    await this.database.db.update(userSettings).set({
-      morningDigestEnabled: enabled,
-      eveningDigestEnabled: enabled,
-      morningReferenceTime: "09:00",
-      eveningReferenceTime: "20:00",
-      digestTimezone: current.timezone,
-      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
-    }).where(eq(userSettings.userId, userId));
+    const patch = buildSettingsPatch(change, current);
+    await this.database.db.update(userSettings).set({ ...patch, version: sql`${userSettings.version} + 1`, updatedAt: now }).where(eq(userSettings.userId, userId));
   }
 
-  async setWeeklyPreset(userId: string, enabled: boolean): Promise<void> {
-    const current = await this.get(userId);
-    if (!current) throw new Error("settings missing");
-    await this.database.db.update(userSettings).set({
-      weeklyReviewEnabled: enabled,
-      weeklyReviewWeekday: 7,
-      weeklyReviewTime: "20:00",
-      digestTimezone: current.timezone,
-      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
-    }).where(eq(userSettings.userId, userId));
+  setDigestPreset(userId: string, enabled: boolean): Promise<void> {
+    return this.apply(userId, { operation: "digest_preset", enabled });
   }
 
-  async setQuietHours(userId: string, update: QuietHoursUpdate): Promise<void> {
-    const values: Partial<typeof userSettings.$inferInsert> = { quietHoursEnabled: update.enabled };
-    if (update.enabled) {
-      for (const value of [update.weekdayStart, update.weekdayEnd, update.weekendStart, update.weekendEnd]) {
-        if (value) parseLocalTime(value);
-      }
-      if (update.weekdayStart) values.weekdayQuietStart = update.weekdayStart;
-      if (update.weekdayEnd) values.weekdayQuietEnd = update.weekdayEnd;
-      if (update.weekendStart) values.weekendQuietStart = update.weekendStart;
-      if (update.weekendEnd) values.weekendQuietEnd = update.weekendEnd;
-    }
-    const current = await this.get(userId);
-    if (!current) throw new Error("settings missing");
-    values.quietHoursTimezone = current.timezone;
-    await this.database.db.update(userSettings).set({ ...values, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
+  setWeeklyPreset(userId: string, enabled: boolean): Promise<void> {
+    return this.apply(userId, { operation: "weekly_preset", enabled });
   }
 
-  async setTimezone(userId: string, timezone: string, options: { applyTo?: "digests" | "quiet" | "both" } = {}): Promise<void> {
-    new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date());
-    await this.database.db.update(userSettings).set({
-      timezone,
-      ...(options.applyTo === "digests" || options.applyTo === "both" ? { digestTimezone: timezone } : {}),
-      ...(options.applyTo === "quiet" || options.applyTo === "both" ? { quietHoursTimezone: timezone } : {}),
-      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
-    }).where(eq(userSettings.userId, userId));
+  setQuietHours(userId: string, update: QuietHoursUpdate): Promise<void> {
+    return this.apply(userId, { operation: "quiet_hours", ...update });
+  }
+
+  setTimezone(userId: string, timezone: string, options: { applyTo?: "digests" | "quiet" | "both" } = {}): Promise<void> {
+    return this.apply(userId, { operation: "timezone", timezone, applyTo: options.applyTo === "both" ? "all" : "profile_only" }).then(async () => {
+      if (options.applyTo === "digests" || options.applyTo === "quiet") await this.applyProfileTimezone(userId, options.applyTo);
+    });
   }
 
   async applyProfileTimezone(userId: string, target: "digests" | "quiet" | "both"): Promise<void> {
@@ -98,36 +73,20 @@ export class SettingsService {
 
   async setLanguage(userId: string, language: string | null): Promise<string | null> {
     const normalized = language === null ? null : normalizeLanguageTag(language);
-    await this.database.db.update(userSettings).set({ pinnedLanguage: normalized, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
+    await this.apply(userId, { operation: "language", language: normalized });
     return normalized;
   }
 
-  async setDigest(input: { userId: string; kind: "morning" | "evening"; enabled: boolean; time?: string }): Promise<void> {
-    if (input.time) parseLocalTime(input.time);
-    const current = await this.get(input.userId);
-    if (!current) throw new Error("settings missing");
-    const patch = input.kind === "morning"
-      ? { morningDigestEnabled: input.enabled, digestTimezone: current.timezone, ...(input.time ? { morningReferenceTime: input.time } : {}), version: sql`${userSettings.version} + 1`, updatedAt: new Date() }
-      : { eveningDigestEnabled: input.enabled, digestTimezone: current.timezone, ...(input.time ? { eveningReferenceTime: input.time } : {}), version: sql`${userSettings.version} + 1`, updatedAt: new Date() };
-    await this.database.db.update(userSettings).set(patch).where(eq(userSettings.userId, input.userId));
+  setDigest(input: { userId: string; kind: "morning" | "evening"; enabled: boolean; time?: string }): Promise<void> {
+    return this.apply(input.userId, { operation: "digest", kind: input.kind, enabled: input.enabled, time: input.time ?? null });
   }
 
-  async setWeekly(input: { userId: string; enabled: boolean; weekday?: number; time?: string }): Promise<void> {
-    if (input.weekday !== undefined && (input.weekday < 1 || input.weekday > 7)) throw new Error("weekday must be 1..7");
-    if (input.time) parseLocalTime(input.time);
-    const current = await this.get(input.userId);
-    if (!current) throw new Error("settings missing");
-    await this.database.db.update(userSettings).set({
-      weeklyReviewEnabled: input.enabled,
-      digestTimezone: current.timezone,
-      ...(input.weekday !== undefined ? { weeklyReviewWeekday: input.weekday } : {}),
-      ...(input.time ? { weeklyReviewTime: input.time } : {}),
-      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
-    }).where(eq(userSettings.userId, input.userId));
+  setWeekly(input: { userId: string; enabled: boolean; weekday?: number; time?: string }): Promise<void> {
+    return this.apply(input.userId, { operation: "weekly_review", enabled: input.enabled, weekday: input.weekday ?? null, time: input.time ?? null });
   }
 
-  async snoozeUntil(userId: string, until: Date | null): Promise<void> {
-    await this.database.db.update(userSettings).set({ notificationsSnoozedUntil: until, version: sql`${userSettings.version} + 1`, updatedAt: new Date() }).where(eq(userSettings.userId, userId));
+  snoozeUntil(userId: string, until: Date | null): Promise<void> {
+    return this.apply(userId, { operation: "snooze", until });
   }
 
   async snoozeUntilMorning(userId: string, now = new Date()): Promise<Date> {
@@ -140,7 +99,7 @@ export class SettingsService {
     return target;
   }
 
-  async setReminderDefaults(input: {
+  setReminderDefaults(input: {
     userId: string;
     eventOffsets?: number[];
     plannedTaskOffsetMinutes?: number;
@@ -149,29 +108,8 @@ export class SettingsService {
     seenRequiredMinutes?: number;
     seenCriticalMinutes?: number;
   }): Promise<void> {
-    const atLeast15 = (value: number | undefined, field: string) => {
-      if (value !== undefined && (!Number.isInteger(value) || value < 15)) throw new Error(`${field} must be >= 15 minutes`);
-    };
-    atLeast15(input.criticalPostDueMinutes, "criticalPostDueMinutes");
-    atLeast15(input.seenNormalMinutes, "seenNormalMinutes");
-    atLeast15(input.seenRequiredMinutes, "seenRequiredMinutes");
-    atLeast15(input.seenCriticalMinutes, "seenCriticalMinutes");
-    if (input.eventOffsets) {
-      if (!input.eventOffsets.length || input.eventOffsets.some((value) => !Number.isInteger(value))) throw new Error("event offsets must be integer minutes");
-    }
-    if (input.plannedTaskOffsetMinutes !== undefined && !Number.isInteger(input.plannedTaskOffsetMinutes)) {
-      throw new Error("plannedTaskOffsetMinutes must be integer minutes");
-    }
-    const normalizedEventOffsets = input.eventOffsets ? [...new Set(input.eventOffsets)].sort((a, b) => a - b) : undefined;
-    await this.database.db.update(userSettings).set({
-      ...(normalizedEventOffsets ? { eventReminderOffsetsMinutes: normalizedEventOffsets } : {}),
-      ...(input.plannedTaskOffsetMinutes !== undefined ? { plannedTaskReminderOffsetMinutes: input.plannedTaskOffsetMinutes } : {}),
-      ...(input.criticalPostDueMinutes !== undefined ? { criticalPostDueMinutes: input.criticalPostDueMinutes } : {}),
-      ...(input.seenNormalMinutes !== undefined ? { seenNormalMinutes: input.seenNormalMinutes } : {}),
-      ...(input.seenRequiredMinutes !== undefined ? { seenRequiredMinutes: input.seenRequiredMinutes } : {}),
-      ...(input.seenCriticalMinutes !== undefined ? { seenCriticalMinutes: input.seenCriticalMinutes } : {}),
-      version: sql`${userSettings.version} + 1`, updatedAt: new Date(),
-    }).where(eq(userSettings.userId, input.userId));
+    const { userId, ...fields } = input;
+    return this.apply(userId, { operation: "reminder_defaults", ...fields });
   }
 
   async setPendingInput(userId: string, input: PendingInput | null): Promise<void> {

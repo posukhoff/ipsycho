@@ -121,6 +121,11 @@ export class ActionsService implements OnApplicationBootstrap {
     return { resolved, issues: [...folded.issues, ...resolveIssues.map(reindex), ...domainIssues.map(reindex)] };
   }
 
+  /** The same domain validation `prepare` runs, for callers that build a resolved action themselves (settings commands). */
+  validateResolved(actions: readonly ResolvedAction[], scope: Omit<ActionScope, "sourceMessageId">): Promise<ActionIssue[]> {
+    return this.validate(actions, { ...scope, now: scope.now ?? new Date() });
+  }
+
   /** Domain rules that need the current stored state; one issue per action index. */
   async validate(actions: readonly ResolvedAction[], scope: Omit<ActionScope, "sourceMessageId">): Promise<ActionIssue[]> {
     const now = scope.now ?? new Date();

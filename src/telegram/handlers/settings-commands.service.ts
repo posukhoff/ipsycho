@@ -1,9 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import { InlineKeyboard, type Bot, type CallbackQueryContext, type CommandContext } from "grammy";
+import { ActionsService } from "../../actions/actions.service.js";
 import { BriefingContentService } from "../../briefings/briefing-content.service.js";
 import { ChatService } from "../../chat/chat.service.js";
+import type { ResolvedActionOf } from "../../core/ai-contract.js";
+import { renderAppliedReport } from "../../core/applied-report.js";
+import { isDomainRuleError } from "../../core/errors.js";
+import { DEFAULT_QUIET_HOURS } from "../../core/settings-change.js";
 import { formatLocalDateTime } from "../../core/time-presentation.js";
-import { localDateAt } from "../../core/timezone.js";
+import { localDateAt, localDateTimeAt } from "../../core/timezone.js";
 import { resolveTimezoneInput } from "../../core/timezone-lookup.js";
 import { safeError } from "../../observability/safe-error.js";
 import { SettingsService } from "../../settings/settings.service.js";
@@ -24,7 +29,44 @@ export class SettingsCommandsService {
     private readonly chat: ChatService,
     private readonly chatReply: TelegramChatReplyService,
     private readonly screens: ScreensService,
+    private readonly actions: ActionsService,
   ) {}
+
+  /**
+   * A settings command is the same change the model would propose, so it takes the same road:
+   * one journaled action with Undo, validated by the same rules. Returns false when the
+   * change was refused (the user already got the reason).
+   */
+  private async applySettings(ctx: AppContext, operation: SettingsFields["operation"], fields: Partial<Omit<SettingsFields, "operation">>, doneKey: Parameters<typeof t>[1] | null): Promise<boolean> {
+    const { access, settings, locale } = activeState(ctx);
+    const action: ResolvedActionOf<"settings"> = {
+      type: "settings", intent: "explicit", timezone: settings.timezone, reviewTime: settings.morningReferenceTime, expectedVersion: settings.version,
+      operation, applyTimezoneTo: null, language: null, digestKind: null, enabled: null, time: null, weekday: null,
+      weekdayStart: null, weekdayEnd: null, weekendStart: null, weekendEnd: null, snoozeUntilDate: null, snoozeUntilTime: null,
+      eventOffsets: null, plannedTaskOffsetMinutes: null, criticalPostDueMinutes: null, seenNormalMinutes: null, seenRequiredMinutes: null, seenCriticalMinutes: null,
+      ...fields,
+    };
+    const scope = { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id, language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null };
+    try {
+      const issues = await this.actions.validateResolved([action], scope);
+      if (issues.length) {
+        await ctx.reply(t(locale, "rd_failed"));
+        return false;
+      }
+      const applied = await this.actions.applyResolved([action], scope);
+      const report = applied.items?.length ? renderAppliedReport(applied.items, new Date(), locale) : "";
+      const text = doneKey ? `${t(locale, doneKey)}${report ? `\n\n${report}` : ""}` : report;
+      await ctx.reply(text || t(locale, "saved_toast"), { reply_markup: new InlineKeyboard().text(t(locale, "undo_button"), `act:undo:${applied.groupId}`) });
+      const updated = await this.settings.get(access.user.id);
+      if (updated) ctx.state = { ...ctx.state, settings: updated };
+      return true;
+    } catch (error) {
+      if (!isDomainRuleError(error)) throw error;
+      console.warn("settings command refused", { userId: access.user.id, operation, error: safeError(error) });
+      await ctx.reply(t(locale, error.code === "time_invalid" ? "time_invalid" : "rd_failed"));
+      return false;
+    }
+  }
 
   register(bot: Bot<AppContext>): void {
     bot.command("timezone", (ctx) => this.timezone(ctx));
@@ -45,7 +87,7 @@ export class SettingsCommandsService {
     if (!value) return void await ctx.reply(t(locale, "timezone_usage"));
     const zone = resolveTimezoneInput(value);
     if (!zone) return void await ctx.reply(t(locale, "timezone_invalid"));
-    await this.settings.setTimezone(access.user.id, zone);
+    if (!await this.applySettings(ctx, "timezone", { timezone: zone, applyTimezoneTo: "profile_only" }, null)) return;
     await ctx.reply(t(locale, "timezone_set", { timezone: zone }), {
       reply_markup: new InlineKeyboard()
         .text(t(locale, "tz_apply_both"), "tzapply:both").text(t(locale, "tz_keep"), "tzapply:keep").row()
@@ -56,13 +98,9 @@ export class SettingsCommandsService {
   private async language(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
     const value = commandArgs(ctx.msg.text ?? "").trim();
-    try {
-      const automatic = value.toLowerCase() === "auto";
-      const normalized = await this.settings.setLanguage(access.user.id, automatic ? null : value);
-      await ctx.reply(automatic ? t(locale, "language_auto") : t(locale, "language_set", { language: normalized ?? "" }));
-    } catch {
-      await ctx.reply(t(locale, "language_usage"));
-    }
+    const automatic = value.toLowerCase() === "auto";
+    if (!value || (!automatic && !/^[a-z]{2}(?:-[a-z]{2})?$/iu.test(value))) return void await ctx.reply(t(locale, "language_usage"));
+    await this.applySettings(ctx, "language", { language: automatic ? null : value }, automatic ? "language_auto" : null);
   }
 
   private async digest(ctx: CommandContext<AppContext>, kind: "morning" | "evening"): Promise<void> {
@@ -76,13 +114,7 @@ export class SettingsCommandsService {
     }
     const enabled = parts[0] === "on";
     if ((enabled && parts.length !== 2) || (!enabled && (parts[0] !== "off" || parts.length !== 1))) return void await ctx.reply(t(locale, "digest_usage", { kind }));
-    try {
-      await this.settings.setDigest({ userId: access.user.id, kind, enabled, ...(enabled ? { time: parts[1]! } : {}) });
-      await ctx.reply(t(locale, enabled ? (kind === "morning" ? "digest_on_morning" : "digest_on_evening") : "digest_off"));
-    } catch (error) {
-      console.warn("digest settings update failed", { userId: access.user.id, error: safeError(error) });
-      await ctx.reply(t(locale, "time_invalid"));
-    }
+    await this.applySettings(ctx, "digest", { digestKind: kind, enabled, time: enabled ? parts[1]! : null }, enabled ? (kind === "morning" ? "digest_on_morning" : "digest_on_evening") : "digest_off");
   }
 
   private async weekly(ctx: CommandContext<AppContext>): Promise<void> {
@@ -104,90 +136,78 @@ export class SettingsCommandsService {
     }
     const enabled = parts[0] === "on";
     if ((enabled && parts.length !== 3) || (!enabled && (parts[0] !== "off" || parts.length !== 1))) return void await ctx.reply(t(locale, "weekly_usage"));
-    try {
-      await this.settings.setWeekly({ userId: access.user.id, enabled, ...(enabled ? { weekday: Number(parts[1]), time: parts[2]! } : {}) });
-      await ctx.reply(t(locale, enabled ? "weekly_on" : "weekly_off"));
-    } catch (error) {
-      console.warn("weekly settings update failed", { userId: access.user.id, error: safeError(error) });
-      await ctx.reply(t(locale, "weekly_invalid"));
-    }
+    const weekday = enabled ? Number(parts[1]) : null;
+    if (enabled && (!Number.isInteger(weekday) || weekday! < 1 || weekday! > 7)) return void await ctx.reply(t(locale, "weekly_invalid"));
+    await this.applySettings(ctx, "weekly_review", { enabled, weekday, time: enabled ? parts[2]! : null }, enabled ? "weekly_on" : "weekly_off");
   }
 
   private async quiet(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
     const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
-    try {
-      if (!parts.length || parts[0] === "default") {
-        await this.settings.setQuietHours(access.user.id, { enabled: true, weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" });
-        return void await ctx.reply(t(locale, "quiet_default"));
-      }
-      if (parts[0] === "off") {
-        await this.settings.setQuietHours(access.user.id, { enabled: false });
-        return void await ctx.reply(t(locale, "quiet_off"));
-      }
-      const [weekdayStart, weekdayEnd, weekendStart, weekendEnd] = parts;
-      if (parts.length === 4 && weekdayStart && weekdayEnd && weekendStart && weekendEnd) {
-        await this.settings.setQuietHours(access.user.id, { enabled: true, weekdayStart, weekdayEnd, weekendStart, weekendEnd });
-        return void await ctx.reply(t(locale, "quiet_updated"));
-      }
-      await ctx.reply(t(locale, "quiet_usage"));
-    } catch (error) {
-      console.warn("quiet hours update failed", { userId: access.user.id, error: safeError(error) });
-      await ctx.reply(t(locale, "time_invalid"));
+    if (!parts.length || parts[0] === "default") {
+      await this.applySettings(ctx, "quiet_hours", { enabled: true, ...DEFAULT_QUIET_HOURS }, "quiet_default");
+      return;
     }
+    if (parts[0] === "off") {
+      await this.applySettings(ctx, "quiet_hours", { enabled: false }, "quiet_off");
+      return;
+    }
+    const [weekdayStart, weekdayEnd, weekendStart, weekendEnd] = parts;
+    if (parts.length === 4 && weekdayStart && weekdayEnd && weekendStart && weekendEnd) {
+      await this.applySettings(ctx, "quiet_hours", { enabled: true, weekdayStart, weekdayEnd, weekendStart, weekendEnd }, "quiet_updated");
+      return;
+    }
+    await ctx.reply(t(locale, "quiet_usage"));
   }
 
   private async snooze(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
     const value = commandArgs(ctx.msg.text ?? "").toLowerCase();
-    try {
-      if (value === "off") {
-        await this.settings.snoozeUntil(access.user.id, null);
-        return void await ctx.reply(t(locale, "snooze_off"));
-      }
-      if (value === "morning" || value === "утро" || value === "ранок") {
-        const until = await this.settings.snoozeUntilMorning(access.user.id);
-        return void await ctx.reply(t(locale, "snooze_until", { until: formatLocalDateTime(until, settings.timezone, new Date()) }));
-      }
-      const minutes = Number(value);
-      if (!Number.isInteger(minutes) || minutes < 15 || minutes > 7 * 24 * 60) return void await ctx.reply(t(locale, "snooze_usage"));
-      const until = new Date(Date.now() + minutes * 60_000);
-      await this.settings.snoozeUntil(access.user.id, until);
-      await ctx.reply(t(locale, "snooze_until", { until: formatLocalDateTime(until, settings.timezone, new Date()) }));
-    } catch (error) {
-      console.warn("snooze update failed", { userId: access.user.id, error: safeError(error) });
-      await ctx.reply(t(locale, "snooze_failed"));
+    if (value === "off") {
+      await this.applySettings(ctx, "snooze", { snoozeUntilDate: null, snoozeUntilTime: null }, "snooze_off");
+      return;
     }
+    let until: Date;
+    if (value === "morning" || value === "утро" || value === "ранок") {
+      until = await this.settings.snoozeUntilMorning(access.user.id);
+      const updated = await this.settings.get(access.user.id);
+      if (updated) ctx.state = { ...ctx.state, settings: updated };
+      await ctx.reply(t(locale, "snooze_until", { until: formatLocalDateTime(until, settings.timezone, new Date()) }));
+      return;
+    }
+    const minutes = Number(value);
+    if (!Number.isInteger(minutes) || minutes < 15 || minutes > 7 * 24 * 60) return void await ctx.reply(t(locale, "snooze_usage"));
+    until = new Date(Date.now() + minutes * 60_000);
+    const local = localDateTimeAt(until, settings.timezone);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const applied = await this.applySettings(ctx, "snooze", { snoozeUntilDate: `${local.year}-${pad(local.month)}-${pad(local.day)}`, snoozeUntilTime: `${pad(local.hour)}:${pad(local.minute)}` }, null);
+    if (applied) await ctx.reply(t(locale, "snooze_until", { until: formatLocalDateTime(until, settings.timezone, new Date()) }));
   }
 
   private async reminderDefaults(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
     const parts = commandArgs(ctx.msg.text ?? "").split(/\s+/u).filter(Boolean);
-    try {
-      if (parts[0] === "seen" && parts.length === 4) {
-        await this.settings.setReminderDefaults({ userId: access.user.id, seenNormalMinutes: Number(parts[1]), seenRequiredMinutes: Number(parts[2]), seenCriticalMinutes: Number(parts[3]) });
-        return void await ctx.reply(t(locale, "rd_seen"));
-      }
-      if (parts[0] === "event" && parts[1]) {
-        const offsets = parts[1].split(",").map(Number);
-        await this.settings.setReminderDefaults({ userId: access.user.id, eventOffsets: offsets });
-        const sorted = [...offsets].sort((a, b) => a - b);
-        const dense = sorted.some((value, index) => index > 0 && value - sorted[index - 1]! < 15);
-        return void await ctx.reply(t(locale, "rd_event", { warning: offsets.length > 8 || dense ? t(locale, "rd_event_warning") : "" }));
-      }
-      if (parts[0] === "task" && parts[1]) {
-        await this.settings.setReminderDefaults({ userId: access.user.id, plannedTaskOffsetMinutes: Number(parts[1]) });
-        return void await ctx.reply(t(locale, "rd_task"));
-      }
-      if (parts[0] === "critical" && parts[1]) {
-        await this.settings.setReminderDefaults({ userId: access.user.id, criticalPostDueMinutes: Number(parts[1]) });
-        return void await ctx.reply(t(locale, "rd_critical"));
-      }
-      await ctx.reply(t(locale, "rd_usage"));
-    } catch (error) {
-      console.warn("reminder defaults update failed", { userId: access.user.id, error: safeError(error) });
-      await ctx.reply(t(locale, "rd_failed"));
+    if (parts[0] === "seen" && parts.length === 4) {
+      await this.applySettings(ctx, "reminder_defaults", { seenNormalMinutes: Number(parts[1]), seenRequiredMinutes: Number(parts[2]), seenCriticalMinutes: Number(parts[3]) }, "rd_seen");
+      return;
     }
+    if (parts[0] === "event" && parts[1]) {
+      const offsets = parts[1].split(",").map(Number);
+      const sorted = [...offsets].sort((a, b) => a - b);
+      const dense = sorted.some((value, index) => index > 0 && value - sorted[index - 1]! < 15);
+      const applied = await this.applySettings(ctx, "reminder_defaults", { eventOffsets: offsets }, null);
+      if (applied && (offsets.length > 8 || dense)) await ctx.reply(t(locale, "rd_event_warning").trim());
+      return;
+    }
+    if (parts[0] === "task" && parts[1]) {
+      await this.applySettings(ctx, "reminder_defaults", { plannedTaskOffsetMinutes: Number(parts[1]) }, "rd_task");
+      return;
+    }
+    if (parts[0] === "critical" && parts[1]) {
+      await this.applySettings(ctx, "reminder_defaults", { criticalPostDueMinutes: Number(parts[1]) }, "rd_critical");
+      return;
+    }
+    await ctx.reply(t(locale, "rd_usage"));
   }
 
   private async applyTimezone(ctx: CallbackQueryContext<AppContext>): Promise<void> {
@@ -209,7 +229,7 @@ export class SettingsCommandsService {
       if (key === "morning") await this.settings.setDigest({ userId: access.user.id, kind: "morning", enabled: !settings.morningDigestEnabled });
       else if (key === "evening") await this.settings.setDigest({ userId: access.user.id, kind: "evening", enabled: !settings.eveningDigestEnabled });
       else if (key === "weekly") await this.settings.setWeekly({ userId: access.user.id, enabled: !settings.weeklyReviewEnabled });
-      else if (key === "quiet") await this.settings.setQuietHours(access.user.id, { enabled: !settings.quietHoursEnabled });
+      else if (key === "quiet") await this.settings.setQuietHours(access.user.id, { enabled: !settings.quietHoursEnabled, ...(settings.quietHoursEnabled ? {} : { weekdayStart: settings.weekdayQuietStart, weekdayEnd: settings.weekdayQuietEnd, weekendStart: settings.weekendQuietStart, weekendEnd: settings.weekendQuietEnd }) });
       else if (key === "snooze" && action === "morning") await this.settings.snoozeUntilMorning(access.user.id);
       const updated = await this.settings.get(access.user.id);
       if (!updated) throw new Error("settings missing after update");
@@ -226,3 +246,6 @@ export class SettingsCommandsService {
 export function commandArgs(text: string): string {
   return text.replace(/^\/\S+(?:@\S+)?\s*/u, "").trim();
 }
+
+type SettingsFields = ResolvedActionOf<"settings">;
+

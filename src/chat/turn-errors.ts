@@ -165,6 +165,11 @@ const BY_CODE: Record<string, Copy> = {
     uk: "Нічого не змінював: нотатку можна записати лише як перешкоду до завдання.",
     en: "Nothing changed: a note can only be recorded as a blocker on the task.",
   },
+  time_invalid: {
+    ru: "Не сохранил: время должно быть в формате HH:MM, например 09:30.",
+    uk: "Не зберіг: час має бути у форматі HH:MM, наприклад 09:30.",
+    en: "Not saved: the time must be HH:MM, for example 09:30.",
+  },
   settings_shape: {
     ru: "Не сохранил настройку: не хватает значения. Скажи, что и на что менять.",
     uk: "Не зберіг налаштування: бракує значення. Скажи, що і на що змінювати.",

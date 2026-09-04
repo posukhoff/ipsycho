@@ -1,5 +1,6 @@
 import type { Reminder, ResolvedAction, ResolvedActionOf, When } from "../core/ai-contract.js";
-import { normalizeLanguageTag, type InterfaceLocale } from "../core/language.js";
+import type { InterfaceLocale } from "../core/language.js";
+import { buildSettingsPatch, type SettingsChange, type SettingsPatchFields } from "../core/settings-change.js";
 
 /** Titles of the entities an action addresses, so a confirmation card can name what it is about. */
 export interface ActionNames {
@@ -155,39 +156,22 @@ function plural(locale: "ru" | "uk", count: number, one: string, few: string, ma
   return locale === "uk" ? many : many;
 }
 
-/** The user_settings patch and card title for a resolved settings action. */
-export function settingsPatchForAction(
-  action: ResolvedActionOf<"settings">,
-  current: { timezone: string },
-  snoozeUntil: Date | null,
-): { patch: Record<string, unknown>; title: string } {
-  if (action.operation === "timezone") {
-    return { patch: { timezone: action.timezone!, ...(action.applyTimezoneTo === "all" ? { digestTimezone: action.timezone!, quietHoursTimezone: action.timezone! } : {}) }, title: "Изменить часовой пояс" };
+/** The user_settings patch for a resolved settings action, through the same builder the commands use. */
+export function settingsPatchForAction(action: ResolvedActionOf<"settings">, current: { timezone: string }, snoozeUntil: Date | null): { patch: SettingsPatchFields } {
+  return { patch: buildSettingsPatch(settingsChangeFromAction(action, snoozeUntil), current) };
+}
+
+export function settingsChangeFromAction(action: ResolvedActionOf<"settings">, snoozeUntil: Date | null): SettingsChange {
+  switch (action.operation) {
+    case "timezone": return { operation: "timezone", timezone: action.timezone, applyTo: action.applyTimezoneTo === "all" ? "all" : "profile_only" };
+    case "language": return { operation: "language", language: action.language };
+    case "digest": return { operation: "digest", kind: action.digestKind ?? "morning", enabled: action.enabled ?? true, time: action.time };
+    case "weekly_review": return { operation: "weekly_review", enabled: action.enabled ?? true, weekday: action.weekday, time: action.time };
+    case "quiet_hours": return { operation: "quiet_hours", enabled: action.enabled ?? true, weekdayStart: action.weekdayStart, weekdayEnd: action.weekdayEnd, weekendStart: action.weekendStart, weekendEnd: action.weekendEnd };
+    case "snooze": return { operation: "snooze", until: snoozeUntil };
+    case "reminder_defaults": return {
+      operation: "reminder_defaults", eventOffsets: action.eventOffsets, plannedTaskOffsetMinutes: action.plannedTaskOffsetMinutes, criticalPostDueMinutes: action.criticalPostDueMinutes,
+      seenNormalMinutes: action.seenNormalMinutes, seenRequiredMinutes: action.seenRequiredMinutes, seenCriticalMinutes: action.seenCriticalMinutes,
+    };
   }
-  if (action.operation === "language") {
-    return { patch: { pinnedLanguage: action.language === null ? null : normalizeLanguageTag(action.language) }, title: "Изменить язык интерфейса" };
-  }
-  if (action.operation === "digest") {
-    const patch = action.digestKind === "morning"
-      ? { morningDigestEnabled: action.enabled!, digestTimezone: current.timezone, ...(action.time !== null ? { morningReferenceTime: action.time } : {}) }
-      : { eveningDigestEnabled: action.enabled!, digestTimezone: current.timezone, ...(action.time !== null ? { eveningReferenceTime: action.time } : {}) };
-    return { patch, title: action.digestKind === "morning" ? "Настроить утреннюю сводку" : "Настроить вечернюю сводку" };
-  }
-  if (action.operation === "weekly_review") {
-    return { patch: { weeklyReviewEnabled: action.enabled!, digestTimezone: current.timezone, ...(action.weekday !== null ? { weeklyReviewWeekday: action.weekday } : {}), ...(action.time !== null ? { weeklyReviewTime: action.time } : {}) }, title: "Настроить еженедельный обзор" };
-  }
-  if (action.operation === "quiet_hours") {
-    return { patch: { quietHoursEnabled: action.enabled!, quietHoursTimezone: current.timezone, ...(action.weekdayStart !== null ? { weekdayQuietStart: action.weekdayStart } : {}), ...(action.weekdayEnd !== null ? { weekdayQuietEnd: action.weekdayEnd } : {}), ...(action.weekendStart !== null ? { weekendQuietStart: action.weekendStart } : {}), ...(action.weekendEnd !== null ? { weekendQuietEnd: action.weekendEnd } : {}) }, title: "Настроить тихие часы" };
-  }
-  if (action.operation === "snooze") {
-    return { patch: { notificationsSnoozedUntil: snoozeUntil }, title: snoozeUntil === null ? "Включить уведомления" : "Приостановить уведомления" };
-  }
-  return { patch: {
-    ...(action.eventOffsets !== null ? { eventReminderOffsetsMinutes: [...new Set(action.eventOffsets)].sort((a, b) => a - b) } : {}),
-    ...(action.plannedTaskOffsetMinutes !== null ? { plannedTaskReminderOffsetMinutes: action.plannedTaskOffsetMinutes } : {}),
-    ...(action.criticalPostDueMinutes !== null ? { criticalPostDueMinutes: action.criticalPostDueMinutes } : {}),
-    ...(action.seenNormalMinutes !== null ? { seenNormalMinutes: action.seenNormalMinutes } : {}),
-    ...(action.seenRequiredMinutes !== null ? { seenRequiredMinutes: action.seenRequiredMinutes } : {}),
-    ...(action.seenCriticalMinutes !== null ? { seenCriticalMinutes: action.seenCriticalMinutes } : {}),
-  }, title: "Изменить стандартные напоминания" };
 }
