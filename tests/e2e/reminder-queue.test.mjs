@@ -68,6 +68,11 @@ async function dueDelivery({ workspaceId, userId }) {
   return { deliveryId: rows[0].id, scheduledFor: new Date(rows[0].scheduled_for), taskId: result.taskId };
 }
 
+async function scheduledFor(id) {
+  const { rows } = await database.pool.query("select scheduled_for, intended_for from reminder_deliveries where id=$1", [id]);
+  return rows[0];
+}
+
 async function deliveryRow(id) {
   const { rows } = await database.pool.query("select status, attempts, suppressed_reason, sent_at from reminder_deliveries where id=$1", [id]);
   return rows[0];
@@ -207,4 +212,69 @@ test("a connection refused before anything was sent is retried and eventually de
   await waitFor(async () => (await deliveryRow(deliveryId)).status === "sent");
   assert.equal(telegram.sent.length, 1);
   assert.equal((await deliveryRow(deliveryId)).attempts, 2);
+});
+
+test("quiet hours turned on after scheduling push a future reminder to the end of the quiet window", async () => {
+  const context = await fixture();
+  const { deliveryId, taskId } = await dueDelivery(context);
+  // The task itself is far away, so the quiet-hours deferral is not capped by the task boundary.
+  const tomorrowNoon = new Date(Date.now() + 36 * 60 * 60_000);
+  await database.pool.query("update task_occurrences set planned_start_at=$2 where task_id=$1", [taskId, tomorrowNoon]);
+  await database.pool.query("update tasks set planned_start_at=$2 where id=$1", [taskId, tomorrowNoon]).catch(() => undefined);
+  // The reminder is still ahead of us, and the user has just declared the whole day quiet.
+  await database.pool.query("update reminder_deliveries set intended_for = now() + interval '10 minutes', scheduled_for = now() where id=$1", [deliveryId]);
+  await database.pool.query(
+    "update user_settings set quiet_hours_enabled=true, weekday_quiet_start='00:00', weekday_quiet_end='23:59', weekend_quiet_start='00:00', weekend_quiet_end='23:59' where user_id=$1",
+    [context.userId],
+  );
+
+  const telegram = fakeTelegram();
+  const service = await startQueueService(telegram);
+  await service.reconcile();
+  await waitFor(async () => {
+    const row = await scheduledFor(deliveryId);
+    return new Date(row.scheduled_for) > new Date(row.intended_for);
+  });
+  assert.equal(telegram.sent.length, 0, "a reminder inside quiet hours must not be sent yet");
+  assert.equal((await deliveryRow(deliveryId)).status, "pending");
+});
+
+test("a delivery whose occurrence was completed in the meantime is suppressed, not sent", async () => {
+  const context = await fixture();
+  const { deliveryId, taskId } = await dueDelivery(context);
+  await database.pool.query("update task_occurrences set status='done' where task_id=$1", [taskId]);
+
+  const telegram = fakeTelegram();
+  await startQueueService(telegram);
+  await waitFor(async () => (await deliveryRow(deliveryId)).status === "suppressed");
+  assert.equal(telegram.sent.length, 0);
+  assert.equal((await deliveryRow(deliveryId)).suppressed_reason, "no_longer_applicable");
+});
+
+test("a delivery for a suspended account is suppressed as an access decision", async () => {
+  const context = await fixture();
+  const { deliveryId } = await dueDelivery(context);
+  await database.pool.query("update users set status='disabled' where id=$1", [context.userId]);
+
+  const telegram = fakeTelegram();
+  await startQueueService(telegram);
+  await waitFor(async () => (await deliveryRow(deliveryId)).status === "suppressed");
+  assert.equal(telegram.sent.length, 0);
+  assert.equal((await deliveryRow(deliveryId)).suppressed_reason, "access");
+});
+
+test("the queue summary counts what is waiting, what is late and what could not be confirmed", async () => {
+  const context = await fixture();
+  const { deliveryId } = await dueDelivery(context);
+  const service = await startQueueService(fakeTelegram());
+  await database.pool.query("update reminder_deliveries set status='pending', scheduled_for = now() - interval '30 minutes' where id=$1", [deliveryId]);
+  const late = await service.queueSummary();
+  assert.equal(late.pending, 1);
+  assert.equal(late.stalePending, 1);
+
+  await database.pool.query("update reminder_deliveries set status='ambiguous' where id=$1", [deliveryId]);
+  const ambiguous = await service.queueSummary();
+  assert.equal(ambiguous.pending, 0);
+  assert.equal(ambiguous.stalePending, 0);
+  assert.equal(ambiguous.ambiguous, 1);
 });
