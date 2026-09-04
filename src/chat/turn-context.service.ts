@@ -4,7 +4,7 @@ import { ContextRepository } from "../context/context.repository.js";
 import type { RefMap } from "../core/ai-refs.js";
 import type { ReviewKind } from "../core/review-policy.js";
 import { localDateAt } from "../core/timezone.js";
-import { composeTurnContext, selectTasksForContext, type ModelContext } from "../core/turn-context.js";
+import { budgetModelContext, composeTurnContext, selectTasksForContext, type ModelContext } from "../core/turn-context.js";
 import { parseWeeklyReviewState, type WeeklyReviewState } from "../core/weekly-review-state.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TasksService } from "../tasks/tasks.service.js";
@@ -127,7 +127,7 @@ export class TurnContextService {
     });
 
     return {
-      model: composed.model,
+      model: budgetModelContext(composed.model),
       refs: composed.refs,
       activeTopic,
       // Existing rows may still carry mode=analysis; the chat layer no longer sets it from the model.

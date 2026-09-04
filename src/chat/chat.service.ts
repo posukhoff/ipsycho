@@ -8,7 +8,9 @@ import type { AiTurn, ResolvedAction } from "../core/ai-contract.js";
 import { answersProposal, type ActionIssue } from "../core/ai-actions.js";
 import { aiBurstAllowed } from "../core/ai-usage-policy.js";
 import { reviewClarificationDecision, reviewCorrection, reviewPresentation, reviewQuestionLimit, type ReviewKind } from "../core/review-policy.js";
+import { budgetHistory } from "../core/ai-history.js";
 import { isDomainRuleError } from "../core/errors.js";
+import { withTaskCandidates } from "../core/reference-candidates.js";
 import { MODEL_REPLY_MAX, REVIEW_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 import { localDateAt } from "../core/timezone.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
@@ -272,7 +274,7 @@ export class ChatService {
         this.messages.listRecentForAi(input.workspaceId, input.userId, 20),
       ]);
       const history: AiMessage[] = [
-        ...historyRows.map((row) => ({ role: row.role, content: row.content })),
+        ...budgetHistory(historyRows.map((row) => ({ role: row.role, content: row.content }))),
         { role: "user", content: "Сделай лучший возможный краткий вывод из уже известного и закончи обсуждение. Ничего нового не сохраняй и не задавай вопросов." },
       ];
       // Consent and account state can change while context is being built. Re-check at the provider boundary.
@@ -351,7 +353,7 @@ export class ChatService {
     const opening = input.kind === "weekly"
       ? "Начни совместное планирование следующей недели по этому обзору. Сначала кратко назови главные незавершённые или рискованные пункты и задай один вопрос о приоритетах. Ничего не меняй без моего явного выбора."
       : "Начни вечерний обзор по текущим незавершённым делам.";
-    const domainContext = await this.withWeeklySnapshot(ctx, input.kind, { workspaceId: input.workspaceId, timezone: input.digestTimezone ?? input.timezone, now });
+    const domainContext = ctx.model;
 
     const providerGate = await this.currentAiAccessGate(input.userId);
     if (providerGate) return providerGate;
@@ -417,10 +419,10 @@ export class ChatService {
         : false;
       const historyRows = await this.messages.listRecentForAi(input.workspaceId, input.userId, 19);
       const history: AiMessage[] = [
-        ...historyRows.map((row) => ({ role: row.role, content: row.content })),
+        ...budgetHistory(historyRows.map((row) => ({ role: row.role, content: row.content }))),
         { role: "user", content: input.inbound.content },
       ];
-      const domainContext = await this.withWeeklySnapshot(ctx, review, { workspaceId: input.workspaceId, timezone: input.timezone, now });
+      const domainContext = ctx.model;
       const control = detectConversationControl(input.inbound.content);
       const correction = review
         ? reviewCorrection(review, forceReviewConclusion)
@@ -442,10 +444,11 @@ export class ChatService {
         ? await this.actions.prepare(turn.actions, ctx.refs, actionScope)
         : { resolved: [] as ResolvedAction[], issues: [] as ActionIssue[] };
       if (prepared.issues.length) {
-        this.logRejectedTurn(input.inbound.id, turn, prepared.issues, ctx, input.timezone, now);
+        const issues = withTaskCandidates(prepared.issues, ctx.refs, input.inbound.content);
+        this.logRejectedTurn(input.inbound.id, turn, issues, ctx, input.timezone, now);
         await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed").catch(() => undefined);
         const topicId = await this.applyTopic(input, turn, control, currentTopicId, now);
-        return { kind: "ok", text: renderValidationReply(prepared.issues, input.language, turn.actions.length), appliedCount: 0, pendingCount: 0, warnings: [], ...(topicId ? { topicId } : {}) };
+        return { kind: "ok", text: renderValidationReply(issues, input.language, turn.actions.length), appliedCount: 0, pendingCount: 0, warnings: [], ...(topicId ? { topicId } : {}) };
       }
 
       // A card the user still sees is replaced only when this turn answers it: the user accepted
@@ -564,12 +567,6 @@ export class ChatService {
       }
       throw error;
     }
-  }
-
-  private async withWeeklySnapshot(ctx: TurnContext, review: ReviewKind | undefined, input: { workspaceId: string; timezone: string; now: Date }): Promise<unknown> {
-    if (review !== "weekly") return ctx.model;
-    const snapshot = await this.briefings.build({ workspaceId: input.workspaceId, kind: "weekly", localDate: localDateAt(input.now, input.timezone), timezone: input.timezone, now: input.now });
-    return { ...ctx.model, WEEKLY_REVIEW_SNAPSHOT: snapshot.text };
   }
 
   /** The confirmation card the user is still looking at, if the bot's last message was one. */

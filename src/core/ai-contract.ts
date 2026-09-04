@@ -12,7 +12,8 @@ import { z } from "zod";
 
 const NullableText = (max: number) => z.string().max(max).nullable();
 
-export const RefSchema = z.object({ id: z.string().regex(/^[tgm]\d{1,4}$/) }).strict();
+/** `t`, `g`, `m` are ids the context assigned this turn; `n1`, `n2` … name the first, second … create_task of this message. */
+export const RefSchema = z.object({ id: z.string().regex(/^[tgmn]\d{1,4}$/) }).strict();
 export const LocalDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const LocalTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 export const IntentSchema = z.enum(["explicit", "inferred"]);

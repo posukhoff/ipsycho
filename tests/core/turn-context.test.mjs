@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeTurnContext, selectTasksForContext, currentOccurrence } from "../../.core-dist/turn-context.js";
+import { budgetModelContext, composeTurnContext, selectTasksForContext, currentOccurrence } from "../../.core-dist/turn-context.js";
 import { formatWhenForModel, relativeDayLabel } from "../../.core-dist/time-presentation.js";
 import { formatCurrentTimeLine } from "../../.core-dist/ai-time-context.js";
 
@@ -221,5 +221,21 @@ test("beyond the limit, the nearest slots are shared between recent overdue and 
   assert.deepEqual(shownIds.slice(0, 10), Array.from({ length: 10 }, (_, i) => `past-${String(40 + i).padStart(2, "0")}`));
   assert.deepEqual(shownIds.slice(10, 13), ["future-00", "future-01", "future-02"]);
   assert.equal(shownIds.at(-1), "future-29");
+});
+
+test("an oversized context is trimmed in a fixed order: recent topics, long memory, then far tasks", () => {
+  const tasks = Array.from({ length: 60 }, (_, i) => ({ id: `t${i + 1}`, title: `Задача ${i} ${"о".repeat(200)}`, when: "завтра 10:00" }));
+  const model = {
+    tasks, goals: [], settings: null,
+    memory: Array.from({ length: 30 }, (_, i) => ({ id: `m${i + 1}`, type: "note", content: "м".repeat(2_000) })),
+    topic: { active: null, recent: [{ title: "тема", summary: "с".repeat(2_000) }] },
+  };
+  const budgeted = budgetModelContext(model, 20_000);
+  assert.ok(JSON.stringify(budgeted).length <= 20_000);
+  assert.deepEqual(budgeted.topic.recent, []);
+  assert.ok(budgeted.memory.every((item) => item.content.length <= 300));
+  assert.ok(budgeted.tasks.length < 60 && budgeted.tasks.length >= 20);
+  assert.match(budgeted.tasksNote, new RegExp(`Показаны ${budgeted.tasks.length} из 60`));
+  assert.equal(budgetModelContext({ ...model, tasks: [], memory: [] }, 20_000).topic.recent.length, 1, "a context within budget is returned untouched");
 });
 

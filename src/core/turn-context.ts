@@ -457,3 +457,35 @@ function modelReview(review: NonNullable<TurnContextInput["review"]>): ModelRevi
   }
   return result;
 }
+
+/** Characters of serialized context one turn may carry; roughly 6k tokens. */
+export const MODEL_CONTEXT_MAX_CHARS = 24_000;
+const MEMORY_CONTENT_TRIMMED = 300;
+const TASKS_MINIMUM = 20;
+
+/**
+ * Trims the context to a byte budget in a fixed order of decreasing dispensability: paused
+ * topic summaries, long memory notes, then task lines from the far end of the list. Nothing
+ * else bounded the context; thirty memory items of two thousand characters alone exceeded it.
+ */
+export function budgetModelContext(model: ModelContext, maxChars = MODEL_CONTEXT_MAX_CHARS): ModelContext {
+  const size = (value: ModelContext): number => JSON.stringify(value).length;
+  if (size(model) <= maxChars) return model;
+  let current: ModelContext = { ...model, topic: { ...model.topic, recent: [] } };
+  if (size(current) <= maxChars) return current;
+  current = {
+    ...current,
+    memory: current.memory.map((item) => item.content.length > MEMORY_CONTENT_TRIMMED
+      ? { ...item, content: `${item.content.slice(0, MEMORY_CONTENT_TRIMMED - 1).trimEnd()}…` }
+      : item),
+  };
+  if (size(current) <= maxChars) return current;
+  const total = model.tasks.length;
+  let tasks = current.tasks;
+  while (tasks.length > TASKS_MINIMUM && size({ ...current, tasks, tasksNote: tasksNote(total, tasks.length) }) > maxChars) {
+    tasks = tasks.slice(0, -1);
+  }
+  if (tasks.length === current.tasks.length) return current;
+  return { ...current, tasks, tasksNote: tasksNote(total, tasks.length) };
+}
+

@@ -29,6 +29,7 @@ import { ActionMutationsRepository } from "./action-mutations.repository.js";
 import { ActionsRepository } from "./actions.repository.js";
 import { DomainRuleError } from "../core/errors.js";
 import { isConnectionLevelError } from "../database/pg-errors.js";
+import { foldNewTaskRefs } from "../core/new-task-refs.js";
 
 export interface ActionScope {
   workspaceId: string;
@@ -87,7 +88,8 @@ export class ActionsService implements OnApplicationBootstrap {
    */
   async prepare(actions: readonly AiAction[], refs: RefMap, scope: Omit<ActionScope, "sourceMessageId">): Promise<{ resolved: ResolvedAction[]; issues: ActionIssue[] }> {
     const now = scope.now ?? new Date();
-    const { resolved, issues } = await resolveActions(actions, refs, {
+    const folded = foldNewTaskRefs(actions);
+    const { resolved, issues: resolveIssues } = await resolveActions(folded.actions, refs, {
       findTask: async (taskId) => {
         const task = await this.tasks.getTask(scope.workspaceId, taskId);
         return task ? { id: task.id, version: task.version, status: task.status, timeMode: task.timeMode, timezone: task.timezone, recurrenceRule: task.recurrenceRule } : null;
@@ -112,7 +114,8 @@ export class ActionsService implements OnApplicationBootstrap {
       },
     }, now);
     const domainIssues = await this.validate(resolved, { ...scope, now });
-    return { resolved, issues: [...issues, ...domainIssues] };
+    const reindex = (issue: ActionIssue): ActionIssue => ({ ...issue, index: folded.originalIndex[issue.index] ?? issue.index });
+    return { resolved, issues: [...folded.issues, ...resolveIssues.map(reindex), ...domainIssues.map(reindex)] };
   }
 
   /** Domain rules that need the current stored state; one issue per action index. */
