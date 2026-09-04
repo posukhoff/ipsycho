@@ -163,7 +163,7 @@
 ### P2.6 Убрать английский текст правил из ответов
 - `src/chat/turn-errors.ts:228-237` `technicalHint` вставляет до 157 символов внутреннего сообщения: «Не сохранил: … (task plan could not be prepared)». `AGENT_FLOW.md` §9 требовал это удалить.
 - Сделать: hint только в лог; пользователю «Не сохранил: не сработало одно из правил. Сформулируй задачу и время одной фразой.» на трёх языках.
-- Приёмка: `scripts/qa-agent-flow.mjs` проверка `/[A-Za-z]{4,}/` + app-тест на `genericRejection`.
+- Приёмка: app-тест на `genericRejection` (проверка латиницы в ответе снята вместе с QA-скриптом).
 
 ### P2.7 Типизированная доменная ошибка вместо эвристики по длине
 - `chat.service.ts:698-700` `isDomainRuleError` решает по `message.length < 200` и регэкспу, доменное это правило или сбой. ~40 `throw new Error(...)` в `action-mutations.repository.ts`, `context-actions.repository.ts`, `action-group.repository.ts`.
@@ -177,7 +177,7 @@
 
 ### P2.9 Few-shot примеры в промпт
 - `src/ai/ai.service.ts:172`: 3 компактных примера input→JSON (два reschedule в одном массиве; `create_task` с `goal`; recurrence с `skipDates`) до `CURRENT_TIME`, чтобы попасть в кэшируемый префикс. Поднять бюджет в `tests/app/ai-prompt.test.mjs:102`. Исправить опечатку `,,` в `:174`.
-- Приёмка: `npm run qa:agent` (нужны ключи): 9/9 фраз §2.7 с первого вызова минимум в 3 прогонах из 3.
+- Приёмка: `npm run eval:agent -- --runs 3` (нужны ключи): 9/9 фраз §2.7 с первого вызова во всех трёх прогонах.
 
 ### P2.10 Параметры провайдеров
 - `openai.provider.ts:29-36`, `gemini.provider.ts:33-40`, `deepseek.provider.ts:48-58`: нет `temperature`, нет `max_output_tokens`, не читается `cached_tokens`, `store` не выключен у Responses API, токены неудачной попытки repair не пишутся в `ai_usage`.

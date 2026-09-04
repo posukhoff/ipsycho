@@ -17,7 +17,7 @@
     "test:core": "rm -rf .core-dist && tsc -p tsconfig.core.json && node --test tests/core/*.test.mjs",
     "test:app": "npm run build && node --test tests/app/*.test.mjs",
     "test:e2e": "sh scripts/test-e2e.sh",
-    "qa:agent": "node scripts/qa-agent-flow.mjs",
+    "eval:agent": "npm run build && node scripts/eval-agent.mjs",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm run test:core && npm run test:app",
     "lint": "eslint src tests scripts --max-warnings=0",
     "format": "prettier --write \"{src,tests,scripts}/**/*.{ts,mjs,json}\"",

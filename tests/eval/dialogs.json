@@ -1,0 +1,152 @@
+{
+  "$comment": "Each case is one user message replayed against the live provider in a throwaway workspace. `expect` is checked against what the server actually stored, not against the model's own words. `seed` runs before the message: goals, memory, and earlier messages of the same dialog.",
+  "cases": [
+    {
+      "id": "create-with-reminder",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "message": "Создай задачу: завтра в 10:30 позвонить клиенту, цель — честно объяснить ошибку и предложить два варианта решения. Напомни в момент начала.",
+      "expect": { "settles": true, "maxProviderCalls": 1, "tasksCreated": 1, "titleMatches": "клиент", "startLocalTime": "10:30", "startOffsetDays": 1, "reminderCount": 1 }
+    },
+    {
+      "id": "relative-reminder",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "message": "Напомни через четыре часа посмотреть курс по ИИ",
+      "expect": { "settles": true, "maxProviderCalls": 1, "tasksCreated": 1, "reminderCount": 1, "startWithinHours": [3.5, 4.5] }
+    },
+    {
+      "id": "event-with-duration",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "message": "Закинь мне на понедельник в полдесятого утра созвон с дизайнером минут на сорок.",
+      "expect": { "settles": true, "tasksCreated": 1, "startLocalTime": "09:30", "durationMinutes": 40, "weekday": "MO" }
+    },
+    {
+      "id": "two-reschedules",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "seed": ["Создай задачу: завтра в 10:30 позвонить клиенту.", "Закинь мне на понедельник в полдесятого утра созвон с дизайнером минут на сорок."],
+      "message": "Перенеси созвон с дизайнером на понедельник в 16:00, а звонок клиенту на четверг с 15:00 до 16:00.",
+      "expect": { "settles": true, "occurrencesRescheduled": 2 }
+    },
+    {
+      "id": "create-and-link-goal",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "seedGoal": "Запустить первую платную группу курса",
+      "message": "Создай задачу «Попросить обратную связь по лендингу» на пятницу в 12:00 и свяжи её с целью запуска группы.",
+      "expect": { "settles": true, "tasksCreated": 1, "goalLinks": 1, "startLocalTime": "12:00", "weekday": "FR" }
+    },
+    {
+      "id": "biweekly-bounded",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "message": "Поставь с сентября каждый второй понедельник в 9:15 финансовый обзор на 30 минут, до конца ноября.",
+      "expect": { "settles": true, "tasksCreated": 1, "recurrenceMatches": "FREQ=WEEKLY;INTERVAL=2", "recurrenceEnds": true, "startLocalTime": "09:15", "durationMinutes": 30 }
+    },
+    {
+      "id": "weekly-skip-first",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "message": "Каждый вторник в 19:00 до октября хочу заниматься английским час, но ближайший вторник пропусти.",
+      "expect": { "settles": true, "tasksCreated": 1, "recurrenceMatches": "FREQ=WEEKLY", "recurrenceEnds": true, "exclusions": 1, "startLocalTime": "19:00" }
+    },
+    {
+      "id": "four-tasks-with-habit",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "message": "Добавь сразу четыре дела: 1) в понедельник в 14:00 забрать документы; 2) во вторник до 17:00 отправить бухгалтеру выписку; 3) в четверг с 10:00 до 11:00 подготовиться к сложному разговору; 4) по будням в 8:00 до 30 сентября 10 минут планировать день — это именно повторяющаяся привычка, минимум открыть план и выбрать одно главное дело, желаемый вариант — расписать три приоритета.",
+      "expect": { "settles": true, "tasksCreated": 4, "habitTasks": 1, "questionExpected": false }
+    },
+    {
+      "id": "date-without-time",
+      "source": "AGENT_FLOW §2.7",
+      "language": "ru",
+      "message": "Не дай забыть: завтра после обеда надо забрать посылку. Точного часа не знаю, не придумывай его сам.",
+      "expect": { "settles": true, "tasksCreated": 1, "hasLocalDateOnly": true }
+    },
+    {
+      "id": "cancel-asks-then-yes",
+      "source": "AGENT_FLOW §6",
+      "language": "ru",
+      "seed": ["Закинь мне на понедельник в полдесятого утра созвон с дизайнером минут на сорок."],
+      "message": "Отмени созвон с дизайнером",
+      "then": { "message": "да", "expect": { "applied": 1, "tasksCancelled": 1 } },
+      "expect": { "settles": true, "pending": 1, "applied": 0 }
+    },
+    {
+      "id": "memory-recall",
+      "source": "audit P1.9",
+      "language": "ru",
+      "seedMemory": ["Обычно ложусь спать в 23:00", "Не люблю встречи раньше 10 утра"],
+      "message": "Поставь мне что-нибудь на утро в среду, ты помнишь мои ограничения",
+      "expect": { "settles": true, "tasksCreated": 1, "startNotBeforeLocalTime": "10:00" }
+    },
+    {
+      "id": "memory-save",
+      "source": "audit P1.9",
+      "language": "ru",
+      "message": "Запомни: по пятницам после 17:00 я не работаю.",
+      "expect": { "settles": true, "memoriesSaved": 1 }
+    },
+    {
+      "id": "settings-quiet-hours",
+      "source": "audit P4",
+      "language": "ru",
+      "message": "Не пиши мне с 23:00 до 8 утра.",
+      "expect": { "settles": true, "settingsChanged": "quiet_hours" }
+    },
+    {
+      "id": "settings-timezone",
+      "source": "audit P4",
+      "language": "ru",
+      "message": "Я переехал в Берлин, перенастрой время.",
+      "expect": { "settles": true, "settingsChanged": "timezone", "timezone": "Europe/Berlin" }
+    },
+    {
+      "id": "ambiguous-needs-question",
+      "source": "audit P2",
+      "language": "ru",
+      "message": "Надо бы разобраться с налогами",
+      "expect": { "questionExpected": true, "applied": 0 }
+    },
+    {
+      "id": "question-not-action",
+      "source": "audit P2",
+      "language": "ru",
+      "seed": ["Создай задачу: завтра в 10:30 позвонить клиенту."],
+      "message": "А что у меня завтра?",
+      "expect": { "applied": 0, "pending": 0, "replyMentions": "клиент" }
+    },
+    {
+      "id": "explicit-no-persist",
+      "source": "audit P2",
+      "language": "ru",
+      "message": "Просто размышляю вслух, ничего не сохраняй: может, стоит сменить работу?",
+      "expect": { "applied": 0, "pending": 0 }
+    },
+    {
+      "id": "ukrainian-create",
+      "source": "audit P4",
+      "language": "uk",
+      "message": "Створи задачу: у середу о 14:00 зателефонувати до банку.",
+      "expect": { "settles": true, "tasksCreated": 1, "startLocalTime": "14:00", "weekday": "WE", "replyLanguage": "uk" }
+    },
+    {
+      "id": "english-create",
+      "source": "audit P4",
+      "language": "en",
+      "message": "Add a task for tomorrow at 9am: review the pull request.",
+      "expect": { "settles": true, "tasksCreated": 1, "startLocalTime": "09:00", "startOffsetDays": 1, "replyLanguage": "en" }
+    },
+    {
+      "id": "done-by-text",
+      "source": "audit P2",
+      "language": "ru",
+      "seed": ["Создай задачу: сегодня в 12:00 полить цветы."],
+      "message": "Цветы полил",
+      "expect": { "settles": true, "occurrencesDone": 1 }
+    }
+  ]
+}

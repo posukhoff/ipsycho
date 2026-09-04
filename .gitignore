@@ -5,3 +5,6 @@ dist/
 .idea/
 *.log
 .DS_Store
+
+# Eval runs are local artefacts; the committed baseline lives in eval/baseline.json.
+eval/results/
