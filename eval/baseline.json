@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-09-04T20:28:49.878Z",
+  "startedAt": "2026-09-04T21:06:45.321Z",
   "provider": "openai",
   "model": "gpt-5.4-mini",
   "runs": 3,
@@ -35,9 +35,9 @@
     {
       "id": "create-and-link-goal",
       "runs": 3,
-      "passed": 2,
-      "failures": ["settles (kind=ok applied=0 pending=0)", "tasksCreated (0 ≠ 1)", "goalLinks (0 ≠ 1)", "startLocalTime (no planned start)", "weekday (none)"],
-      "passRate": 0.667
+      "passed": 3,
+      "failures": [],
+      "passRate": 1
     },
     {
       "id": "biweekly-bounded",
@@ -70,16 +70,16 @@
     {
       "id": "cancel-asks-then-yes",
       "runs": 3,
-      "passed": 2,
-      "failures": ["settles (kind=ok applied=0 pending=0)", "pending (0 ≠ 1)", "then:applied (0 ≠ 1)", "then:tasksCancelled (0 ≠ 1)"],
-      "passRate": 0.667
+      "passed": 3,
+      "failures": [],
+      "passRate": 1
     },
     {
       "id": "memory-recall",
       "runs": 3,
-      "passed": 2,
-      "failures": ["replyMentions (10:00)"],
-      "passRate": 0.667
+      "passed": 3,
+      "failures": [],
+      "passRate": 1
     },
     {
       "id": "memory-save",
@@ -91,9 +91,9 @@
     {
       "id": "settings-quiet-hours",
       "runs": 3,
-      "passed": 2,
-      "failures": ["settles (kind=ok applied=0 pending=0)", "settingsChanged (version unchanged (quiet_hours))"],
-      "passRate": 0.667
+      "passed": 3,
+      "failures": [],
+      "passRate": 1
     },
     {
       "id": "settings-timezone",
@@ -133,9 +133,9 @@
     {
       "id": "english-create",
       "runs": 3,
-      "passed": 1,
-      "failures": ["replyLanguage (expected English, got Cyrillic)"],
-      "passRate": 0.333
+      "passed": 3,
+      "failures": [],
+      "passRate": 1
     },
     {
       "id": "done-by-text",
@@ -145,7 +145,7 @@
       "passRate": 1
     }
   ],
-  "passRate": 0.9,
+  "passRate": 1,
   "usage": {
     "rows": 0,
     "attempts": 0,

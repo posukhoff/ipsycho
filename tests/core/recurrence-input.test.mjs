@@ -55,11 +55,12 @@ test("structured recurrence rejects unsupported field combinations", () => {
       ),
     /contradicts the schedule start time/,
   );
+  // daily + weekdays at interval 1 is «по будням» and is read as weekly; see the test below.
   assert.throws(
     () =>
       compileStructuredRecurrence({
         frequency: "daily",
-        interval: 1,
+        interval: 3,
         startsOn: "2026-09-07",
         weekdays: ["MO"],
       }),
@@ -94,5 +95,36 @@ test("weekly recurrence tolerates the single local time its schedule anchor alre
       recurrenceStartLocalDate: "2026-08-23",
       recurrenceExcludedLocalDates: [],
     },
+  );
+});
+
+test("«по будням» compiles whether the model calls it daily or weekly", () => {
+  const asDaily = compileStructuredRecurrence({
+    frequency: "daily",
+    interval: 1,
+    startsOn: "2026-09-07",
+    endsOn: "2026-09-30",
+    weekdays: ["MO", "TU", "WE", "TH", "FR"],
+    monthDays: null,
+    localTimes: null,
+    excludedLocalDates: null,
+  });
+  assert.equal(asDaily.recurrenceRule, "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR");
+  assert.equal(asDaily.recurrenceEndLocalDate, "2026-09-30");
+
+  // Every second day with weekdays is genuinely contradictory and stays an error.
+  assert.throws(
+    () =>
+      compileStructuredRecurrence({
+        frequency: "daily",
+        interval: 2,
+        startsOn: "2026-09-07",
+        endsOn: null,
+        weekdays: ["MO"],
+        monthDays: null,
+        localTimes: null,
+        excludedLocalDates: null,
+      }),
+    /weekdays are supported only for weekly recurrence/,
   );
 });

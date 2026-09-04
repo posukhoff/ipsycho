@@ -282,7 +282,21 @@ async function fixture(dialog) {
   return { userId, workspaceId, telegramId: Number(telegramId), messageId: 7_000_000 };
 }
 
+/** A 5xx from the provider is not a failed dialog; one retry keeps it out of the pass rate. */
+const TRANSIENT = /\b(429|500|502|503|504)\b|Unable to verify model access|ECONNRESET|ETIMEDOUT/u;
+
 async function send(scope, text, language) {
+  try {
+    return await sendOnce(scope, text, language);
+  } catch (error) {
+    if (!TRANSIENT.test(String(error))) throw error;
+    process.stderr.write(`eval_retry ${String(error).slice(0, 120)}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    return sendOnce(scope, text, language);
+  }
+}
+
+async function sendOnce(scope, text, language) {
   scope.messageId += 1;
   const result = await chat.processText({
     workspaceId: scope.workspaceId,

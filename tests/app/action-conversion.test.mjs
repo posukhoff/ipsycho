@@ -116,10 +116,12 @@ test("an explicit reminder on a fuzzy task is rejected with fuzzy_reminder", () 
     () => createTaskInputFromBody(body({ when: { mode: "fuzzy", horizonText: "к осени", reviewDate: "2026-09-01" }, reminder }), scope, ctx),
     withCode("fuzzy_reminder"),
   );
-  assert.throws(
-    () => createTaskInputFromBody(body({ when: { mode: "deadline", date: "2026-08-30", time: null }, reminder: { ...reminder, anchor: "due" } }), scope, ctx),
-    withCode("date_only_offset"),
-  );
+  // A deadline day without a clock time cannot count minutes from anything, but the user did ask to
+  // be reminded: the offset becomes a morning reminder on that day instead of failing the package.
+  const deadlineInput = createTaskInputFromBody(body({ when: { mode: "deadline", date: "2026-08-30", time: null }, reminder: { ...reminder, anchor: "due" } }), scope, ctx);
+  assert.equal(deadlineInput.explicitReminder?.triggerKind, "local_date");
+  assert.equal(deadlineInput.explicitReminder?.anchor, "due_at");
+  assert.equal(deadlineInput.explicitReminder?.localTime, ctx.reviewTime);
   const input = createTaskInputFromBody(body({ reminder }), scope, ctx);
   assert.deepEqual(input.explicitReminder, {
     triggerKind: "relative_timestamp",
@@ -226,4 +228,83 @@ test("seriesDefinitionFromReschedule keeps the current rule when recurrence is n
 
 test("compileWhen rejects an unknown timezone with its own code", () => {
   assert.throws(() => compileWhen(exact, { ...ctx, timezone: "Mars/Olympus" }), withCode("timezone"));
+});
+
+test("an offset reminder on a day without a clock time becomes a morning reminder, not a rejected package", () => {
+  const input = createTaskInputFromBody(
+    {
+      title: "Забрать посылку",
+      why: null,
+      nextAction: null,
+      context: null,
+      checklist: null,
+      importance: "normal",
+      kind: "task",
+      when: { mode: "date", date: "2026-09-05" },
+      recurrence: null,
+      reminder: { kind: "offset", anchor: "start", minutes: -60, quiet: "respect" },
+      habit: null,
+      timezone: null,
+    },
+    { workspaceId: "ws", actorUserId: "u", recipientUserId: "u", now: new Date("2026-09-04T09:00:00Z") },
+    { timezone: "Europe/Kyiv", reviewTime: "08:30" },
+  );
+  assert.deepEqual(input.explicitReminder, {
+    triggerKind: "local_date",
+    anchor: "planned_start",
+    daysOffset: 0,
+    localTime: "08:30",
+    purpose: "user_reminder",
+    quietPolicy: "respect",
+    origin: "explicit",
+  });
+});
+
+test("an offset reminder still fails when the task has no date at all", () => {
+  assert.throws(
+    () =>
+      createTaskInputFromBody(
+        {
+          title: "Когда-нибудь разобрать шкаф",
+          why: null,
+          nextAction: null,
+          context: null,
+          checklist: null,
+          importance: "normal",
+          kind: "task",
+          when: { mode: "fuzzy", horizonText: "к осени", reviewDate: "2026-09-20" },
+          recurrence: null,
+          reminder: { kind: "offset", anchor: "start", minutes: -60, quiet: "respect" },
+          habit: null,
+          timezone: null,
+        },
+        { workspaceId: "ws", actorUserId: "u", recipientUserId: "u", now: new Date("2026-09-04T09:00:00Z") },
+        { timezone: "Europe/Kyiv", reviewTime: "08:30" },
+      ),
+    /without a date cannot carry a reminder/,
+  );
+});
+
+test("a day reminder anchored to the wrong end of the task falls back to the day the task has", () => {
+  const input = createTaskInputFromBody(
+    {
+      title: "Забрать посылку",
+      why: null,
+      nextAction: null,
+      context: null,
+      checklist: null,
+      importance: "normal",
+      kind: "task",
+      when: { mode: "date", date: "2026-09-05" },
+      recurrence: null,
+      reminder: { kind: "day", anchor: "due", daysOffset: 0, time: "12:00", quiet: "respect" },
+      habit: null,
+      timezone: null,
+    },
+    { workspaceId: "ws", actorUserId: "u", recipientUserId: "u", now: new Date("2026-09-04T09:00:00Z") },
+    { timezone: "Europe/Kyiv", reviewTime: "08:30" },
+  );
+  assert.equal(input.explicitReminder?.triggerKind, "local_date");
+  assert.equal(input.explicitReminder?.anchor, "planned_start");
+  assert.equal(input.explicitReminder?.localTime, "12:00");
 });

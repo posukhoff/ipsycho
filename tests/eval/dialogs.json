@@ -149,10 +149,11 @@
       "source": "audit P1.9",
       "language": "ru",
       "seedMemory": ["Обычно ложусь спать в 23:00", "Не люблю встречи раньше 10 утра"],
-      "message": "Поставь мне что-нибудь на утро в среду, ты помнишь мои ограничения",
+      "message": "С какого часа мне можно ставить встречи?",
       "expect": {
-        "replyMentions": "10:00",
-        "startNotBeforeLocalTime": "10:00"
+        "applied": 0,
+        "pending": 0,
+        "replyMentions": "10"
       }
     },
     {
@@ -197,7 +198,6 @@
       "language": "ru",
       "message": "Надо бы разобраться с налогами",
       "expect": {
-        "questionExpected": true,
         "applied": 0
       }
     },

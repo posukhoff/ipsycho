@@ -124,6 +124,9 @@ test("AI prompt ends with one local CURRENT_TIME line and the context when given
   assert.match(withContext, /CURRENT_CONTEXT=\{"tasks":\[\{"id":"t1","title":"Позвонить врачу","when":"сегодня 18:00"\}\]\}/);
   assert.match(withContext, /Correction required: Return intent for every action\.$/);
   assert.ok(withContext.indexOf("CURRENT_TIME=") < withContext.indexOf("CURRENT_CONTEXT="));
+  // The reply-language rule is deliberately the last instruction before any correction.
+  assert.ok(withContext.indexOf("CURRENT_CONTEXT=") < withContext.indexOf("Reply language:"));
+  assert.ok(withContext.indexOf("Reply language:") < withContext.indexOf("Correction required:"));
 });
 
 test("every worked example in the prompt is a turn the contract actually accepts", () => {

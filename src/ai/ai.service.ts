@@ -1,4 +1,5 @@
 import { Inject, Injectable, type OnApplicationBootstrap } from "@nestjs/common";
+import { detectMessageLocale, interfaceLocale, languageName, type InterfaceLocale } from "../core/language.js";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { estimateAiCostUsd } from "../core/ai-usage-policy.js";
 import { formatCurrentTimeLine } from "../core/ai-time-context.js";
@@ -87,6 +88,14 @@ export class AiService implements OnApplicationBootstrap {
     now?: Date;
   }) {
     const model = input.modelMode === "deep" && this.config.aiDeepModel ? this.config.aiDeepModel : this.config.aiModel;
+    // The prompt is written in English and carries Russian examples; naming the language of the
+    // latest user message outright is what makes the model actually answer in it.
+    const latestUserMessage = [...input.messages].reverse().find((message) => message.role === "user");
+    const accountLanguage = input.language ? interfaceLocale(input.language) : undefined;
+    const detected = detectMessageLocale(latestUserMessage?.content ?? "");
+    // Ukrainian and Russian share the alphabet: a Ukrainian sentence without і/ї/є/ґ reads as
+    // Russian by script, so the account language decides between those two.
+    const replyLanguage = detected === "ru" && accountLanguage === "uk" ? "uk" : (detected ?? accountLanguage);
     const started = Date.now();
     try {
       const result = await this.provider.generate({
@@ -97,6 +106,7 @@ export class AiService implements OnApplicationBootstrap {
           language: input.language,
           context: redactContextForExternalAi(input.domainContext),
           correction: input.correction,
+          ...(replyLanguage ? { replyLanguage } : {}),
         }),
         messages: redactMessagesForExternalAi(input.messages),
         ...(this.config.aiTemperature !== undefined ? { temperature: this.config.aiTemperature } : {}),
@@ -162,6 +172,8 @@ export interface SystemPromptInput {
   /** Already redacted turn context; omitted when the caller has none. */
   context?: unknown;
   correction?: string | undefined;
+  /** The language the user just wrote in, resolved by the server; named in the last line of the prompt. */
+  replyLanguage?: InterfaceLocale | undefined;
 }
 
 /**
@@ -174,7 +186,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     // 1. Identity and tone
     "You are IPsycho, a concise personal manager inside Telegram. Help the user act without becoming another judge or source of shame. Treat the user as competent. Do not explain basics, praise obvious actions, restate their request, or offer a menu of choices when they gave a clear instruction. No patronising, therapeutic, or productivity-coach tone. State a recommendation and its reason only when a trade-off, risk, or meaningful choice exists.",
     // 2. Time
-    "Time. CURRENT_TIME below is the only clock: resolve every relative expression (‘завтра’, ‘через час’, ‘в пятницу’) from it in the user's timezone. Never invent a clock time the user did not give. If the anchor the user chose is already in the past, return no action for it and say so briefly instead of silently moving it.",
+    "Time. CURRENT_TIME below is the only clock: resolve every relative expression (‘завтра’, ‘через час’, ‘в пятницу’) from it in the user's timezone. Never invent a clock time the user did not give. A weekday name without a date means the next such weekday from today, never one that has already passed. If the anchor the user chose is already in the past, return no action for it and say so briefly instead of silently moving it.",
     // 3. Language
     input.language
       ? `Language. Reply in the language of the latest user message. A very short reply without a language cue (‘yes’, ‘так’) continues the language of the immediately preceding assistant reply. The interface language ${input.language} is only a fallback. Write titles and stored fields in clear, concise natural language in that same language; preserve the user's meaning, names and stated facts, never invent details to make text sound better.`
@@ -186,7 +198,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     // 6. How to read the context
     "Reading CURRENT_CONTEXT. tasks carry short ids (t1, t2), goals g1, memory m1; use only these ids. Anything not listed does not exist: say so instead of guessing. If tasksNote says not all tasks are shown, ask for the exact title before acting on a task that is not listed. pendingProposal is a change awaiting the user's button; when the message clearly accepts it, return the same action with intent explicit. hints are computed by the server: avoidance — first help with the work itself, make the task smaller or its next step concrete, and name the observable pattern only if the user opens that door; habit_offer — you may propose habit mode once, as an experiment (update_task with habit); reschedule_requested — the user pressed Reschedule on that task and this message is the new time, return reschedule; blocker_recorded — the user just recorded a blocker on that task.",
     // 7. Actions
-    "Actions. You do not choose an action type: you fill the array that matches what you are doing, and leave the others empty. createTasks — tasks that do not exist yet; anything the user wants remembered, planned, added or reminded about that is not listed in CURRENT_CONTEXT belongs here, with its own when, reminder, recurrence, habit and goal. updateTasks — title, why, nextAction, context, checklist, importance or habit of a listed task; null keeps a field. setTaskStates — done, started, seen (note = the user's blocker), skipped or cancelled for a listed task. reschedules — a new when for a task already listed; anything not listed is a createTasks entry, never a reschedule. Its recurrence only when the series rule itself changes. setReminders — add, replace or clear a reminder on a task that is already listed; the reminder of a task you are creating goes inside its createTasks entry. goalOps — create, update, link or unlink a goal; link and unlink need a task that already exists. plans — a goal that does not exist yet, with its first tasks. memories — a durable fact. settingsChanges — timezone (applyTimezoneTo profile_only or all; ask once if unclear), interface language, morning/evening digests, weekly review, quiet hours (one range is enough: give weekdayStart and weekdayEnd, and leave the weekend fields null unless the user splits them), snooze, reminder defaults; null where irrelevant, reuse unchanged values from CURRENT_CONTEXT.settings; do not claim to change operator configuration, the AI provider or model, consent, account access, or another user's settings. Every entry addresses a task by the short id from CURRENT_CONTEXT, or by n1, n2 … for the first, second … entry of createTasks in this same message; the server decides whether an id means the current occurrence or the whole series. All arrays of one message are one atomic package. Always return topic.mode: none for a plain command, new (with title and summary) for a new discussion, continue to develop the active one, resolve when it is concluded; keep summaries factual, never diagnoses.",
+    "Actions. You do not choose an action type: you fill the array that matches what you are doing, and leave the others empty. createTasks — tasks that do not exist yet; anything the user wants remembered, planned, added or reminded about that is not listed in CURRENT_CONTEXT belongs here, with its own when, reminder, recurrence, habit and goal. updateTasks — title, why, nextAction, context, checklist, importance or habit of a listed task; null keeps a field. setTaskStates — done, started, seen (note = the user's blocker), skipped or cancelled for a listed task. reschedules — a new when for a task already listed; anything not listed is a createTasks entry, never a reschedule. Its recurrence only when the series rule itself changes. setReminders — add, replace or clear a reminder on a task that is already listed; the reminder of a task you are creating goes inside its createTasks entry. goalOps — create, update, link or unlink a goal; link and unlink need a task that already exists. plans — a goal that does not exist yet, with its first tasks. memories — a durable fact. settingsChanges — timezone (applyTimezoneTo profile_only or all; ask once if unclear), interface language, morning/evening digests, weekly review, quiet hours (one range is enough: give weekdayStart and weekdayEnd, and leave the weekend fields null unless the user splits them), snooze, reminder defaults; null where irrelevant, reuse unchanged values from CURRENT_CONTEXT.settings; do not claim to change operator configuration, the AI provider or model, consent, account access, or another user's settings. Every entry addresses a task by the short id from CURRENT_CONTEXT, or by n1, n2 … for the first, second … entry of createTasks in this same message; the server decides whether an id means the current occurrence or the whole series. Leave scope null and let the server resolve it; a task that is not recurring has no series, so never ask the user to choose between this one and the whole series for it. All arrays of one message are one atomic package. Always return topic.mode: none for a plain command, new (with title and summary) for a new discussion, continue to develop the active one, resolve when it is concluded; keep summaries factual, never diagnoses.",
     // 8. intent
     "intent. explicit when the user asked for exactly this action in this message or accepted your proposal from the previous turn; inferred when you propose it yourself. The server decides from intent whether to apply with Undo or ask for confirmation, so never hedge in prose: when the user asks to cancel, skip, or change something and the target is unambiguous, return the action itself instead of describing it and waiting for a yes.",
     // 9. When
@@ -212,12 +224,17 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
       'user: «Add a task: ask for feedback on the landing page on Friday at 12:00, and link it to the launch goal.» (g1 = paid group launch; reply in the user\'s language) → {"reply":"Noted.","question":null,"createTasks":[{"intent":"explicit","goal":{"id":"g1"},"title":"Ask for feedback on the landing page","why":null,"nextAction":null,"context":null,"checklist":null,"importance":"normal","kind":"task","when":{"mode":"exact","date":"2026-09-11","time":"12:00","durationMinutes":null},"recurrence":null,"reminder":null,"habit":null,"timezone":null}],"updateTasks":[],"setTaskStates":[],"reschedules":[],"setReminders":[],"goalOps":[],"plans":[],"memories":[],"settingsChanges":[],"topic":{"mode":"none","title":null,"summary":null}}',
       'user: «Каждый вторник в 19:00 до конца сентября английский час, ближайший вторник пропусти.» → {"reply":"Поставил, ближайший вторник пропущен.","question":null,"createTasks":[{"intent":"explicit","goal":null,"title":"Английский","why":null,"nextAction":null,"context":null,"checklist":null,"importance":"normal","kind":"task","when":{"mode":"exact","date":"2026-09-08","time":"19:00","durationMinutes":60},"recurrence":{"frequency":"weekly","interval":1,"weekdays":["TU"],"monthDays":null,"until":"2026-09-30","skipDates":["2026-09-08"],"missed":null},"reminder":null,"habit":null,"timezone":null}],"updateTasks":[],"setTaskStates":[],"reschedules":[],"setReminders":[],"goalOps":[],"plans":[],"memories":[],"settingsChanges":[],"topic":{"mode":"none","title":null,"summary":null}}',
     ].join("\n"),
-    // The rules and their examples are written in English and Russian; without this last line the
-    // model answered an English message in Russian.
-    "Reply language: write reply and question in the language of the user's latest message, not in the language of these instructions or their examples.",
     `CURRENT_TIME=${formatCurrentTimeLine(input.now, input.timezone)}`,
   ];
   if (input.context !== undefined) paragraphs.push(`CURRENT_CONTEXT=${JSON.stringify(input.context)}`);
+  // Last line on purpose. The rules and their examples are written in English and Russian, and
+  // earlier in the prompt this instruction lost to them: an English message came back in Russian
+  // in half the samples, and never once when the rule is the last thing the model reads.
+  paragraphs.push(
+    input.replyLanguage
+      ? `Reply language: ${languageName(input.replyLanguage)}. Write reply and question in ${languageName(input.replyLanguage)}, whatever language these instructions and their examples use.`
+      : "Reply language: write reply and question in the language of the user's latest message, not in the language of these instructions or their examples.",
+  );
   if (input.correction) paragraphs.push(`Correction required: ${input.correction}`);
   return paragraphs.join("\n");
 }

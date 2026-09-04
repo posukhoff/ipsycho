@@ -46,8 +46,11 @@ export function compileStructuredRecurrence(input: StructuredRecurrenceInput, co
   if (excludedLocalDates.length > 32) throw new Error("recurrence supports at most 32 excluded dates");
   for (const date of excludedLocalDates) parseLocalDate(date);
 
-  if (input.frequency !== "weekly" && weekdays.length) throw new Error("weekdays are supported only for weekly recurrence");
-  if (input.frequency !== "monthly" && monthDays.length) throw new Error("month days are supported only for monthly recurrence");
+  // «По будням» is daily-with-weekdays as often as it is weekly-with-weekdays, and both mean the
+  // same schedule. Reading it as weekly is what the user meant; refusing it lost the whole package.
+  const frequency = input.frequency === "daily" && weekdays.length && input.interval === 1 ? ("weekly" as const) : input.frequency;
+  if (frequency !== "weekly" && weekdays.length) throw new Error("weekdays are supported only for weekly recurrence");
+  if (frequency !== "monthly" && monthDays.length) throw new Error("month days are supported only for monthly recurrence");
   // Weekly and monthly occurrences take their clock time from the schedule anchor.
   // A single localTimes entry that repeats that same time is redundant, not a conflict.
   if (input.frequency !== "daily" && localTimes.length) {
@@ -75,7 +78,7 @@ export function compileStructuredRecurrence(input: StructuredRecurrenceInput, co
     }
   }
 
-  const parts = [`FREQ=${input.frequency.toUpperCase()}`, `INTERVAL=${input.interval}`];
+  const parts = [`FREQ=${frequency.toUpperCase()}`, `INTERVAL=${input.interval}`];
   if (weekdays.length) parts.push(`BYDAY=${weekdays.join(",")}`);
   if (monthDays.length) parts.push(`BYMONTHDAY=${monthDays.join(",")}`);
   if (localTimes.length) parts.push(`BYTIME=${localTimes.join(",")}`);

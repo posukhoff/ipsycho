@@ -145,7 +145,7 @@ export function createTaskInputFromBody(
   ctx: ScheduleContext,
 ): CreateTaskInput {
   const definition = taskDefinitionFromBody(body, ctx, scope.now);
-  const explicitReminder = body.reminder ? explicitReminderForNewTask(body.reminder, definition) : undefined;
+  const explicitReminder = body.reminder ? explicitReminderForNewTask(body.reminder, definition, ctx.reviewTime) : undefined;
   return {
     workspaceId: scope.workspaceId,
     actorUserId: scope.actorUserId,
@@ -166,7 +166,7 @@ export function createTaskInputFromBody(
  * A reminder on a new task must be satisfiable by that task's own schedule:
  * otherwise the model could "promise" a reminder that never fires.
  */
-function explicitReminderForNewTask(reminder: Reminder, definition: TaskDefinition): ReminderRuleSpec {
+function explicitReminderForNewTask(reminder: Reminder, definition: TaskDefinition, morningReferenceTime: string): ReminderRuleSpec {
   if (definition.timeMode === "fuzzy") throw new InvalidAiActionError("a task without a date cannot carry a reminder", "fuzzy_reminder");
   const rule = reminderRuleFromReminder(reminder, definition.timezone);
   if (rule.triggerKind === "relative_timestamp") {
@@ -178,11 +178,34 @@ function explicitReminderForNewTask(reminder: Reminder, definition: TaskDefiniti
           : rule.anchor === "due_at"
             ? definition.dueAt
             : undefined;
-    if (!anchorAt) throw new InvalidAiActionError(`reminder anchor ${rule.anchor} has no exact time on this task`, "date_only_offset");
+    if (!anchorAt) {
+      // A day without a clock time has nothing to count minutes from. The user did ask to be
+      // reminded, so the reminder becomes a morning one on that day instead of the whole package
+      // failing over the shape of one field.
+      const anchorDate = rule.anchor === "due_at" ? (definition.dueLocalDate ?? null) : (definition.plannedLocalDate ?? null);
+      if (!anchorDate) throw new InvalidAiActionError(`reminder anchor ${rule.anchor} has no exact time on this task`, "date_only_offset");
+      return {
+        triggerKind: "local_date",
+        anchor: rule.anchor === "due_at" ? "due_at" : "planned_start",
+        daysOffset: 0,
+        localTime: morningReferenceTime,
+        purpose: "user_reminder",
+        quietPolicy: rule.quietPolicy,
+        origin: "explicit",
+      };
+    }
   }
   if (rule.triggerKind === "local_date") {
-    const anchorDate = rule.anchor === "due_at" ? (definition.dueLocalDate ?? definition.dueAt) : (definition.plannedLocalDate ?? definition.plannedStartAt);
-    if (!anchorDate) throw new InvalidAiActionError(`reminder anchor ${rule.anchor} has no date on this task`, "reminder_anchor");
+    const dueAnchor = definition.dueLocalDate ?? definition.dueAt;
+    const startAnchor = definition.plannedLocalDate ?? definition.plannedStartAt;
+    const anchorDate = rule.anchor === "due_at" ? dueAnchor : startAnchor;
+    if (!anchorDate) {
+      // The task has a day, just not the one the reminder names. Anchoring to the day it does have
+      // is what the user asked for; refusing would drop the task along with the reminder.
+      const fallback = rule.anchor === "due_at" ? startAnchor : dueAnchor;
+      if (!fallback) throw new InvalidAiActionError(`reminder anchor ${rule.anchor} has no date on this task`, "reminder_anchor");
+      return { ...rule, anchor: rule.anchor === "due_at" ? "planned_start" : "due_at" };
+    }
   }
   return rule;
 }
