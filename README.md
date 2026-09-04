@@ -6,7 +6,8 @@ Current package version: `1.0.0-rc.4`. The product contract is defined by [Imple
 
 ## Capabilities
 
-- Private, allowlisted multi-user bot with isolated workspaces.
+- Private, allowlisted multi-user bot with isolated workspaces. Access is resolved once per update in one middleware; an unknown user gets the same refusal on every command and button, a group chat is told the bot is private, and a message type without a handler gets a sentence instead of silence.
+- Interface in Russian, Ukrainian and English: every handler string, card, keyboard, digest, applied report and confirmation title follows the pinned or Telegram language (`src/telegram/copy/`; a key missing in one dictionary does not compile).
 - Tasks and events with structured local point, window, date-only, deadline and fuzzy scheduling; checklists, importance, next actions and optimistic versions.
 - Daily, weekly and monthly recurrence with timezone/DST-aware materialization, optional inclusive end date and finite excluded local dates; occurrence-level start, completion, skip, cancel, reschedule, Seen and blocker states.
 - Durable reminders, quiet hours, snooze, escalation, morning/evening digests and weekly reviews.
@@ -29,7 +30,13 @@ The model marks each action `intent: explicit` (the user asked for exactly this,
 
 One user message is one model call; a malformed structured output is repaired once inside the provider. A domain or reference failure is answered deterministically with what the user can change, never by a second model call. A bare "да"/"нет" answers the confirmation card the bot sent last; any other message goes to the model, which sees the still-open proposal in its context.
 
-Buttons and commands remain deterministic shortcuts and recovery paths. The agent cannot change operator configuration, provider keys/models, allowlists or deployment state; invite users; revoke consent; or access another workspace. Account deletion/restoration and other high-impact account operations stay behind dedicated deterministic flows.
+Buttons and commands remain deterministic shortcuts and recovery paths. A button that changes task state (Start, Done, Skip, Cancel, a quick reschedule) is journaled like the same change typed in chat and carries Undo on the card itself. The agent cannot change operator configuration, provider keys/models, allowlists or deployment state; invite users; revoke consent; or access another workspace. Account deletion/restoration and other high-impact account operations stay behind dedicated deterministic flows.
+
+A task created in the same message can be referenced by another action as `n1`, `n2` … (the first, second … `create_task`); such references fold into the create itself. When the model names a task id the context never assigned, the reply offers the listed tasks whose titles share a word with the message.
+
+The confirmation card the user still sees is cancelled only when a later turn answers it (the same change about the same thing) or a new proposal replaces it, and only after the new package succeeded; an unrelated command or a rejected turn leaves the card on its buttons.
+
+First run: `/start` asks for the timezone (buttons or a typed city), then digests, quiet hours and the weekly review, and ends on the settings card. Consent for the AI provider is asked on the first free-text message; granting it processes that message instead of asking to retype it. A reminder card offers to repeat itself in 15 minutes or an hour without moving the task; a reminder pushed out of quiet hours says so; a critical escalation names its number and can be muted for that occurrence.
 
 ## Safety and reliability
 
