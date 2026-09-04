@@ -199,6 +199,8 @@ export const tasks = pgTable("tasks", {
   foreignKey({ columns: [t.workspaceId, t.createdByUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "tasks_creator_membership_fk" }),
   index("tasks_workspace_status_idx").on(t.workspaceId, t.status),
   index("tasks_source_action_group_idx").on(t.workspaceId, t.sourceActionGroupId),
+  index("tasks_fts_idx").using("gin", sql`to_tsvector('simple', ${t.title} || ' ' || coalesce(${t.context}, ''))`),
+  index("tasks_recurring_active_idx").on(t.status).where(sql`${t.recurrenceRule} IS NOT NULL`),
 ]);
 
 export const taskRecurrenceExclusions = pgTable("task_recurrence_exclusions", {
@@ -209,7 +211,6 @@ export const taskRecurrenceExclusions = pgTable("task_recurrence_exclusions", {
 }, (t) => [
   primaryKey({ columns: [t.workspaceId, t.taskId, t.localDate] }),
   foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "task_recurrence_exclusions_task_workspace_fk" }).onDelete("cascade"),
-  index("task_recurrence_exclusions_task_idx").on(t.workspaceId, t.taskId, t.localDate),
 ]);
 
 export const taskGoals = pgTable("task_goals", {
@@ -267,6 +268,7 @@ export const taskOccurrences = pgTable("task_occurrences", {
   uniqueIndex("occurrence_series_recurrence_key_uq").on(t.taskId, t.seriesRevision, t.recurrenceKey),
   foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "occurrence_task_workspace_fk" }),
   index("occurrence_task_status_time_idx").on(t.workspaceId, t.taskId, t.status, t.plannedStartAt),
+  index("occurrences_live_idx").on(t.status).where(sql`${t.status} IN ('scheduled', 'open', 'in_progress')`),
 ]);
 
 export const taskEvents = pgTable("task_events", {
@@ -282,6 +284,10 @@ export const taskEvents = pgTable("task_events", {
   foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "task_events_task_workspace_fk" }),
   foreignKey({ columns: [t.workspaceId, t.occurrenceId], foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id], name: "task_events_occurrence_workspace_fk" }),
   foreignKey({ columns: [t.workspaceId, t.actorUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "task_events_actor_membership_fk" }),
+  index("task_events_ws_occurrence_type_idx").on(t.workspaceId, t.occurrenceId, t.eventType, t.createdAt),
+  index("task_events_ws_task_created_idx").on(t.workspaceId, t.taskId, t.createdAt),
+  index("task_events_result_check_idx").on(t.eventType, t.createdAt).where(sql`${t.occurrenceId} IS NOT NULL`),
+  index("task_events_details_purge_idx").on(t.createdAt).where(sql`${t.details} IS NOT NULL`),
 ]);
 
 export const reminderRules = pgTable("reminder_rules", {
@@ -304,6 +310,8 @@ export const reminderRules = pgTable("reminder_rules", {
   unique("reminder_rules_workspace_id_id_uq").on(t.workspaceId, t.id),
   foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "reminder_rules_task_workspace_fk" }),
   foreignKey({ columns: [t.workspaceId, t.occurrenceId], foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id], name: "reminder_rules_occurrence_workspace_fk" }),
+  index("reminder_rules_ws_task_idx").on(t.workspaceId, t.taskId).where(sql`${t.active}`),
+  index("reminder_rules_ws_occurrence_idx").on(t.workspaceId, t.occurrenceId).where(sql`${t.active}`),
 ]);
 
 export const reminderDeliveries = pgTable("reminder_deliveries", {
@@ -329,6 +337,10 @@ export const reminderDeliveries = pgTable("reminder_deliveries", {
   foreignKey({ columns: [t.workspaceId, t.occurrenceId], foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id], name: "reminder_delivery_occurrence_workspace_fk" }),
   foreignKey({ columns: [t.workspaceId, t.reminderRuleId], foreignColumns: [reminderRules.workspaceId, reminderRules.id], name: "reminder_delivery_rule_workspace_fk" }),
   index("reminder_delivery_due_idx").on(t.status, t.scheduledFor),
+  index("reminder_deliveries_ws_occurrence_idx").on(t.workspaceId, t.occurrenceId).where(sql`${t.status} IN ('pending', 'processing')`),
+  index("reminder_deliveries_ws_rule_idx").on(t.workspaceId, t.reminderRuleId).where(sql`${t.status} IN ('pending', 'processing')`),
+  index("reminder_deliveries_recipient_sched_idx").on(t.recipientUserId, t.status, t.scheduledFor),
+  index("reminder_deliveries_ws_task_idx").on(t.workspaceId, t.taskId),
 ]);
 
 export const briefingDeliveries = pgTable("briefing_deliveries", {
@@ -393,6 +405,8 @@ export const messages = pgTable("messages", {
   uniqueIndex("messages_workspace_chat_message_uq").on(t.workspaceId, t.telegramChatId, t.telegramMessageId),
   index("messages_workspace_created_idx").on(t.workspaceId, t.createdAt),
   index("messages_workspace_user_role_created_idx").on(t.workspaceId, t.userId, t.role, t.createdAt),
+  index("messages_user_role_created_idx").on(t.userId, t.role, t.createdAt.desc()),
+  index("messages_ws_pending_group_idx").on(t.workspaceId, t.pendingGroupId).where(sql`${t.pendingGroupId} IS NOT NULL`),
 ]);
 
 export const aiProviderConsents = pgTable("ai_provider_consents", {
@@ -435,6 +449,7 @@ export const pendingActions = pgTable("pending_actions", {
   foreignKey({ columns: [t.workspaceId, t.groupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "pending_actions_group_workspace_fk" }),
   foreignKey({ columns: [t.workspaceId, t.actorUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "pending_actions_actor_membership_fk" }),
   index("pending_actions_group_idx").on(t.workspaceId, t.groupId),
+  index("pending_actions_expiry_idx").on(t.expiresAt),
 ]);
 
 export const actionEvents = pgTable("action_events", {
