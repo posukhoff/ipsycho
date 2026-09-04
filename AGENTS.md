@@ -52,3 +52,5 @@ Use [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) for the full checklist. Prioritiz
 - **Consent and privacy:** flag provider calls without a boundary consent check or logs containing user/provider content. Safe path: recheck consent immediately before the call and log sanitized metadata only.
 - **Mutation integrity:** flag state changes separated from their action journal or Undo claims that cannot restore the prior state. Safe path: use one transaction and expose only truthful rollback.
 - **External retries:** flag retry logic that assumes a Telegram/network timeout means nothing happened. Safe path: make operations idempotent or represent the outcome as ambiguous.
+
+- `src/database/schema.ts` must match the applied migrations: `tests/e2e/schema-drift.test.mjs` compares tables, index and constraint names, and foreign keys with their `ON DELETE` behaviour against the live database. Add the SQL migration and the schema declaration in the same change.

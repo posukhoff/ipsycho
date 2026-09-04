@@ -59,7 +59,7 @@ export const users = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("users_telegram_user_id_uq").on(t.telegramUserId)],
+  (t) => [unique("users_telegram_user_id_key").on(t.telegramUserId)],
 );
 
 export const userSettings = pgTable("user_settings", {
@@ -140,7 +140,7 @@ export const registrationInvites = pgTable(
     usedByUserId: uuid("used_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("registration_invites_token_uq").on(t.token), index("registration_invites_open_idx").on(t.expiresAt)],
+  (t) => [unique("registration_invites_token_key").on(t.token), index("registration_invites_open_idx").on(t.expiresAt)],
 );
 
 export const conversationTopics = pgTable(
@@ -167,6 +167,7 @@ export const conversationTopics = pgTable(
     unique("conversation_topics_workspace_id_id_uq").on(t.workspaceId, t.id),
     foreignKey({ columns: [t.workspaceId, t.userId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "conversation_topics_user_membership_fk" }),
     index("conversation_topics_workspace_user_status_idx").on(t.workspaceId, t.userId, t.status, t.lastMessageAt),
+    index("conversation_topics_expiry_idx").on(t.summaryExpiresAt),
   ],
 );
 
@@ -191,6 +192,7 @@ export const memoryItems = pgTable(
     unique("memory_items_workspace_id_id_uq").on(t.workspaceId, t.id),
     foreignKey({ columns: [t.workspaceId, t.userId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "memory_items_user_membership_fk" }),
     index("memory_items_workspace_user_updated_idx").on(t.workspaceId, t.userId, t.updatedAt),
+    index("memory_items_content_fts_idx").using("gin", sql`to_tsvector('simple', ${t.content})`),
   ],
 );
 
@@ -217,6 +219,8 @@ export const goals = pgTable(
     unique("goals_workspace_id_id_uq").on(t.workspaceId, t.id),
     foreignKey({ columns: [t.workspaceId, t.createdByUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "goals_creator_membership_fk" }),
     index("goals_workspace_status_idx").on(t.workspaceId, t.status, t.updatedAt),
+    index("goals_source_action_group_idx").on(t.workspaceId, t.sourceActionGroupId),
+    foreignKey({ columns: [t.workspaceId, t.sourceActionGroupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "goals_source_action_group_fk" }),
   ],
 );
 
@@ -260,10 +264,11 @@ export const tasks = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    unique("tasks_workspace_id_id_uq").on(t.workspaceId, t.id),
+    unique("tasks_workspace_id_id_key").on(t.workspaceId, t.id),
     foreignKey({ columns: [t.workspaceId, t.createdByUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "tasks_creator_membership_fk" }),
     index("tasks_workspace_status_idx").on(t.workspaceId, t.status),
     index("tasks_source_action_group_idx").on(t.workspaceId, t.sourceActionGroupId),
+    foreignKey({ columns: [t.workspaceId, t.sourceActionGroupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "tasks_source_action_group_fk" }),
     index("tasks_fts_idx").using("gin", sql`to_tsvector('simple', ${t.title} || ' ' || coalesce(${t.context}, ''))`),
     index("tasks_recurring_active_idx")
       .on(t.status)
@@ -301,8 +306,8 @@ export const taskGoals = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.taskId, t.goalId] }),
-    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "task_goals_task_workspace_fk" }),
-    foreignKey({ columns: [t.workspaceId, t.goalId], foreignColumns: [goals.workspaceId, goals.id], name: "task_goals_goal_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "task_goals_task_workspace_fk" }).onDelete("cascade"),
+    foreignKey({ columns: [t.workspaceId, t.goalId], foreignColumns: [goals.workspaceId, goals.id], name: "task_goals_goal_workspace_fk" }).onDelete("cascade"),
   ],
 );
 
@@ -319,7 +324,7 @@ export const taskChecklistItems = pgTable(
     done: boolean("done").notNull().default(false),
   },
   (t) => [
-    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "checklist_task_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "checklist_task_workspace_fk" }).onDelete("cascade"),
     index("checklist_task_idx").on(t.workspaceId, t.taskId),
   ],
 );
@@ -355,9 +360,9 @@ export const taskOccurrences = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    unique("occurrences_workspace_id_id_uq").on(t.workspaceId, t.id),
+    unique("task_occurrences_workspace_id_id_key").on(t.workspaceId, t.id),
     uniqueIndex("occurrence_series_recurrence_key_uq").on(t.taskId, t.seriesRevision, t.recurrenceKey),
-    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "occurrence_task_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "occurrence_task_workspace_fk" }).onDelete("cascade"),
     index("occurrence_task_status_time_idx").on(t.workspaceId, t.taskId, t.status, t.plannedStartAt),
     index("occurrences_live_idx")
       .on(t.status)
@@ -380,7 +385,7 @@ export const taskEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "task_events_task_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "task_events_task_workspace_fk" }).onDelete("cascade"),
     foreignKey({ columns: [t.workspaceId, t.occurrenceId], foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id], name: "task_events_occurrence_workspace_fk" }),
     foreignKey({ columns: [t.workspaceId, t.actorUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "task_events_actor_membership_fk" }),
     index("task_events_ws_occurrence_type_idx").on(t.workspaceId, t.occurrenceId, t.eventType, t.createdAt),
@@ -416,9 +421,13 @@ export const reminderRules = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    unique("reminder_rules_workspace_id_id_uq").on(t.workspaceId, t.id),
-    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "reminder_rules_task_workspace_fk" }),
-    foreignKey({ columns: [t.workspaceId, t.occurrenceId], foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id], name: "reminder_rules_occurrence_workspace_fk" }),
+    unique("reminder_rules_workspace_id_id_key").on(t.workspaceId, t.id),
+    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "reminder_rules_task_workspace_fk" }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.workspaceId, t.occurrenceId],
+      foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id],
+      name: "reminder_rules_occurrence_workspace_fk",
+    }).onDelete("cascade"),
     index("reminder_rules_ws_task_idx")
       .on(t.workspaceId, t.taskId)
       .where(sql`${t.active}`),
@@ -450,15 +459,21 @@ export const reminderDeliveries = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("reminder_delivery_dedupe_uq").on(t.deduplicationKey),
+    unique("reminder_deliveries_deduplication_key_key").on(t.deduplicationKey),
     foreignKey({
       columns: [t.workspaceId, t.recipientUserId],
       foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId],
       name: "reminder_delivery_recipient_membership_fk",
     }),
-    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "reminder_delivery_task_workspace_fk" }),
-    foreignKey({ columns: [t.workspaceId, t.occurrenceId], foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id], name: "reminder_delivery_occurrence_workspace_fk" }),
-    foreignKey({ columns: [t.workspaceId, t.reminderRuleId], foreignColumns: [reminderRules.workspaceId, reminderRules.id], name: "reminder_delivery_rule_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.taskId], foreignColumns: [tasks.workspaceId, tasks.id], name: "reminder_delivery_task_workspace_fk" }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.workspaceId, t.occurrenceId],
+      foreignColumns: [taskOccurrences.workspaceId, taskOccurrences.id],
+      name: "reminder_delivery_occurrence_workspace_fk",
+    }).onDelete("cascade"),
+    foreignKey({ columns: [t.workspaceId, t.reminderRuleId], foreignColumns: [reminderRules.workspaceId, reminderRules.id], name: "reminder_delivery_rule_workspace_fk" }).onDelete(
+      "cascade",
+    ),
     index("reminder_delivery_due_idx").on(t.status, t.scheduledFor),
     index("reminder_deliveries_ws_occurrence_idx")
       .on(t.workspaceId, t.occurrenceId)
@@ -491,7 +506,7 @@ export const briefingDeliveries = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("briefing_delivery_dedupe_uq").on(t.deduplicationKey),
+    unique("briefing_deliveries_deduplication_key_key").on(t.deduplicationKey),
     foreignKey({
       columns: [t.workspaceId, t.recipientUserId],
       foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId],
@@ -553,9 +568,14 @@ export const messages = pgTable(
   (t) => [
     foreignKey({ columns: [t.workspaceId, t.userId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "messages_user_membership_fk" }),
     foreignKey({ columns: [t.workspaceId, t.topicId], foreignColumns: [conversationTopics.workspaceId, conversationTopics.id], name: "messages_topic_workspace_fk" }),
-    foreignKey({ columns: [t.workspaceId, t.pendingGroupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "messages_pending_group_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.pendingGroupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "messages_pending_group_workspace_fk" }).onDelete(
+      "set null",
+    ),
     uniqueIndex("messages_workspace_chat_message_uq").on(t.workspaceId, t.telegramChatId, t.telegramMessageId),
     index("messages_workspace_created_idx").on(t.workspaceId, t.createdAt),
+    index("messages_waiting_retry_idx")
+      .on(t.status, t.aiNextRetryAt, t.createdAt)
+      .where(sql`status = 'waiting_ai'`),
     index("messages_workspace_user_role_created_idx").on(t.workspaceId, t.userId, t.role, t.createdAt),
     index("messages_user_role_created_idx").on(t.userId, t.role, t.createdAt.desc()),
     index("messages_ws_pending_group_idx")
@@ -576,7 +596,7 @@ export const aiProviderConsents = pgTable(
     grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
-  (t) => [unique("ai_provider_consents_user_provider_version_uq").on(t.userId, t.provider, t.consentVersion)],
+  (t) => [unique("ai_provider_consents_user_id_provider_consent_version_key").on(t.userId, t.provider, t.consentVersion)],
 );
 
 export const actionGroups = pgTable(
@@ -596,7 +616,7 @@ export const actionGroups = pgTable(
     undoneAt: timestamp("undone_at", { withTimezone: true }),
   },
   (t) => [
-    unique("action_groups_workspace_id_id_uq").on(t.workspaceId, t.id),
+    unique("action_groups_workspace_id_id_key").on(t.workspaceId, t.id),
     uniqueIndex("action_groups_active_source_message_uq")
       .on(t.sourceMessageId)
       .where(sql`${t.sourceMessageId} IS NOT NULL AND ${t.status} IN ('pending', 'applying', 'undoing', 'applied')`),
@@ -620,7 +640,9 @@ export const pendingActions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    foreignKey({ columns: [t.workspaceId, t.groupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "pending_actions_group_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.groupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "pending_actions_group_workspace_fk" }).onDelete(
+      "cascade",
+    ),
     foreignKey({ columns: [t.workspaceId, t.actorUserId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "pending_actions_actor_membership_fk" }),
     index("pending_actions_group_idx").on(t.workspaceId, t.groupId),
     index("pending_actions_expiry_idx").on(t.expiresAt),
@@ -644,7 +666,7 @@ export const actionEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    foreignKey({ columns: [t.workspaceId, t.groupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "action_events_group_workspace_fk" }),
+    foreignKey({ columns: [t.workspaceId, t.groupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "action_events_group_workspace_fk" }).onDelete("cascade"),
     index("action_events_group_idx").on(t.workspaceId, t.groupId, t.createdAt),
   ],
 );
