@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { BriefingContentService } from "../briefings/briefing-content.service.js";
-import { ActionStateUncertainError, ActionsService, type ProposedActionsResult } from "../actions/actions.service.js";
+import { ActionStateUncertainError, ActionsService, InvalidAiActionError, type ProposedActionsResult } from "../actions/actions.service.js";
 import { AiService } from "../ai/ai.service.js";
 import type { AiMessage } from "../ai/ai-provider.js";
 import { AiStructuredOutputError } from "../ai/ai-provider.js";
@@ -454,9 +454,25 @@ export class ChatService {
         await this.actions.cancel(input.workspaceId, input.userId, liveCard.groupId).catch(() => false);
         supersededPendingGroupId = liveCard.groupId;
       }
-      const actionResult = prepared.resolved.length
-        ? await this.actions.handleProposed(prepared.resolved, { ...actionScope, sourceMessageId: input.inbound.id })
-        : ({} as ProposedActionsResult);
+      let actionResult: ProposedActionsResult = {};
+      if (prepared.resolved.length) {
+        try {
+          actionResult = await this.actions.handleProposed(prepared.resolved, { ...actionScope, sourceMessageId: input.inbound.id });
+        } catch (error) {
+          // A rule that only the write path can see (a stale row, a definition the target
+          // cannot hold) is still information for the user, not a failed turn.
+          if (!(error instanceof InvalidAiActionError) && !isDomainRuleError(error)) throw error;
+          const issue: ActionIssue = {
+            kind: "domain", index: 0,
+            code: error instanceof InvalidAiActionError ? error.code : "invalid_action",
+            message: error instanceof Error ? error.message : "invalid action",
+          };
+          this.logRejectedTurn(input.inbound.id, turn, [issue], ctx, input.timezone, now);
+          await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed").catch(() => undefined);
+          const failedTopicId = await this.applyTopic(input, turn, control, currentTopicId, now);
+          return { kind: "ok", text: renderValidationReply([issue], input.language, turn.actions.length), appliedCount: 0, pendingCount: 0, warnings: [], ...(failedTopicId ? { topicId: failedTopicId } : {}) };
+        }
+      }
       if (actionResult.pending && liveCard && !supersededPendingGroupId) {
         await this.actions.cancel(input.workspaceId, input.userId, liveCard.groupId).catch(() => false);
         supersededPendingGroupId = liveCard.groupId;
@@ -676,6 +692,11 @@ function aiHistoryClearedText(language: string | null | undefined, count: number
   if (language?.toLowerCase().startsWith("uk")) return `AI-історію очищено (${count} повідомлень). Повідомлення Telegram, завдання, цілі, нагадування й налаштування не змінені.`;
   if (language?.toLowerCase().startsWith("en")) return `AI history cleared (${count} messages). Telegram messages, tasks, goals, reminders, and settings are unchanged.`;
   return `AI-история очищена (${count} сообщений). Сообщения Telegram, задачи, цели, напоминания и настройки не изменены.`;
+}
+
+/** Domain rules raised inside a repository transaction arrive as plain errors. */
+function isDomainRuleError(error: unknown): boolean {
+  return error instanceof Error && !/^(?:connect|timeout|ECONN|socket)/i.test(error.message) && error.message.length < 200;
 }
 
 export function renderTurn(reply: string, question: string | null): string {

@@ -101,7 +101,7 @@ export class ActionsService implements OnApplicationBootstrap {
         if (!current) throw new InvalidAiActionError("settings are stale or missing", "settings_stale");
         return { version: current.version, timezone: current.timezone, morningReferenceTime: current.morningReferenceTime };
       },
-    });
+    }, now);
     const domainIssues = await this.validate(resolved, { ...scope, now });
     return { resolved, issues: [...issues, ...domainIssues] };
   }
@@ -126,12 +126,11 @@ export class ActionsService implements OnApplicationBootstrap {
     const ctx = scheduleContext(action);
     switch (action.type) {
       case "create_task":
-        taskDefinitionFromBody(action.body, ctx, scope.now);
-        if (action.body.reminder) createTaskInputFromBody(action.body, { ...scope, recipientUserId: scope.recipientUserId, now: scope.now }, ctx);
+        createTaskInputFromBody(action.body, { ...scope, recipientUserId: scope.recipientUserId, now: scope.now }, ctx);
         return;
       case "plan":
         if (!action.tasks.length) throw new InvalidAiActionError("goal plan requires at least one task", "plan_empty");
-        for (const task of action.tasks) taskDefinitionFromBody(task, ctx, scope.now);
+        for (const task of action.tasks) createTaskInputFromBody(task, { ...scope, recipientUserId: scope.recipientUserId, now: scope.now }, ctx);
         return;
       case "update_task": {
         validateUpdateTaskPatch(action.patch);
@@ -446,7 +445,7 @@ export class ActionsService implements OnApplicationBootstrap {
           if (action.target.kind === "occurrence") {
             steps.push({
               kind: "reschedule_occurrence", occurrenceId: action.target.occurrenceId, expectedVersion: action.target.occurrenceVersion,
-              scheduleTimezone: action.target.timezone, schedule: fields, ...(action.reason ? { reason: action.reason } : {}),
+              scheduleTimezone: action.target.timezone, schedule: fields, timeMode, ...(action.reason ? { reason: action.reason } : {}),
             });
             break;
           }

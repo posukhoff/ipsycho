@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { RescheduleFields } from "../core/reschedule.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
-import type { TaskDefinition } from "../core/types.js";
+import type { TaskDefinition, TimeMode } from "../core/types.js";
 import { DatabaseService } from "../database/database.service.js";
 import {
   actionEvents, actionGroups, goals, memoryItems, pendingActions, reminderDeliveries, reminderRules,
@@ -37,7 +37,7 @@ export type ActionGroupStep =
   | { kind: "complete_task"; taskId: string; expectedVersion: number }
   | { kind: "complete_occurrence"; occurrenceId: string; expectedVersion: number }
   | { kind: "cancel_task"; taskId: string; expectedVersion: number }
-  | { kind: "reschedule_occurrence"; occurrenceId: string; expectedVersion: number; scheduleTimezone: string; schedule: RescheduleFields; reason?: string }
+  | { kind: "reschedule_occurrence"; occurrenceId: string; expectedVersion: number; scheduleTimezone: string; schedule: RescheduleFields; timeMode?: TimeMode; reason?: string }
   | {
     kind: "concretise_task"; taskId: string; expectedVersion: number; definition: TaskDefinition; occurrenceStatus: "scheduled" | "open";
     explicitReminder?: ReminderRuleSpec; reason?: string;
@@ -190,7 +190,8 @@ export class ActionGroupRepository {
           case "reschedule_occurrence": {
             const { touched, ...stepResult } = await rescheduleOccurrenceInTx(tx, {
               ...scope, occurrenceId: step.occurrenceId, expectedVersion: versions.expect("occurrence", step.occurrenceId, step.expectedVersion),
-              scheduleTimezone: step.scheduleTimezone, schedule: step.schedule, ...(step.reason !== undefined ? { reason: step.reason } : {}),
+              scheduleTimezone: step.scheduleTimezone, schedule: step.schedule,
+              ...(step.timeMode ? { timeMode: step.timeMode } : {}), ...(step.reason !== undefined ? { reason: step.reason } : {}),
             });
             versions.bump(touched); result.steps.push(stepResult);
             if (!stepResult.becameFuzzy) rebuild.add(step.occurrenceId);

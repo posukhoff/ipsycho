@@ -8,7 +8,7 @@ import { localDateAt } from "../core/timezone.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import { taskFieldChanges, type AppliedReportItem, type TaskFieldChange } from "../core/applied-report.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
-import type { TaskDefinition } from "../core/types.js";
+import type { TaskDefinition, TimeMode } from "../core/types.js";
 import { DatabaseService } from "../database/database.service.js";
 import {
   actionEvents,
@@ -61,7 +61,9 @@ export interface CompleteOccurrenceInput extends GroupScope { occurrenceId: stri
 export interface CompleteTaskInput extends GroupScope { taskId: string; expectedVersion: number; now: Date }
 export interface CancelTaskInput extends GroupScope { taskId: string; expectedVersion: number; now: Date }
 export interface RescheduleOccurrenceInput extends GroupScope {
-  occurrenceId: string; expectedVersion: number; scheduleTimezone: string; schedule: RescheduleFields; reason?: string; now: Date;
+  occurrenceId: string; expectedVersion: number; scheduleTimezone: string; schedule: RescheduleFields;
+  /** The mode the new schedule compiles to; a point can become a window and back. */
+  timeMode?: TimeMode; reason?: string; now: Date;
 }
 export interface ConcretiseTaskInput extends GroupScope {
   taskId: string; expectedVersion: number; definition: TaskDefinition; occurrenceStatus: "scheduled" | "open";
@@ -407,7 +409,7 @@ export async function rescheduleOccurrenceInTx(tx: DbTransaction, input: Resched
     throw new Error("reschedule reason is required");
   }
 
-  const nextDefinition = rescheduledDefinition(taskDefinitionFromRow(row.task), input.schedule);
+  const nextDefinition = rescheduledDefinition(taskDefinitionFromRow(row.task), input.schedule, input.timeMode);
   const becomesFuzzy = nextDefinition.timeMode === "fuzzy";
   if (becomesFuzzy && row.task.recurrenceRule) throw new Error("recurring occurrence cannot become fuzzy");
   const nextStatus = becomesFuzzy ? "cancelled" : rescheduledOccurrenceStatus(nextDefinition, input.now);

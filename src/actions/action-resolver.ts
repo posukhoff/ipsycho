@@ -3,6 +3,7 @@ import type { ActionIssue } from "../core/ai-actions.js";
 import { refKindOf, type RefMap } from "../core/ai-refs.js";
 import type { OccurrenceStatus, TaskStatus, TimeMode } from "../core/types.js";
 import { assertTimezone, InvalidAiActionError } from "./action-conversion.js";
+import { localDateAt, localDateTimeAt } from "../core/timezone.js";
 
 /**
  * Turns the model's short-id actions into server-resolved ones. Versions and the current
@@ -27,7 +28,7 @@ class ResolveError extends Error {
 const domain = (code: string, message: string): ResolveError => new ResolveError({ kind: "domain", code, message });
 const reference = (code: string, message: string): ResolveError => new ResolveError({ kind: "reference", code, message });
 
-export async function resolveActions(actions: readonly AiAction[], refs: RefMap, deps: ResolverDeps): Promise<ResolveResult> {
+export async function resolveActions(actions: readonly AiAction[], refs: RefMap, deps: ResolverDeps, now: Date = new Date()): Promise<ResolveResult> {
   const settings = await deps.settings();
   const resolved: ResolvedAction[] = [];
   const issues: ActionIssue[] = [];
@@ -35,7 +36,7 @@ export async function resolveActions(actions: readonly AiAction[], refs: RefMap,
   for (const [index, action] of actions.entries()) {
     try {
       const timezone = timezoneFor(action, settings.timezone);
-      const base = { intent: action.intent, timezone, reviewTime: settings.morningReferenceTime };
+      const base = { intent: action.intent, timezone, reviewTime: reviewTimeFor(action, timezone, settings.morningReferenceTime, now) };
       const item = await resolveOne(action, base, refs, deps, settings.version);
       const key = identity(item);
       if (seen.has(key)) throw domain("duplicate_action", "the same action is repeated in one message");
@@ -48,6 +49,24 @@ export async function resolveActions(actions: readonly AiAction[], refs: RefMap,
     }
   }
   return { resolved, issues };
+}
+
+/**
+ * The planning checkpoint of a fuzzy task is the user's morning reference time, but that
+ * moment may already be gone today: the server picks the time, so it must not pick one in
+ * the past and blame the user for it.
+ */
+function reviewTimeFor(action: AiAction, timezone: string, morningReferenceTime: string, now: Date): string {
+  const when = action.type === "create_task" ? action.when : action.type === "reschedule" ? action.when : null;
+  const dates = when?.mode === "fuzzy" ? [when.reviewDate] : action.type === "plan" ? action.tasks.filter((task) => task.when.mode === "fuzzy").map((task) => (task.when as { reviewDate: string }).reviewDate) : [];
+  if (!dates.includes(localDateAt(now, timezone))) return morningReferenceTime;
+  const parts = localDateTimeAt(now, timezone);
+  const nowMinutes = parts.hour * 60 + parts.minute;
+  const [refHour = 9, refMinute = 0] = morningReferenceTime.split(":").map(Number);
+  if (refHour * 60 + refMinute > nowMinutes) return morningReferenceTime;
+  const soon = Math.ceil((nowMinutes + 60) / 15) * 15;
+  if (soon >= 24 * 60) return morningReferenceTime;
+  return `${String(Math.floor(soon / 60)).padStart(2, "0")}:${String(soon % 60).padStart(2, "0")}`;
 }
 
 function timezoneFor(action: AiAction, fallback: string): string {
