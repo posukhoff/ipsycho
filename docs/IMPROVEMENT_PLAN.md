@@ -385,6 +385,8 @@
 - Типизировать `ResolvedActionOf<"goal"|"memory"|"settings">` как discriminated union по `op`/`operation`, чтобы исчезли 17 `!` в `actions.service.ts:207-499` (P2.10 контракт для модели тоже выигрывает: `settings`, `goal`, `set_reminder` как union по операции).
 
 ### P6.4 Репозитории для всех доменов
+- Сделано: `SettingsRepository` (весь SQL `user_settings`), `TelegramUpdatesRepository` (журнал апдейтов; транспорт больше не пишет SQL).
+- Осознанно не сделано: `AccessService`, `reminder-*`, `briefing-*`. Там SQL и есть доменное правило: удаление аккаунта, подавление доставок и запись в аудит идут одной транзакцией, а планирование напоминаний — одним запросом с джойнами. Вынести их в репозиторий можно только целиком, оставив сервис пустой обёрткой, либо разорвав транзакцию. Первое ничего не даёт, второе опасно.
 - SQL напрямую в сервисах: `settings.service.ts`, `access.service.ts`, `reminder-*.service.ts`, `briefing-*.service.ts`, `maintenance.service.ts`, `recurrence-maintenance.service.ts`, `telegram.service.ts:37-42`.
 - Сделать: `SettingsRepository`, `AccessRepository`, `RemindersRepository`, `BriefingsRepository`, `TelegramUpdatesRepository`; тела запросов переносить дословно.
 

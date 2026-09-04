@@ -15,12 +15,18 @@ const botInfo = {
   has_main_web_app: false,
 };
 
-function fakeDatabase() {
+/** The update ledger: the first arrival of an update id is claimed, a redelivery is not. */
+function fakeUpdates() {
+  const claimed = new Set();
   return {
-    db: {
-      insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [{ updateId: 1 }] }) }) }),
-      update: () => ({ set: () => ({ where: async () => ({ rowCount: 1 }) }) }),
+    handled: [],
+    claim: async ({ updateId }) => {
+      if (claimed.has(updateId)) return false;
+      claimed.add(updateId);
+      return true;
     },
+    markHandled: async () => undefined,
+    markLost: async () => 0,
   };
 }
 const known = new Set([100, 200]);
@@ -28,7 +34,7 @@ const fakeAccess = { resolveActiveUser: async (id) => (known.has(id) ? { user: {
 const fakeSettings = { get: async (userId) => ({ userId, timezone: "Europe/Kyiv", pinnedLanguage: userId === "u200" ? "en" : null }) };
 
 function service() {
-  const instance = new TelegramService(config, fakeDatabase(), fakeAccess, fakeSettings);
+  const instance = new TelegramService(config, fakeUpdates(), fakeAccess, fakeSettings);
   instance.bot.botInfo = botInfo;
   return instance;
 }

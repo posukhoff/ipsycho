@@ -1,17 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import { eq, sql } from "drizzle-orm";
 import { localDateAndTimeToUtc, localDateAt, shiftLocalDate } from "../core/timezone.js";
 import { normalizeLanguageTag } from "../core/language.js";
 import { buildSettingsPatch, type SettingsChange } from "../core/settings-change.js";
-import { DatabaseService } from "../database/database.service.js";
-import { userSettings } from "../database/schema.js";
+import { SettingsRepository, type PendingInput } from "./settings.repository.js";
 
-export type PendingInput =
-  | { kind: "timezone"; onboarding: boolean }
-  | { kind: "reschedule"; occurrenceId: string }
-  | { kind: "quick_reschedule_reason"; occurrenceId: string; choice: "1h" | "evening" | "tomorrow" }
-  | { kind: "blocker"; occurrenceId: string }
-  | { kind: "follow_up_custom"; occurrenceId: string; mode: "seen" | "result" };
+export type { PendingInput };
 
 export interface QuietHoursUpdate {
   enabled: boolean;
@@ -23,26 +16,21 @@ export interface QuietHoursUpdate {
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(private readonly repository: SettingsRepository) {}
 
-  async get(userId: string) {
-    const [row] = await this.database.db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
-    return row ?? null;
+  get(userId: string) {
+    return this.repository.find(userId);
   }
 
-  async completeOnboarding(userId: string, now = new Date()): Promise<void> {
-    await this.database.db.update(userSettings).set({ onboardingCompletedAt: now }).where(eq(userSettings.userId, userId));
+  completeOnboarding(userId: string, now = new Date()): Promise<void> {
+    return this.repository.markOnboardingCompleted(userId, now);
   }
 
   /** Every setting change goes through one validated patch builder; the version bumps on each write. */
   async apply(userId: string, change: SettingsChange, now = new Date()): Promise<void> {
     const current = await this.get(userId);
     if (!current) throw new Error("settings missing");
-    const patch = buildSettingsPatch(change, current);
-    await this.database.db
-      .update(userSettings)
-      .set({ ...patch, version: sql`${userSettings.version} + 1`, updatedAt: now })
-      .where(eq(userSettings.userId, userId));
+    await this.repository.applyPatch(userId, buildSettingsPatch(change, current), now);
   }
 
   setDigestPreset(userId: string, enabled: boolean): Promise<void> {
@@ -66,15 +54,7 @@ export class SettingsService {
   async applyProfileTimezone(userId: string, target: "digests" | "quiet" | "both"): Promise<void> {
     const current = await this.get(userId);
     if (!current) throw new Error("settings missing");
-    await this.database.db
-      .update(userSettings)
-      .set({
-        ...(target === "digests" || target === "both" ? { digestTimezone: current.timezone } : {}),
-        ...(target === "quiet" || target === "both" ? { quietHoursTimezone: current.timezone } : {}),
-        version: sql`${userSettings.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(userSettings.userId, userId));
+    await this.repository.copyProfileTimezone(userId, current.timezone, target, new Date());
   }
 
   async setLanguage(userId: string, language: string | null): Promise<string | null> {
@@ -118,25 +98,15 @@ export class SettingsService {
     return this.apply(userId, { operation: "reminder_defaults", ...fields });
   }
 
-  async setPendingInput(userId: string, input: PendingInput | null): Promise<void> {
-    await this.database.db.update(userSettings).set({ pendingInput: input }).where(eq(userSettings.userId, userId));
+  setPendingInput(userId: string, input: PendingInput | null): Promise<void> {
+    return this.repository.setPendingInput(userId, input);
   }
 
-  async consumePendingInput(userId: string): Promise<PendingInput | null> {
-    return this.database.db.transaction(async (tx) => {
-      const [row] = await tx.select({ pendingInput: userSettings.pendingInput }).from(userSettings).where(eq(userSettings.userId, userId)).for("update").limit(1);
-      if (!row?.pendingInput) return null;
-      await tx.update(userSettings).set({ pendingInput: null }).where(eq(userSettings.userId, userId));
-      return row.pendingInput as PendingInput;
-    });
+  consumePendingInput(userId: string): Promise<PendingInput | null> {
+    return this.repository.consumePendingInput(userId);
   }
 
-  async markSpendWarning(userId: string, month: string): Promise<boolean> {
-    const [row] = await this.database.db
-      .update(userSettings)
-      .set({ lastAiSpendWarningMonth: month })
-      .where(eq(userSettings.userId, userId))
-      .returning({ userId: userSettings.userId });
-    return Boolean(row);
+  markSpendWarning(userId: string, month: string): Promise<boolean> {
+    return this.repository.markSpendWarning(userId, month);
   }
 }

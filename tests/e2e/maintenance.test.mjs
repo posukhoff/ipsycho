@@ -9,6 +9,7 @@ import { ReminderSchedulingService } from "../../dist/reminders/reminder-schedul
 import { AiRepository } from "../../dist/ai/ai.repository.js";
 import { AccessService, DELETION_GRACE_DAYS } from "../../dist/access/access.service.js";
 import { SettingsService } from "../../dist/settings/settings.service.js";
+import { SettingsRepository } from "../../dist/settings/settings.repository.js";
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url) throw new Error("TEST_DATABASE_URL is required; run npm run test:e2e");
@@ -207,7 +208,7 @@ test("deletion waits out its grace period, restore cancels it, and the finalizer
 
 test("every settings write bumps the version once and a pending input is consumed exactly once", async () => {
   const scope = await fixture();
-  const settings = new SettingsService(database);
+  const settings = new SettingsService(new SettingsRepository(database));
   const read = async () =>
     (await database.pool.query("select version, morning_digest_enabled, quiet_hours_enabled, timezone from user_settings where user_id=$1", [scope.userId])).rows[0];
 

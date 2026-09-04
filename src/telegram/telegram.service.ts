@@ -4,13 +4,11 @@ import { run, sequentialize, type RunnerHandle } from "@grammyjs/runner";
 import { Bot, InlineKeyboard } from "grammy";
 import { AccessService } from "../access/access.service.js";
 import { APP_CONFIG, type AppConfig } from "../config.js";
-import { DatabaseService } from "../database/database.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { taskKeyboard, type TelegramOccurrenceStatus } from "./telegram-ui.js";
 import type { BriefingKind } from "../core/digest-policy.js";
 import { compactText } from "../core/telegram-ux.js";
-import { and, eq, lt } from "drizzle-orm";
-import { telegramUpdates } from "../database/schema.js";
+import { TelegramUpdatesRepository } from "./telegram-updates.repository.js";
 import { safeError } from "../observability/safe-error.js";
 import { t } from "./copy/index.js";
 import type { AppContext } from "./telegram-context.js";
@@ -37,7 +35,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    private readonly database: DatabaseService,
+    private readonly updates: TelegramUpdatesRepository,
     private readonly access: AccessService,
     private readonly settings: SettingsService,
   ) {
@@ -92,24 +90,17 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     // Deduplicate redelivered updates only for users who passed the gate: an unknown sender
     // must not be able to grow this table.
     this.bot.use(async (ctx, next) => {
-      const inserted = await this.database.db
-        .insert(telegramUpdates)
-        .values({
-          botIdentity: this.config.botIdentity,
-          telegramUpdateId: ctx.update.update_id,
-          chatId: ctx.chat?.id,
-          telegramMessageId: ctx.message?.message_id,
-        })
-        .onConflictDoNothing()
-        .returning({ updateId: telegramUpdates.telegramUpdateId });
-      if (!inserted.length) return;
+      const claimed = await this.updates.claim({
+        botIdentity: this.config.botIdentity,
+        updateId: ctx.update.update_id,
+        chatId: ctx.chat?.id,
+        messageId: ctx.message?.message_id,
+      });
+      if (!claimed) return;
       await next();
       // A row still `received` after the handler is one the process died inside; the boot sweep
       // marks those `lost` so the ledger shows what was never answered.
-      await this.database.db
-        .update(telegramUpdates)
-        .set({ status: "handled" })
-        .where(and(eq(telegramUpdates.botIdentity, this.config.botIdentity), eq(telegramUpdates.telegramUpdateId, ctx.update.update_id)));
+      await this.updates.markHandled(this.config.botIdentity, ctx.update.update_id);
     });
   }
 
@@ -266,16 +257,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
 
   /** Updates a previous process accepted but never finished. They are not replayed: Telegram already considers them delivered. */
   private async markLostUpdates(): Promise<void> {
-    const result = await this.database.db
-      .update(telegramUpdates)
-      .set({ status: "lost" })
-      .where(
-        and(
-          eq(telegramUpdates.botIdentity, this.config.botIdentity),
-          eq(telegramUpdates.status, "received"),
-          lt(telegramUpdates.createdAt, new Date(Date.now() - LOST_UPDATE_AFTER_MS)),
-        ),
-      );
-    if (result.rowCount) logger.warn("Telegram updates left unhandled by a previous process", { count: result.rowCount });
+    const count = await this.updates.markLost(this.config.botIdentity, new Date(Date.now() - LOST_UPDATE_AFTER_MS));
+    if (count) logger.warn("Telegram updates left unhandled by a previous process", { count });
   }
 }

@@ -26,6 +26,7 @@ import { RecurrenceMaintenanceService } from "../dist/tasks/recurrence-maintenan
 import { ContextRepository } from "../dist/context/context.repository.js";
 import { ContextService } from "../dist/context/context.service.js";
 import { SettingsService } from "../dist/settings/settings.service.js";
+import { SettingsRepository } from "../dist/settings/settings.repository.js";
 import { ActionsRepository } from "../dist/actions/actions.repository.js";
 import { ActionGroupRepository } from "../dist/actions/action-group.repository.js";
 import { ActionsService } from "../dist/actions/actions.service.js";
@@ -45,7 +46,7 @@ const queue = { enqueue: async () => undefined };
 const recurrence = new RecurrenceMaintenanceService(database, queue);
 const tasksRepository = new TasksRepository(database);
 const tasks = new TasksService(tasksRepository, queue, recurrence);
-const settings = new SettingsService(database);
+const settings = new SettingsService(new SettingsRepository(database));
 const contextRepository = new ContextRepository(database);
 const context = new ContextService(contextRepository);
 const reminders = new ReminderSchedulingService(database, queue);
