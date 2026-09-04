@@ -664,6 +664,28 @@ test("task search and the AI task list stay inside the workspace", async () => {
   assert.ok(listed.every((task) => task.status !== "closed" && task.workspaceId === owner.workspaceId));
 });
 
+test("a saved note is found by an inflected form of one content word in the message", async () => {
+  const { workspaceId, userId } = await fixture();
+  await database.pool.query(
+    "insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'note', $4, false, 'user_explicit')",
+    [randomUUID(), workspaceId, userId, "Пью таблетки от давления каждое утро"],
+  );
+  await database.pool.query(
+    "insert into memory_items(id, workspace_id, user_id, type, content, sensitive, source) values ($1, $2, $3, 'note', $4, false, 'user_explicit')",
+    [randomUUID(), workspaceId, userId, "Кошку зовут Мурка"],
+  );
+  const found = await contextRepository.searchMemory(workspaceId, userId, "Напомни про таблетки завтра утром");
+  assert.deepEqual(found.map((item) => item.content), ["Пью таблетки от давления каждое утро"]);
+  assert.deepEqual(await contextRepository.searchMemory(workspaceId, userId, "да, давай"), []);
+
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone) values ($1,$2,$3,'Забрать посылку на почте','task','normal','active','fuzzy','Europe/Kyiv')",
+    [randomUUID(), workspaceId, userId],
+  );
+  const tasksFound = await tasksRepository.searchActiveTasks(workspaceId, "Перенеси посылка на четверг");
+  assert.deepEqual(tasksFound.map((task) => task.title), ["Забрать посылку на почте"]);
+});
+
 test("sensitive profile and memory facts never enter the AI context", async () => {
   const { workspaceId, userId } = await fixture();
   await createMemory(workspaceId, userId, "Usually plans important work before noon");

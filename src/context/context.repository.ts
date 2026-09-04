@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, lte, ne, or, sql } from "drizzle-orm";
+import { tsQueryFor } from "../core/search-query.js";
 import { DatabaseService } from "../database/database.service.js";
 import { conversationTopics, goals, memoryItems, messages, taskEvents, taskGoals, tasks } from "../database/schema.js";
 
@@ -191,11 +192,12 @@ export class ContextRepository {
     ));
   }
 
+  /** Expression identical to `memory_items_content_fts_idx` (migration 0006). */
   async searchMemory(workspaceId: string, userId: string, query: string, limit = 5) {
-    const searchText = query.trim();
-    if (!searchText) return [];
+    const tsQuery = tsQueryFor(query);
+    if (!tsQuery) return [];
     const vector = sql`to_tsvector('simple', ${memoryItems.content})`;
-    const searchQuery = sql`websearch_to_tsquery('simple', ${searchText})`;
+    const searchQuery = sql`to_tsquery('simple', ${tsQuery})`;
     return this.database.db.select().from(memoryItems).where(and(
       eq(memoryItems.workspaceId, workspaceId),
       eq(memoryItems.userId, userId),

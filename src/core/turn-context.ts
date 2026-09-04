@@ -208,9 +208,14 @@ function compareAnchors(a: number | null, b: number | null): number {
   return a - b;
 }
 
+/** Of the `nearest` slots, this share goes to the most recently overdue tasks; the rest to what comes next. */
+const OVERDUE_SHARE = 0.25;
+
 /**
  * All active tasks fit under `limit`; beyond it the model sees the `nearest` by time plus
  * every full-text match for the message, all sorted by time so `t1` is the nearest task.
+ * "Nearest" is split between the most recently overdue and the soonest upcoming: sorting by
+ * anchor alone let a backlog of old overdue tasks push this week's work out of the context.
  */
 export function selectTasksForContext<T extends ContextTaskRow>(
   tasks: readonly T[],
@@ -220,12 +225,25 @@ export function selectTasksForContext<T extends ContextTaskRow>(
 ): TaskSelection<T> {
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const nearest = opts.nearest ?? DEFAULT_NEAREST;
-  const sorted = tasks
+  const anchored = tasks
     .map((task) => ({ task, anchor: taskAnchor(task, occurrencesByTask.get(task.id)) }))
-    .sort((a, b) => compareAnchors(a.anchor, b.anchor) || a.task.title.localeCompare(b.task.title, "ru") || a.task.id.localeCompare(b.task.id))
-    .map(({ task }) => task);
+    .sort((a, b) => compareAnchors(a.anchor, b.anchor) || a.task.title.localeCompare(b.task.title, "ru") || a.task.id.localeCompare(b.task.id));
+  const sorted = anchored.map(({ task }) => task);
   if (sorted.length <= limit) return { shown: sorted, total: sorted.length, truncated: false };
-  const keep = new Set(sorted.slice(0, nearest).map((task) => task.id));
+
+  const nowMs = opts.now.getTime();
+  const overdue = anchored.filter(({ anchor }) => anchor !== null && anchor < nowMs);
+  const upcoming = anchored.filter(({ anchor }) => anchor === null || anchor >= nowMs);
+  const overdueSlots = Math.min(overdue.length, Math.floor(nearest * OVERDUE_SHARE));
+  const upcomingSlots = Math.min(upcoming.length, nearest - overdueSlots);
+  const keep = new Set<string>();
+  for (const { task } of overdue.slice(overdue.length - overdueSlots)) keep.add(task.id);
+  for (const { task } of upcoming.slice(0, upcomingSlots)) keep.add(task.id);
+  // Slots one side could not fill go to the other side.
+  for (const { task } of [...overdue.slice(0, overdue.length - overdueSlots).reverse(), ...upcoming.slice(upcomingSlots)]) {
+    if (keep.size >= nearest) break;
+    keep.add(task.id);
+  }
   for (const id of ftsMatchIds) keep.add(id);
   const shown = sorted.filter((task) => keep.has(task.id));
   return { shown, total: sorted.length, truncated: shown.length < sorted.length };

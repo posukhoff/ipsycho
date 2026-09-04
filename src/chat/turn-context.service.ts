@@ -73,10 +73,11 @@ export class TurnContextService {
 
     const shownTaskIds = selection.shown.map((task) => task.id);
     const shownOccurrenceIds = shownTaskIds.flatMap((taskId) => (taskData.occurrencesByTask.get(taskId) ?? []).map((occurrence) => occurrence.id));
-    const [taskGoalLinks, interactionEvents, blockers] = await Promise.all([
+    const [taskGoalLinks, interactionEvents, blockers, checklistByTask] = await Promise.all([
       this.context.listTaskGoalLinks(workspaceId, shownTaskIds),
       this.context.listAvoidanceEvents(workspaceId, shownOccurrenceIds),
       this.context.listRecentBlockers(workspaceId, shownOccurrenceIds),
+      this.tasks.listChecklistsForContext(workspaceId, shownTaskIds),
     ]);
     const eventTypesByOccurrence = new Map<string, string[]>();
     for (const row of interactionEvents) {
@@ -106,7 +107,7 @@ export class TurnContextService {
       tasksTotal: selection.total,
       truncated: selection.truncated,
       occurrencesByTask: taskData.occurrencesByTask,
-      checklistByTask: taskData.checklistByTask,
+      checklistByTask,
       goals,
       taskGoalLinks,
       profile,

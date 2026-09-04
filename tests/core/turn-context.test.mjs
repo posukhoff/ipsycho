@@ -201,3 +201,25 @@ test("the current time line is local and names today and tomorrow", () => {
   assert.equal(formatCurrentTimeLine(now, timezone), "2026-09-04 14:05 (пятница), timezone Europe/Kyiv; today=2026-09-04, tomorrow=2026-09-05");
   assert.equal(formatCurrentTimeLine(new Date("2026-12-31T23:30:00Z"), timezone), "2027-01-01 01:30 (пятница), timezone Europe/Kyiv; today=2027-01-01, tomorrow=2027-01-02");
 });
+
+test("beyond the limit, the nearest slots are shared between recent overdue and upcoming tasks", () => {
+  const tasks = [];
+  const occurrencesByTask = new Map();
+  // 50 overdue tasks (hours ago) and 50 upcoming ones (hours ahead).
+  for (let index = 0; index < 50; index += 1) {
+    const past = `past-${String(index).padStart(2, "0")}`;
+    const future = `future-${String(index).padStart(2, "0")}`;
+    tasks.push(task(past), task(future));
+    occurrencesByTask.set(past, [occurrence(past, { plannedStartAt: new Date(now.getTime() - (50 - index) * 3_600_000) })]);
+    occurrencesByTask.set(future, [occurrence(future, { plannedStartAt: new Date(now.getTime() + (index + 1) * 3_600_000) })]);
+  }
+  const selection = selectTasksForContext(tasks, occurrencesByTask, new Set(), { now, timezone });
+  assert.equal(selection.total, 100);
+  assert.equal(selection.shown.length, 40);
+  const shownIds = selection.shown.map((item) => item.id);
+  // 10 most recently overdue, then the 30 soonest upcoming, still sorted by time.
+  assert.deepEqual(shownIds.slice(0, 10), Array.from({ length: 10 }, (_, i) => `past-${String(40 + i).padStart(2, "0")}`));
+  assert.deepEqual(shownIds.slice(10, 13), ["future-00", "future-01", "future-02"]);
+  assert.equal(shownIds.at(-1), "future-29");
+});
+

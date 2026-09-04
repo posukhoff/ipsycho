@@ -288,24 +288,29 @@ export class TasksService {
       this.repository.listActiveTasksForAi(workspaceId),
       searchText ? this.repository.searchActiveTasks(workspaceId, searchText, 20) : Promise.resolve([] as Array<{ id: string }>),
     ]);
-    const taskIds = taskRows.map((task) => task.id);
-    const [occurrenceRows, checklistRows] = await Promise.all([
-      this.repository.listActiveOccurrencesForTasks(workspaceId, taskIds),
-      this.repository.listChecklistForTasks(workspaceId, taskIds),
-    ]);
+    // A task the search found may sit outside the retrieval cap; it must still be addressable.
+    const known = new Set(taskRows.map((task) => task.id));
+    const allTasks = [...taskRows, ...matches.filter((task) => !known.has(task.id)).map((task) => task as typeof taskRows[number])];
+    const occurrenceRows = await this.repository.listActiveOccurrencesForTasks(workspaceId, allTasks.map((task) => task.id));
     const occurrencesByTask = new Map<string, typeof occurrenceRows>();
     for (const occurrence of occurrenceRows) {
       const list = occurrencesByTask.get(occurrence.taskId) ?? [];
       list.push(occurrence);
       occurrencesByTask.set(occurrence.taskId, list);
     }
+    return { tasks: allTasks, occurrencesByTask, ftsMatchIds: new Set(matches.map((task) => task.id)) };
+  }
+
+  /** Checklist rows for the tasks the model will actually see. */
+  async listChecklistsForContext(workspaceId: string, taskIds: readonly string[]) {
+    const checklistRows = await this.repository.listChecklistForTasks(workspaceId, taskIds);
     const checklistByTask = new Map<string, typeof checklistRows>();
     for (const item of checklistRows) {
       const list = checklistByTask.get(item.taskId) ?? [];
       list.push(item);
       checklistByTask.set(item.taskId, list);
     }
-    return { tasks: taskRows, occurrencesByTask, checklistByTask, ftsMatchIds: new Set(matches.map((task) => task.id)) };
+    return checklistByTask;
   }
 
   async getTask(workspaceId: string, taskId: string) {

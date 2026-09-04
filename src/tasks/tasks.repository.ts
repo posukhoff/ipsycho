@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
+import { tsQueryFor } from "../core/search-query.js";
 import { DatabaseService } from "../database/database.service.js";
 import {
   goals,
@@ -24,23 +25,33 @@ export interface PersistedTaskPlan {
   recurrenceExclusions: Array<typeof taskRecurrenceExclusions.$inferInsert>;
 }
 
+/** Upper bound on tasks loaded for one model turn; the context layer shows at most 60 of them. */
+export const AI_TASK_RETRIEVAL_LIMIT = 300;
+
 @Injectable()
 export class TasksRepository {
   constructor(private readonly database: DatabaseService) {}
 
-  /** Every task the assistant may address: active and paused series, newest change first. */
-  async listActiveTasksForAi(workspaceId: string) {
+  /**
+   * Every task the assistant may address: active and paused series, newest change first.
+   * The cap keeps one turn's retrieval bounded; the context layer selects the nearest ones anyway.
+   */
+  async listActiveTasksForAi(workspaceId: string, limit = AI_TASK_RETRIEVAL_LIMIT) {
     return this.database.db.select().from(tasks)
       .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.status, ["active", "paused"])))
-      .orderBy(desc(tasks.updatedAt));
+      .orderBy(desc(tasks.updatedAt))
+      .limit(limit);
   }
 
-  /** Full-text match over title and context, same `simple` configuration as memory search. */
+  /**
+   * Full-text match over title and context. The expression must stay identical to the one in
+   * `tasks_fts_idx` (migration 0025) or the planner will not use the index.
+   */
   async searchActiveTasks(workspaceId: string, query: string, limit = 20) {
-    const searchText = query.trim();
-    if (!searchText) return [];
+    const tsQuery = tsQueryFor(query);
+    if (!tsQuery) return [];
     const vector = sql`to_tsvector('simple', ${tasks.title} || ' ' || coalesce(${tasks.context}, ''))`;
-    const searchQuery = sql`websearch_to_tsquery('simple', ${searchText})`;
+    const searchQuery = sql`to_tsquery('simple', ${tsQuery})`;
     return this.database.db.select().from(tasks).where(and(
       eq(tasks.workspaceId, workspaceId),
       inArray(tasks.status, ["active", "paused"]),

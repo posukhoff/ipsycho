@@ -31,9 +31,9 @@ function makeService(overrides = {}) {
     listTasksForContext: async () => ({
       tasks: [taskRow],
       occurrencesByTask: new Map([[taskRow.id, [occurrenceRow]]]),
-      checklistByTask: new Map(),
       ftsMatchIds: new Set(),
     }),
+    listChecklistsForContext: async () => new Map(),
   };
   const context = {
     listGoalsForContext: async () => [],
