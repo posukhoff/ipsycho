@@ -34,6 +34,7 @@ export class TelegramChatReplyService {
     const responseText = header ? `${header}\n\n${persistedText}` : persistedText;
     const keyboard = chatResultKeyboard(result.appliedGroupId, result.pendingGroupId, result.checkpointTopicId, result.topicId, result.review);
     try {
+      if (result.supersededPendingGroupId) await this.dropCardButtons(ctx, access, result.supersededPendingGroupId);
       const sent = await ctx.reply(responseText, keyboard ? { reply_markup: keyboard } : {});
       if (result.skipAssistantHistory) return;
       await this.chat.recordAssistantMessage({
@@ -43,10 +44,18 @@ export class TelegramChatReplyService {
         telegramChatId: ctx.chat.id,
         telegramMessageId: sent.message_id,
         ...(result.topicId ? { topicId: result.topicId } : {}),
+        ...(result.pendingGroupId ? { pendingGroupId: result.pendingGroupId } : {}),
       }).catch((error) => console.error("assistant message persistence failed", { userId: access.user.id, error: safeError(error) }));
     } catch (error) {
       console.error("telegram reply failed after processing", { userId: access.user.id, error: safeError(error) });
     }
+  }
+
+  /** A replaced confirmation card keeps its text but loses its buttons; the group is already cancelled. */
+  private async dropCardButtons(ctx: any, access: ActiveAccess, groupId: string): Promise<void> {
+    const card = await this.chat.findCardMessage(access.workspaceId, groupId).catch(() => null);
+    if (!card?.telegramMessageId) return;
+    await ctx.api.editMessageReplyMarkup(card.telegramChatId, card.telegramMessageId, { reply_markup: new InlineKeyboard() }).catch(() => undefined);
   }
 }
 

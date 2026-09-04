@@ -4,7 +4,7 @@ import { compileStructuredLocalSchedule } from "../../.core-dist/local-schedule.
 
 test("local schedules compile exact, date-only, deadline and fuzzy modes", () => {
   assert.equal(compileStructuredLocalSchedule({ mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-25", startTime: "09:30" }).plannedStartAt.toISOString(), "2026-08-25T06:30:00.000Z");
-  assert.deepEqual(compileStructuredLocalSchedule({ mode: "date", timezone: "Europe/Kyiv", startDate: "2026-08-25" }), { timeMode: "point", timezone: "Europe/Kyiv", plannedLocalDate: "2026-08-25" });
+  assert.deepEqual(compileStructuredLocalSchedule({ mode: "date", timezone: "Europe/Kyiv", startDate: "2026-08-25" }), { timeMode: "window", timezone: "Europe/Kyiv", plannedLocalDate: "2026-08-25" });
   assert.deepEqual(compileStructuredLocalSchedule({ mode: "deadline", timezone: "Europe/Kyiv", dueDate: "2026-08-25" }), { timeMode: "deadline", timezone: "Europe/Kyiv", dueLocalDate: "2026-08-25" });
   assert.equal(compileStructuredLocalSchedule({ mode: "fuzzy", timezone: "Europe/Kyiv", fuzzyHorizonText: "на следующей неделе", reviewDate: "2026-08-24", reviewTime: "18:00" }).reviewAt.toISOString(), "2026-08-24T15:00:00.000Z");
 });

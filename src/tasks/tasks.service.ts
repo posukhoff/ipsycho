@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
-import { defaultReminderTemplates } from "../core/reminder-defaults.js";
-import { defaultRuleSpecs, planReminders, type ReminderRuleSpec, type ReminderSettings } from "../core/reminder-planning.js";
+import { planReminders, type ReminderRuleSpec } from "../core/reminder-planning.js";
 import { buildOneTimeOccurrence, buildRecurringOccurrences, type OccurrenceProjection } from "../core/recurrence.js";
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
 import { localDateAt } from "../core/timezone.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import type { TaskDefinition } from "../core/types.js";
-import type { reminderDeliveries, reminderRules, taskChecklistItems, taskOccurrences, taskRecurrenceExclusions, tasks } from "../database/schema.js";
+import type { reminderDeliveries, taskChecklistItems, taskOccurrences, taskRecurrenceExclusions, tasks } from "../database/schema.js";
 import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { TasksRepository, type PersistedTaskPlan } from "./tasks.repository.js";
+import { defaultReminderRuleSpecs, reminderRuleRows, withExplicitReminder } from "./task-plan-rules.js";
+import { reminderSettingsFromRow } from "./task-record-mappers.js";
 import { RecurrenceMaintenanceService } from "./recurrence-maintenance.service.js";
 import { safeError } from "../observability/safe-error.js";
 
@@ -96,17 +97,7 @@ export class TasksService {
 
     const settingsRow = await this.repository.findMemberSettings(input.workspaceId, input.recipientUserId);
     if (!settingsRow) throw new Error("recipient is not a workspace member");
-    const settings: ReminderSettings = {
-      notificationTimezone: settingsRow.quietHoursTimezone,
-      quietHours: {
-        enabled: settingsRow.quietHoursEnabled,
-        weekday: { start: settingsRow.weekdayQuietStart, end: settingsRow.weekdayQuietEnd },
-        weekend: { start: settingsRow.weekendQuietStart, end: settingsRow.weekendQuietEnd },
-      },
-      ...(settingsRow.notificationsSnoozedUntil ? { notificationsSnoozedUntil: settingsRow.notificationsSnoozedUntil } : {}),
-      morningReferenceTime: settingsRow.morningReferenceTime,
-      eveningReferenceTime: settingsRow.eveningReferenceTime,
-    };
+    const settings = reminderSettingsFromRow(settingsRow);
 
     const now = input.now ?? new Date();
     const taskId = randomUUID();
@@ -117,20 +108,7 @@ export class TasksService {
       ? buildRecurringOccurrences(definition, now)
       : [buildOneTimeOccurrence(definition, now)].filter((value): value is OccurrenceProjection => value !== null);
 
-    const eventOffsetsMinutes = Array.isArray(settingsRow.eventReminderOffsetsMinutes)
-      ? settingsRow.eventReminderOffsetsMinutes.filter((value): value is number => Number.isInteger(value))
-      : undefined;
-    const templates = defaultReminderTemplates({
-      kind: definition.kind,
-      timeMode: definition.timeMode,
-      importance: definition.importance,
-      hasPlannedStart: Boolean(definition.plannedStartAt),
-    }, {
-      ...(eventOffsetsMinutes ? { eventOffsetsMinutes } : {}),
-      plannedTaskOffsetMinutes: settingsRow.plannedTaskReminderOffsetMinutes,
-      criticalPostDueMinutes: settingsRow.criticalPostDueMinutes,
-    });
-    const ruleSpecs = withExplicitReminder(defaultRuleSpecs(definition, templates, settings), input.explicitReminder);
+    const ruleSpecs = defaultReminderRuleSpecs(definition, settingsRow, input.explicitReminder);
     const ruleIds = ruleSpecs.map(() => randomUUID());
     const occurrenceIds = projections.map(() => randomUUID());
 
@@ -191,21 +169,7 @@ export class TasksService {
         localDate,
       }));
 
-    const ruleRows: Array<typeof reminderRules.$inferInsert> = ruleSpecs.map((rule, index) => ({
-      id: ruleIds[index],
-      workspaceId: input.workspaceId,
-      taskId,
-      triggerKind: rule.triggerKind,
-      ...(rule.exactAt ? { exactAt: rule.exactAt } : {}),
-      ...(rule.anchor ? { anchor: rule.anchor } : {}),
-      ...(rule.offsetSeconds !== undefined ? { offsetSeconds: rule.offsetSeconds } : {}),
-      ...(rule.daysOffset !== undefined ? { daysOffset: rule.daysOffset } : {}),
-      ...(rule.localTime ? { localTime: rule.localTime } : {}),
-      purpose: rule.purpose,
-      quietPolicy: rule.quietPolicy,
-      origin: rule.origin ?? "default",
-      active: true,
-    }));
+    const ruleRows = reminderRuleRows({ workspaceId: input.workspaceId, taskId, specs: ruleSpecs, ruleIds });
 
     const deliveryRows: Array<typeof reminderDeliveries.$inferInsert> = [];
     const deliveryIds: string[] = [];
@@ -313,18 +277,27 @@ export class TasksService {
     return rows.filter(({ occurrence }) => occurrence.completedAt && localDateAt(occurrence.completedAt, occurrence.timezone) === localDate);
   }
 
-  async getAiContext(workspaceId: string, taskLimit = 12) {
-    const taskRows = await this.repository.listActiveTasksForAi(workspaceId, taskLimit);
+  /**
+   * Raw rows for the per-turn model context: every active or paused task, their live
+   * occurrences and checklists, and the ids matching the message text. Selection, short
+   * ids and formatting are the pure context layer's job (`src/core/turn-context.ts`).
+   */
+  async listTasksForContext(workspaceId: string, query: string) {
+    const searchText = query.trim();
+    const [taskRows, matches] = await Promise.all([
+      this.repository.listActiveTasksForAi(workspaceId),
+      searchText ? this.repository.searchActiveTasks(workspaceId, searchText, 20) : Promise.resolve([] as Array<{ id: string }>),
+    ]);
     const taskIds = taskRows.map((task) => task.id);
     const [occurrenceRows, checklistRows] = await Promise.all([
       this.repository.listActiveOccurrencesForTasks(workspaceId, taskIds),
       this.repository.listChecklistForTasks(workspaceId, taskIds),
     ]);
-    const byTask = new Map<string, typeof occurrenceRows>();
+    const occurrencesByTask = new Map<string, typeof occurrenceRows>();
     for (const occurrence of occurrenceRows) {
-      const list = byTask.get(occurrence.taskId) ?? [];
-      if (list.length < 2) list.push(occurrence);
-      byTask.set(occurrence.taskId, list);
+      const list = occurrencesByTask.get(occurrence.taskId) ?? [];
+      list.push(occurrence);
+      occurrencesByTask.set(occurrence.taskId, list);
     }
     const checklistByTask = new Map<string, typeof checklistRows>();
     for (const item of checklistRows) {
@@ -332,28 +305,7 @@ export class TasksService {
       list.push(item);
       checklistByTask.set(item.taskId, list);
     }
-    return taskRows.map((task) => ({
-      taskId: task.id,
-      taskVersion: task.version,
-      title: task.title,
-      kind: task.kind,
-      importance: task.importance,
-      context: task.context,
-      timeMode: task.timeMode,
-      recurring: Boolean(task.recurrenceRule),
-      checklist: (checklistByTask.get(task.id) ?? []).map((item) => ({ text: item.text, done: item.done })),
-      occurrences: (byTask.get(task.id) ?? []).map((occurrence) => ({
-        occurrenceId: occurrence.id,
-        occurrenceVersion: occurrence.version,
-        status: occurrence.status,
-        timezone: occurrence.timezone,
-        plannedStartAt: occurrence.plannedStartAt?.toISOString() ?? null,
-        plannedEndAt: occurrence.plannedEndAt?.toISOString() ?? null,
-        plannedLocalDate: occurrence.plannedLocalDate,
-        dueAt: occurrence.dueAt?.toISOString() ?? null,
-        dueLocalDate: occurrence.dueLocalDate,
-      })),
-    }));
+    return { tasks: taskRows, occurrencesByTask, checklistByTask, ftsMatchIds: new Set(matches.map((task) => task.id)) };
   }
 
   async getTask(workspaceId: string, taskId: string) {
@@ -477,6 +429,11 @@ export class TasksService {
     return { checklist: checklist.map((item) => ({ text: item.text, done: item.done })), goalTitle };
   }
 
+  /** The occurrence an action on this task addresses; null for a task with no live occurrence. */
+  findCurrentOccurrence(workspaceId: string, taskId: string, opts: { includeElapsed?: boolean } = {}) {
+    return this.repository.findCurrentOccurrence(workspaceId, taskId, opts);
+  }
+
   async getOccurrenceContext(workspaceId: string, occurrenceId: string) {
     const occurrence = await this.repository.findOccurrence(workspaceId, occurrenceId);
     if (!occurrence) return null;
@@ -505,7 +462,4 @@ function telegramTaskTime(row: { task: typeof tasks.$inferSelect; occurrence: ty
   return value ? new Date(value).getTime() : Number.POSITIVE_INFINITY;
 }
 
-export function withExplicitReminder(defaults: ReminderRuleSpec[], explicit?: ReminderRuleSpec): ReminderRuleSpec[] {
-  if (!explicit) return defaults;
-  return [...defaults.filter((rule) => rule.purpose !== "user_reminder"), explicit];
-}
+export { withExplicitReminder };

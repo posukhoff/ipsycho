@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
-import { conversationTopics, goals, memoryItems, messages, taskEvents, taskGoals, taskOccurrences, tasks, userSettings } from "../database/schema.js";
+import { conversationTopics, goals, memoryItems, messages, taskEvents, taskGoals, tasks } from "../database/schema.js";
 
 @Injectable()
 export class ContextRepository {
@@ -25,6 +25,16 @@ export class ContextRepository {
       eq(conversationTopics.status, "active"),
     )).returning({ id: conversationTopics.id });
     return rows.length;
+  }
+
+  /** The one topic the model's `continue`/`resolve` directives address; null when none is active. */
+  async findActiveTopic(workspaceId: string, userId: string) {
+    const [row] = await this.database.db.select().from(conversationTopics).where(and(
+      eq(conversationTopics.workspaceId, workspaceId),
+      eq(conversationTopics.userId, userId),
+      eq(conversationTopics.status, "active"),
+    )).orderBy(desc(conversationTopics.lastMessageAt)).limit(1);
+    return row ?? null;
   }
 
   async findTopic(workspaceId: string, userId: string, topicId: string) {
@@ -202,16 +212,6 @@ export class ContextRepository {
     )).orderBy(desc(memoryItems.updatedAt)).limit(limit);
   }
 
-  async profileInvitationState(userId: string): Promise<Date | null> {
-    const [row] = await this.database.db.select({ profileInvitedAt: userSettings.profileInvitedAt })
-      .from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
-    return row?.profileInvitedAt ?? null;
-  }
-
-  async markProfileInvitationShown(userId: string, now: Date): Promise<void> {
-    await this.database.db.update(userSettings).set({ profileInvitedAt: now }).where(eq(userSettings.userId, userId));
-  }
-
   async findMemory(workspaceId: string, userId: string, memoryId: string) {
     const [row] = await this.database.db.select().from(memoryItems).where(and(
       eq(memoryItems.workspaceId, workspaceId),
@@ -221,7 +221,8 @@ export class ContextRepository {
     return row ?? null;
   }
 
-  async listGoalsForContext(workspaceId: string, limit = 12) {
+  /** Goal rows the model may reference this turn; links come from `listTaskGoalLinks` for the shown tasks. */
+  async listGoalsForContext(workspaceId: string, limit = 30) {
     return this.database.db.select().from(goals).where(and(
       eq(goals.workspaceId, workspaceId),
       inArray(goals.status, ["active", "paused", "completed"]),
@@ -300,14 +301,5 @@ export class ContextRepository {
       inArray(taskEvents.occurrenceId, [...occurrenceIds]),
       eq(taskEvents.eventType, "occurrence:blocker"),
     )).orderBy(desc(taskEvents.createdAt)).limit(limit);
-  }
-
-  async listOpenOccurrences(workspaceId: string, limit = 40) {
-    return this.database.db.select({ occurrence: taskOccurrences, task: tasks }).from(taskOccurrences)
-      .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
-      .where(and(
-        eq(taskOccurrences.workspaceId, workspaceId),
-        inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"]),
-      )).limit(limit);
   }
 }

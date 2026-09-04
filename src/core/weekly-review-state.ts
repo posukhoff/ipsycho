@@ -44,19 +44,22 @@ export function mergeWeeklyReviewProgress(current: unknown, progress: WeeklyRevi
 }
 
 /** Provider progress is evidence metadata, not authority. */
-export function groundWeeklyReviewProgress(progress: WeeklyReviewProgress | null | undefined, userText: string): WeeklyReviewProgress | null {
-  if (!progress) return null;
+/**
+ * Which weekly-review dimensions the user's own message supports. Derived from the text
+ * only: the model no longer reports progress, so it cannot claim a dimension the user
+ * never addressed.
+ */
+export function weeklyReviewProgressFromText(userText: string): WeeklyReviewProgress {
   const text = userText.toLocaleLowerCase();
-  const supported = (pattern: RegExp, value: WeeklyReviewState[WeeklyReviewDimension]) => pattern.test(text)
-    ? value ?? { status: "provided" as const, summary: userText.trim().slice(0, 1000) }
-    : null;
+  const summary = { status: "provided" as const, summary: userText.trim().slice(0, 1000) };
+  const supported = (pattern: RegExp) => pattern.test(text) ? summary : null;
   return {
-    outcome: supported(/(?:хочу|ціль|цель|(?:^|[^\p{L}\p{N}_])результат(?:$|[^\p{L}\p{N}_])|результат\w*\s+недел|підсум|итог|отримат|получить|добить|achiev|outcome|goal|want)/u, progress.outcome),
-    capacityEnergy: supported(/(?:\b\d+(?:[.,]\d+)?\s*(?:час|годин)|врем|часу|энерг|енерг|утр|ранок|вечер|після\s+\d|после\s+\d|capacity|available|energy)/u, progress.capacityEnergy),
-    risks: supported(/(?:риск|ризик|меша|завад|сорв|зірв|блок|вместо|замість|risk|blocker|instead)/u, progress.risks),
-    minimumSuccess: supported(/(?:миним|мінім|достаточ|достатн|хотя\s+бы|хоча\s+б|minimum|at\s+least)/u, progress.minimumSuccess),
-    commitments: supported(/(?:обязат|зобов|назначен|зустріч|встреч|интервью|співбесід|семейн|родин|commitment|meeting|interview|calendar)/u, progress.commitments),
-    conclusionRequested: progress.conclusionRequested && /(?:финальн|фінальн|итог|підсум|законч|заверш|дай\s+.*план|conclude|final\s+plan|finish)/u.test(text),
+    outcome: supported(/(?:хочу|ціль|цель|(?:^|[^\p{L}\p{N}_])результат(?:$|[^\p{L}\p{N}_])|результат\w*\s+недел|підсум|итог|отримат|получить|добить|achiev|outcome|goal|want)/u),
+    capacityEnergy: supported(/(?:\b\d+(?:[.,]\d+)?\s*(?:час|годин)|врем|часу|энерг|енерг|утр|ранок|вечер|після\s+\d|после\s+\d|capacity|available|energy)/u),
+    risks: supported(/(?:риск|ризик|меша|завад|сорв|зірв|блок|вместо|замість|risk|blocker|instead)/u),
+    minimumSuccess: supported(/(?:миним|мінім|достаточ|достатн|хотя\s+бы|хоча\s+б|minimum|at\s+least)/u),
+    commitments: supported(/(?:обязат|зобов|назначен|зустріч|встреч|интервью|співбесід|семейн|родин|commitment|meeting|interview|calendar)/u),
+    conclusionRequested: /(?:финальн|фінальн|итог|підсум|законч|заверш|дай\s+.*план|conclude|final\s+plan|finish)/u.test(text),
   };
 }
 

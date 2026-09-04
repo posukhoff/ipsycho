@@ -1,3 +1,5 @@
+> **Superseded (2026-09-04) by the agent contract v2** described in `docs/AGENT_FLOW.md`. The task-batch mechanism and its `TASK_BATCH_ENABLED` flag are removed: an array of actions in one message is itself the atomic package, and every action addresses a task by a short context id while the server resolves the occurrence, the series and the versions. The recurrence, goal-guidance and weekly-planning behaviours below remain in force; the parts describing `task_batch`, `source`/`confidence`, `goalAnalysisFocus` and `reviewProgress` do not.
+
 ## Why
 
 Production QA showed that IPsycho can create an atomic goal with several tasks and handle simple conversational dates, but it can silently lose recurrence end bounds, terminate weekly planning before collecting enough context, analyze the wrong goal, and reject multi-step task requests with a generic error. These failures undermine trust precisely when a user needs the assistant to turn an unclear objective into a reliable plan.

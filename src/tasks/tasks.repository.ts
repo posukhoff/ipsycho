@@ -28,11 +28,46 @@ export interface PersistedTaskPlan {
 export class TasksRepository {
   constructor(private readonly database: DatabaseService) {}
 
-  async listActiveTasksForAi(workspaceId: string, limit = 12) {
+  /** Every task the assistant may address: active and paused series, newest change first. */
+  async listActiveTasksForAi(workspaceId: string) {
     return this.database.db.select().from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active")))
-      .orderBy(desc(tasks.updatedAt))
-      .limit(limit);
+      .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.status, ["active", "paused"])))
+      .orderBy(desc(tasks.updatedAt));
+  }
+
+  /** Full-text match over title and context, same `simple` configuration as memory search. */
+  async searchActiveTasks(workspaceId: string, query: string, limit = 20) {
+    const searchText = query.trim();
+    if (!searchText) return [];
+    const vector = sql`to_tsvector('simple', ${tasks.title} || ' ' || coalesce(${tasks.context}, ''))`;
+    const searchQuery = sql`websearch_to_tsquery('simple', ${searchText})`;
+    return this.database.db.select().from(tasks).where(and(
+      eq(tasks.workspaceId, workspaceId),
+      inArray(tasks.status, ["active", "paused"]),
+      sql`${vector} @@ ${searchQuery}`,
+    )).orderBy(desc(sql`ts_rank_cd(${vector}, ${searchQuery})`), desc(tasks.updatedAt)).limit(limit);
+  }
+
+  /**
+   * The occurrence a task-addressed action lands on: something in progress first, then the open
+   * one, then the nearest scheduled; elapsed only when the caller can still act on it (completion).
+   */
+  async findCurrentOccurrence(workspaceId: string, taskId: string, opts: { includeElapsed?: boolean } = {}) {
+    const statuses: Array<typeof taskOccurrences.$inferSelect["status"]> = opts.includeElapsed
+      ? ["in_progress", "open", "scheduled", "elapsed"]
+      : ["in_progress", "open", "scheduled"];
+    const [row] = await this.database.db.select().from(taskOccurrences).where(and(
+      eq(taskOccurrences.workspaceId, workspaceId),
+      eq(taskOccurrences.taskId, taskId),
+      inArray(taskOccurrences.status, statuses),
+    )).orderBy(
+      sql`case ${taskOccurrences.status} when 'in_progress' then 0 when 'open' then 1 when 'scheduled' then 2 else 3 end`,
+      sql`coalesce(${taskOccurrences.plannedStartAt}, ${taskOccurrences.dueAt}) asc nulls last`,
+      asc(taskOccurrences.plannedLocalDate),
+      asc(taskOccurrences.dueLocalDate),
+      asc(taskOccurrences.id),
+    ).limit(1);
+    return row ?? null;
   }
 
 
@@ -123,13 +158,13 @@ export class TasksRepository {
     )).orderBy(asc(taskRecurrenceExclusions.taskId), asc(taskRecurrenceExclusions.localDate));
   }
 
-  async listActiveOccurrencesForTasks(workspaceId: string, taskIds: readonly string[], limit = 40) {
+  async listActiveOccurrencesForTasks(workspaceId: string, taskIds: readonly string[]) {
     if (!taskIds.length) return [];
     return this.database.db.select().from(taskOccurrences).where(and(
       eq(taskOccurrences.workspaceId, workspaceId),
       inArray(taskOccurrences.taskId, [...taskIds]),
       inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"]),
-    )).orderBy(asc(taskOccurrences.plannedStartAt), asc(taskOccurrences.dueAt)).limit(limit);
+    )).orderBy(asc(taskOccurrences.plannedStartAt), asc(taskOccurrences.dueAt));
   }
 
   async findTask(workspaceId: string, taskId: string) {
@@ -191,20 +226,7 @@ export class TasksRepository {
   async createPlans(plans: readonly PersistedTaskPlan[]): Promise<void> {
     if (!plans.length) return;
     await this.database.db.transaction(async (tx) => {
-      for (const plan of plans) {
-        await tx.insert(tasks).values(plan.task);
-        if (plan.recurrenceExclusions.length) await tx.insert(taskRecurrenceExclusions).values(plan.recurrenceExclusions);
-        if (plan.occurrences.length) await tx.insert(taskOccurrences).values(plan.occurrences);
-        if (plan.reminderRules.length) await tx.insert(reminderRules).values(plan.reminderRules);
-        if (plan.reminderDeliveries.length) await tx.insert(reminderDeliveries).values(plan.reminderDeliveries);
-        if (plan.checklist.length) await tx.insert(taskChecklistItems).values(plan.checklist);
-        await tx.insert(taskEvents).values({
-          workspaceId: plan.task.workspaceId,
-          taskId: plan.task.id,
-          ...(plan.task.createdByUserId ? { actorUserId: plan.task.createdByUserId } : {}),
-          eventType: "task:created",
-        });
-      }
+      for (const plan of plans) await insertTaskPlan(tx, plan);
     });
   }
 
@@ -408,4 +430,22 @@ export class TasksRepository {
       return updated;
     });
   }
+}
+
+export type TasksTransaction = Parameters<Parameters<DatabaseService["db"]["transaction"]>[0]>[0];
+
+/** Persists one prepared task with its occurrences, rules, deliveries, checklist and creation event. */
+export async function insertTaskPlan(tx: TasksTransaction, plan: PersistedTaskPlan): Promise<void> {
+  await tx.insert(tasks).values(plan.task);
+  if (plan.recurrenceExclusions.length) await tx.insert(taskRecurrenceExclusions).values(plan.recurrenceExclusions);
+  if (plan.occurrences.length) await tx.insert(taskOccurrences).values(plan.occurrences);
+  if (plan.reminderRules.length) await tx.insert(reminderRules).values(plan.reminderRules);
+  if (plan.reminderDeliveries.length) await tx.insert(reminderDeliveries).values(plan.reminderDeliveries);
+  if (plan.checklist.length) await tx.insert(taskChecklistItems).values(plan.checklist);
+  await tx.insert(taskEvents).values({
+    workspaceId: plan.task.workspaceId,
+    taskId: plan.task.id,
+    ...(plan.task.createdByUserId ? { actorUserId: plan.task.createdByUserId } : {}),
+    eventType: "task:created",
+  });
 }

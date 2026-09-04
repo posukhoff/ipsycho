@@ -53,7 +53,6 @@ const schema = z.object({
   AI_PRICING_JSON: optionalPricing,
   AI_MAX_MESSAGES_PER_HOUR: z.coerce.number().int().min(5).max(1000).default(60),
   AI_MAX_CALLS_PER_HOUR: z.coerce.number().int().min(5).max(1000).default(60),
-  TASK_BATCH_ENABLED: booleanFlag.default(false),
   OPENAI_API_KEY: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
   DEEPSEEK_API_KEY: optionalSecret,
@@ -81,7 +80,6 @@ export interface AppConfig {
   aiPricing: Record<string, AiModelPricing>;
   aiMaxMessagesPerHour: number;
   aiMaxCallsPerHour: number;
-  taskBatchEnabled: boolean;
   openAiApiKey?: string;
   geminiApiKey?: string;
   deepSeekApiKey?: string;
@@ -110,7 +108,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     aiPricing: value.AI_PRICING_JSON ?? {},
     aiMaxMessagesPerHour: value.AI_MAX_MESSAGES_PER_HOUR,
     aiMaxCallsPerHour: value.AI_MAX_CALLS_PER_HOUR,
-    taskBatchEnabled: value.TASK_BATCH_ENABLED,
     ...(value.OPENAI_API_KEY ? { openAiApiKey: value.OPENAI_API_KEY } : {}),
     ...(value.GEMINI_API_KEY ? { geminiApiKey: value.GEMINI_API_KEY } : {}),
     ...(value.DEEPSEEK_API_KEY ? { deepSeekApiKey: value.DEEPSEEK_API_KEY } : {}),

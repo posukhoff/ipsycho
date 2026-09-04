@@ -25,10 +25,10 @@ test("weekly review stays open for collaborative planning instead of making auto
     reviewClarificationDecision({ kind: "weekly", clarificationCountBeforeTurn: 0, askedQuestion: true }),
     { checkpoint: false, forceConclusion: false, resolveAfterTurn: false },
   );
-  assert.match(reviewCorrection("weekly"), /Never reschedule/);
-  assert.match(reviewCorrection("weekly"), /explicitly/);
-  assert.match(reviewCorrection("weekly"), /structured question field/);
-  assert.match(reviewCorrection("weekly"), /do not hide it in reply/);
+  assert.match(reviewCorrection("weekly"), /Do not create, reschedule/);
+  assert.match(reviewCorrection("weekly"), /intent=inferred/);
+  assert.match(reviewCorrection("weekly"), /intent=explicit only for a change the user explicitly chose/);
+  assert.match(reviewCorrection("weekly"), /question field, never hidden in reply/);
 });
 
 test("weekly planning allows one focused question for each of five required dimensions", () => {

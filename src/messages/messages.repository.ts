@@ -6,6 +6,19 @@ import { messages, userSettings, users } from "../database/schema.js";
 
 export type MessageProcessingStatus = "processing" | "processed" | "waiting_ai" | "blocked_consent";
 
+export interface MessageCardRef {
+  id: string;
+  telegramChatId: number | null;
+  telegramMessageId: number | null;
+  pendingGroupId: string | null;
+  createdAt: Date;
+}
+
+const cardRefColumns = {
+  id: messages.id, telegramChatId: messages.telegramChatId, telegramMessageId: messages.telegramMessageId,
+  pendingGroupId: messages.pendingGroupId, createdAt: messages.createdAt,
+};
+
 @Injectable()
 export class MessagesRepository {
   constructor(private readonly database: DatabaseService) {}
@@ -19,6 +32,7 @@ export class MessagesRepository {
     content: string;
     telegramChatId?: number;
     telegramMessageId?: number;
+    pendingGroupId?: string;
   }) {
     return (await this.saveOnce(input)).message;
   }
@@ -32,6 +46,7 @@ export class MessagesRepository {
     content: string;
     telegramChatId?: number;
     telegramMessageId?: number;
+    pendingGroupId?: string;
   }): Promise<{ message: typeof messages.$inferSelect | null; inserted: boolean }> {
     const [row] = await this.database.db.insert(messages).values({
       workspaceId: input.workspaceId,
@@ -42,6 +57,7 @@ export class MessagesRepository {
       content: input.content,
       ...(input.telegramChatId !== undefined ? { telegramChatId: input.telegramChatId } : {}),
       ...(input.telegramMessageId !== undefined ? { telegramMessageId: input.telegramMessageId } : {}),
+      ...(input.pendingGroupId ? { pendingGroupId: input.pendingGroupId } : {}),
     }).onConflictDoNothing().returning();
     if (row) return { message: row, inserted: true };
     if (input.telegramMessageId === undefined || input.telegramChatId === undefined) return { message: null, inserted: false };
@@ -51,6 +67,22 @@ export class MessagesRepository {
       eq(messages.telegramMessageId, input.telegramMessageId),
     )).limit(1);
     return { message: existing ?? null, inserted: false };
+  }
+
+  /** The newest assistant turn: the only message a bare "да"/"нет" can answer. */
+  async findLastAssistantMessage(workspaceId: string, userId: string): Promise<MessageCardRef | null> {
+    const [row] = await this.database.db.select(cardRefColumns).from(messages).where(and(
+      eq(messages.workspaceId, workspaceId), eq(messages.userId, userId), eq(messages.role, "assistant"),
+    )).orderBy(desc(messages.createdAt)).limit(1);
+    return row ?? null;
+  }
+
+  /** The assistant message that carries a given proposal card, to retire its keyboard when superseded. */
+  async findByPendingGroup(workspaceId: string, groupId: string): Promise<MessageCardRef | null> {
+    const [row] = await this.database.db.select(cardRefColumns).from(messages).where(and(
+      eq(messages.workspaceId, workspaceId), eq(messages.pendingGroupId, groupId),
+    )).orderBy(desc(messages.createdAt)).limit(1);
+    return row ?? null;
   }
 
   async setStatus(workspaceId: string, messageId: string, status: MessageProcessingStatus): Promise<void> {

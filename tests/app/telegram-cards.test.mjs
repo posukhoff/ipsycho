@@ -94,12 +94,18 @@ test("today and task lists always show when, including deadlines and other days"
 });
 
 test("pending confirmation describes the concrete change", () => {
-  const schedule = { mode: "exact", timezone: "Europe/Kyiv", startDate: "2026-08-25", startTime: "09:30", endDate: null, endTime: null, dueDate: null, dueTime: null, durationMinutes: null, fuzzyHorizonText: null, reviewDate: null, reviewTime: null };
-  assert.equal(describeAction({ type: "create_task", title: "Зарядка", definition: { localSchedule: schedule } }), "Создать «Зарядка» — 25.08 09:30");
-  assert.equal(describeAction({ type: "update_task", patch: { title: "Ежегодная вакцинация", why: null, nextAction: null, context: "раз в год", importance: null, checklist: null, habitMode: null, minimumAction: null, desiredAction: null, habitTrigger: null } }), "Изменить задачу: название → «Ежегодная вакцинация», контекст");
-  assert.equal(describeAction({ type: "change_reminder", mode: "replace", reminder: { triggerKind: "relative_timestamp", anchor: "planned_start", offsetMinutes: -30, quietPolicy: "respect" } }), "Заменить напоминание за 30 мин до начала");
-  assert.equal(describeAction({ type: "reschedule_occurrence", reason: "не успеваю", schedule: { localSchedule: { ...schedule, startDate: "2026-08-26", startTime: "10:00" } } }), "Перенести — 26.08 10:00 (не успеваю)");
-  assert.equal(describeAction({ type: "save_memory", sensitive: true, content: "Собаку зовут Морти" }), "Запомнить (чувствительное): «Собаку зовут Морти»");
+  const base = { intent: "explicit", timezone: "Europe/Kyiv", reviewTime: "09:00" };
+  const body = {
+    title: "Зарядка", why: null, nextAction: null, context: null, checklist: null, importance: "normal", kind: "task",
+    when: { mode: "exact", date: "2026-08-25", time: "09:30", durationMinutes: null }, recurrence: null, reminder: null, habit: null, timezone: null,
+  };
+  const target = { kind: "occurrence", taskId: "11111111-1111-4111-8111-111111111111", taskVersion: 1, occurrenceId: "22222222-2222-4222-8222-222222222222", occurrenceVersion: 1, timezone: "Europe/Kyiv" };
+  assert.equal(describeAction({ ...base, type: "create_task", body, goal: null }), "Создать «Зарядка» — 25.08 09:30");
+  assert.equal(describeAction({ ...base, type: "update_task", taskId: target.taskId, taskVersion: 1, patch: { title: "Ежегодная вакцинация", why: null, nextAction: null, context: "раз в год", importance: null, checklist: null, habit: null } }), "Изменить задачу: название → «Ежегодная вакцинация», контекст");
+  assert.equal(describeAction({ ...base, type: "set_reminder", target, mode: "replace", reminder: { kind: "offset", anchor: "start", minutes: -30, quiet: "respect" } }), "Заменить напоминание за 30 мин до начала");
+  assert.equal(describeAction({ ...base, type: "reschedule", target, when: { mode: "exact", date: "2026-08-26", time: "10:00", durationMinutes: null }, recurrence: null, reason: "не успеваю" }), "Перенести — 26.08 10:00 (не успеваю)");
+  assert.equal(describeAction({ ...base, type: "set_task_state", target, state: "cancelled", note: null }), "Отменить");
+  assert.equal(describeAction({ ...base, type: "memory", op: "save", memoryId: null, memoryVersion: null, kind: "note", content: "Собаку зовут Морти", sensitive: true }), "Запомнить (чувствительное): «Собаку зовут Морти»");
 });
 
 test("settings show the quiet-hours window instead of hiding it", () => {

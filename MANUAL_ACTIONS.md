@@ -16,12 +16,11 @@ This file contains only checks that cannot be proven by the local automated suit
 - [ ] On a phone, exercise Today, Tasks, task details, Reminders and Settings; verify callbacks edit the current card when possible, stale buttons fail briefly, and payloads remain within Telegram's 64-byte limit.
 - [ ] Verify a scheduled item does not print a separate reminder line when the reminder time is identical to the scheduled time.
 - [ ] Test quiet hours, snooze, morning/evening digests, weekly review, notification defaults and one real IANA timezone DST boundary.
-- [ ] With `TASK_BATCH_ENABLED=false`, verify ordinary single-task actions still work, a provider cannot apply `task_batch`, and a mixed task-operation request receives a truthful “nothing changed” response without reconfirming supplied time/timezone; restart and verify any incompatible pending batch is cancelled with an audit event.
+- [ ] Send the nine real-dialog phrasings from `docs/AGENT_FLOW.md` §2.7 (create with a reminder, "напомни через четыре часа …", two reschedules in one message, reschedule + create + goal link, every-second-Monday recurrence, weekly recurrence with a skipped first date, four tasks with a habit, "завтра после обеда" without a time). Verify each ends in one applied group, one confirmation card or one meaningful question, with exactly one provider call per message in `ai_usage`.
 - [ ] Apply migration `0022_complex_planning_foundations.sql`, then test bounded recurrence through its inclusive end date, every-second-week cadence, an excluded first occurrence and one real DST boundary.
-- [ ] With `TASK_BATCH_ENABLED=true`, ask for one four-step package mixing create, update, reschedule and goal link. Verify exactly one confirmation (when needed), no internal step IDs, one applied summary and one Undo control.
-- [ ] Make one batch target stale before confirmation and inject one failing middle step in a non-production rehearsal. Verify zero partial task/link/reminder changes and a precise whole-package rejection.
+- [ ] Ask for one package mixing create, reschedule and goal link. Verify exactly one card when a step needs confirmation, one applied summary, one Undo control, and that a stale target rejects the whole package with nothing applied.
 - [ ] Run a weekly review where the first answer contains only the desired outcome. Verify the review continues through capacity, risks, minimum success and commitments; then accept proposed task changes explicitly and verify they use normal confirmation/Undo rules without creating memory implicitly.
-- [ ] Inspect logs from successful, rejected, conflicted and undone batches. Verify they contain only IDs, counts and sanitized reason codes—not message bodies, task titles, raw provider payloads or internal step IDs.
+- [ ] Inspect logs from applied, rejected, conflicted and undone groups. Verify they contain only ids, counts, issue codes and sanitized reason codes—not message bodies, task titles, candidate names or raw provider payloads.
 - [ ] Test voice with valid, oversized and over-duration recordings; revoke OpenAI consent during download and confirm upload to the provider is blocked.
 - [ ] Exercise transport errors and process restarts during AI retry, reminder processing and action acknowledgement; record whether the known external duplicate/missing-acknowledgement window is acceptable for release.
 - [ ] Force a fatal Telegram polling failure and verify the process exits non-zero and the deployment supervisor restarts it.
@@ -34,9 +33,7 @@ This file contains only checks that cannot be proven by the local automated suit
 - [ ] Run `scripts/restore-compose.sh` against a selected encrypted backup before launch and at least monthly thereafter.
 - [ ] Alert on process/container health, disk usage, PostgreSQL, Telegram/provider errors, stuck jobs and backup freshness.
 
-## Task-batch staged rollout and rollback
+## Contract v2 deployment
 
-- [ ] Deploy the migration and application with `TASK_BATCH_ENABLED=false`; run the disabled-mode and recurrence checks above.
-- [ ] Enable the flag for a synthetic allowlisted user, complete the package/confirmation/Undo checks, and ensure no synthetic active tasks, goals, occurrences or reminders remain.
-- [ ] Expand rollout only after sanitized logs show no unexplained conflicts or reconciliation failures.
-- [ ] For rollback, set `TASK_BATCH_ENABLED=false` and restart. Confirm pending task batches were cancelled and audited; do not delete committed action journals because they are required for Undo and diagnosis.
+- [ ] Deploy migration `0023_message_pending_group.sql` with the application. On startup, pending confirmation cards stored under the previous action contract are expired with a `legacy_contract_expired` audit event; verify the count in the log matches the pending rows before deploy.
+- [ ] Send a bare "да" to a card the bot sent last and verify it confirms; send "да" after a model question with no card and verify it goes to the model; press Reschedule on a task and type "завтра в 10" and verify the move.

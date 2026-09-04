@@ -8,11 +8,11 @@ import { TasksModule } from "../tasks/tasks.module.js";
 import { ActionMutationsRepository } from "./action-mutations.repository.js";
 import { ActionsRepository } from "./actions.repository.js";
 import { ActionsService } from "./actions.service.js";
-import { TaskBatchRepository } from "./task-batch.repository.js";
+import { ActionGroupRepository } from "./action-group.repository.js";
 
 @Module({
   imports: [ConfigModule, DatabaseModule, TasksModule, RemindersModule, ContextModule, SettingsModule],
-  providers: [ActionsRepository, ActionMutationsRepository, TaskBatchRepository, ActionsService],
+  providers: [ActionsRepository, ActionMutationsRepository, ActionGroupRepository, ActionsService],
   exports: [ActionsService],
 })
 export class ActionsModule {}

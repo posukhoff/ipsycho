@@ -17,7 +17,7 @@
     "test:core": "rm -rf .core-dist && tsc -p tsconfig.core.json && node --test tests/core/*.test.mjs",
     "test:app": "node --test tests/app/*.test.mjs",
     "test:e2e": "sh scripts/test-e2e.sh",
-    "qa:complex": "node scripts/qa-complex-planning.mjs",
+    "qa:agent": "node scripts/qa-agent-flow.mjs",
     "check": "npm run typecheck && npm run build && npm run test:core && npm run test:app"
   },
   "dependencies": {

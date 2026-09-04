@@ -10,11 +10,11 @@ import { detectConversationControl } from "../core/conversation-control.js";
 import { parseCustomFollowUpInput, parseRescheduleInput } from "../core/deterministic-input.js";
 import { quickRescheduleSchedule, type QuickRescheduleChoice } from "../core/telegram-ux.js";
 import type { RescheduleFields } from "../core/reschedule.js";
-import { formatIsoInstantInTimezone } from "../core/timezone.js";
 import { localDateAt } from "../core/timezone.js";
 import { renderAppliedReport } from "../core/applied-report.js";
 import { formatLocalDateTime } from "../core/time-presentation.js";
-import type { ProposedActionDraft } from "../core/ai-actions.js";
+import type { ResolvedAction } from "../core/ai-contract.js";
+import { whenFromRescheduleFields } from "../actions/action-conversion.js";
 import { ReminderSchedulingService } from "../reminders/reminder-scheduling.service.js";
 import { SettingsService, type PendingInput } from "../settings/settings.service.js";
 import { TasksService } from "../tasks/tasks.service.js";
@@ -663,27 +663,19 @@ export class TelegramHandlersService implements OnModuleInit {
   ) {
     const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
     if (!context) throw new Error("occurrence not found");
-    const action: ProposedActionDraft = {
-      type: "reschedule_occurrence",
-      source: "user_explicit",
-      confidence: 1,
-      occurrenceId,
-      expectedVersion: context.occurrence.version,
+    const settings = await this.settings.get(access.user.id);
+    const action: ResolvedAction = {
+      type: "reschedule",
+      intent: "explicit",
+      timezone: context.occurrence.timezone,
+      reviewTime: settings?.morningReferenceTime ?? "09:00",
+      target: { kind: "occurrence", taskId: context.task.id, taskVersion: context.task.version, occurrenceId, occurrenceVersion: context.occurrence.version, timezone: context.occurrence.timezone },
+      when: whenFromRescheduleFields(schedule, context.occurrence.timezone),
+      recurrence: null,
       reason: reason ?? null,
-      schedule: {
-        timezone: context.occurrence.timezone,
-        plannedStartAt: schedule.plannedStartAt ? formatIsoInstantInTimezone(schedule.plannedStartAt, context.occurrence.timezone) : null,
-        plannedEndAt: schedule.plannedEndAt ? formatIsoInstantInTimezone(schedule.plannedEndAt, context.occurrence.timezone) : null,
-        plannedLocalDate: schedule.plannedLocalDate ?? null,
-        dueAt: schedule.dueAt ? formatIsoInstantInTimezone(schedule.dueAt, context.occurrence.timezone) : null,
-        dueLocalDate: schedule.dueLocalDate ?? null,
-        fuzzyHorizonText: schedule.fuzzyHorizonText ?? null,
-        reviewAt: schedule.reviewAt ? formatIsoInstantInTimezone(schedule.reviewAt, context.occurrence.timezone) : null,
-      },
     };
-    const errors = await this.actions.validate([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
-    if (errors.length) throw new Error(errors.join("; "));
-    return this.actions.handleProposed([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
+    const applied = await this.actions.applyResolved([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
+    return { applied };
   }
 
   private registerTextHandler(): void {
@@ -1090,8 +1082,7 @@ export class TelegramHandlersService implements OnModuleInit {
     const task = await this.tasks.getTask(access.workspaceId, taskId);
     if (!task) return ctx.answerCallbackQuery({ text: "Серия не найдена" });
     try {
-      const action: ProposedActionDraft = { type: "change_series", source: "user_explicit", confidence: 1, taskId, expectedVersion: task.version, operation, edit: null };
-      const result = await this.actions.handleProposed([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
+      const result = await this.actions.applySeriesOperation({ workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id }, taskId, task.version, operation);
       const message = operation === "pause" ? "Серия на паузе" : "Серия отменена";
       await ctx.answerCallbackQuery({ text: message });
       if (result.applied) await ctx.reply(`${message}.`, { reply_markup: undoKeyboard(result.applied.groupId) });
@@ -1125,6 +1116,7 @@ export class TelegramHandlersService implements OnModuleInit {
         const result = await this.chat.processText({
           workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus, timezone: currentSettings.timezone, language: currentSettings.pinnedLanguage ?? ctx.from?.language_code ?? null,
           text: ctx.message.text, telegramChatId: ctx.chat.id, telegramMessageId: ctx.message.message_id,
+          focus: { occurrenceId: pending.occurrenceId, action: "blocker" },
         });
         await this.chatReply.reply(ctx, access, result);
         return;
@@ -1138,28 +1130,26 @@ export class TelegramHandlersService implements OnModuleInit {
 
       const context = await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId);
       if (!context) throw new Error("occurrence not found");
-      const parsed = parseRescheduleInput(ctx.message.text, context.task.timeMode, timezone);
-      const action: ProposedActionDraft = {
-        type: "reschedule_occurrence",
-        source: "user_explicit",
-        confidence: 1,
-        occurrenceId: pending.occurrenceId,
-        expectedVersion: context.occurrence.version,
-        reason: parsed.reason ?? null,
-        schedule: {
-          timezone: context.occurrence.timezone,
-          plannedStartAt: parsed.schedule.plannedStartAt ? formatIsoInstantInTimezone(parsed.schedule.plannedStartAt, context.occurrence.timezone) : null,
-          plannedEndAt: parsed.schedule.plannedEndAt ? formatIsoInstantInTimezone(parsed.schedule.plannedEndAt, context.occurrence.timezone) : null,
-          plannedLocalDate: parsed.schedule.plannedLocalDate ?? null,
-          dueAt: parsed.schedule.dueAt ? formatIsoInstantInTimezone(parsed.schedule.dueAt, context.occurrence.timezone) : null,
-          dueLocalDate: parsed.schedule.dueLocalDate ?? null,
-          fuzzyHorizonText: parsed.schedule.fuzzyHorizonText ?? null,
-          reviewAt: parsed.schedule.reviewAt ? formatIsoInstantInTimezone(parsed.schedule.reviewAt, context.occurrence.timezone) : null,
-        },
-      };
-      const errors = await this.actions.validate([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
-      if (errors.length) throw new Error(errors.join("; "));
-      const result = await this.actions.handleProposed([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
+      let parsed: ReturnType<typeof parseRescheduleInput> | null = null;
+      try {
+        parsed = parseRescheduleInput(ctx.message.text, context.task.timeMode, timezone);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed) {
+        // Free text after the Reschedule button is the new time in the user's own words:
+        // the model reads it with the task in focus instead of a strict format loop.
+        const currentSettings = await this.settings.get(access.user.id);
+        if (!currentSettings) throw new Error("settings missing");
+        const result = await this.chat.processText({
+          workspaceId: access.workspaceId, userId: access.user.id, aiStatus: access.user.aiStatus, timezone: currentSettings.timezone, language: currentSettings.pinnedLanguage ?? ctx.from?.language_code ?? null,
+          text: ctx.message.text, telegramChatId: ctx.chat.id, telegramMessageId: ctx.message.message_id,
+          focus: { occurrenceId: pending.occurrenceId, action: "reschedule" },
+        });
+        await this.chatReply.reply(ctx, access, result);
+        return;
+      }
+      const result = await this.applyReschedule(access, pending.occurrenceId, parsed.schedule, parsed.reason);
       const keyboard = result.applied ? undoKeyboard(result.applied.groupId) : undefined;
       const report = result.applied?.items?.length ? renderAppliedReport(result.applied.items, new Date()) : "";
       const headline = parsed.schedule.fuzzyHorizonText ? "Вернул задачу в нечёткое планирование." : "Перенесено.";
@@ -1178,13 +1168,16 @@ export class TelegramHandlersService implements OnModuleInit {
         await ctx.reply("Не удалось продолжить AI-разбор сейчас. Описание препятствия сохранено; если сообщение ждёт AI, его можно повторить через /retry_ai.");
         return;
       }
+      if (pending.kind === "reschedule") {
+        await ctx.reply("Не удалось перенести. Скажи новое время ещё раз, например «завтра в 10» или «пт 15:00–16:00».");
+        return;
+      }
       await this.settings.setPendingInput(access.user.id, pending);
       if (pending.kind === "quick_reschedule_reason") {
         await ctx.reply("Не удалось перенести. Напиши коротко, почему переносишь, ещё раз.");
         return;
       }
-      const message = pending.kind === "reschedule" ? `Не удалось перенести. Проверь формат.\n${reschedulePrompt((await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId))?.task.timeMode ?? "point")}` : "Не понял время. Напиши минуты, HH:MM или YYYY-MM-DD HH:MM.";
-      await ctx.reply(message);
+      await ctx.reply("Не понял время. Напиши минуты, HH:MM или YYYY-MM-DD HH:MM.");
     }
   }
 
@@ -1299,9 +1292,8 @@ function aiHistoryClearedNotice(locale: TelegramLocale, count: number): string {
 function isUntilMorningPhrase(text: string): boolean { return /(?:замолчи|мовчи|не пиши(?: мне)?)\s+до\s+(?:утра|ранку)|до\s+(?:утра|ранку).*(?:замолчи|мовчи|не пиши)/iu.test(text.trim()); }
 function formatLocal(at: Date, timezone: string): string { return formatLocalDateTime(at, timezone, new Date()); }
 function reschedulePrompt(mode: string): string {
-  if (mode === "window") return "Новое окно: YYYY-MM-DD HH:MM-HH:MM. Причину можно добавить после |";
-  if (mode === "deadline") return "Новый срок: YYYY-MM-DD или YYYY-MM-DD HH:MM. Для разовой задачи можно вернуть нечёткий горизонт: примерно: <горизонт> @ YYYY-MM-DD HH:MM. Причину можно добавить после |";
-  return "Новое время: YYYY-MM-DD HH:MM. Для разовой задачи можно вернуть нечёткий горизонт: примерно: <горизонт> @ YYYY-MM-DD HH:MM. Причину можно добавить после |";
+  const hint = mode === "window" ? "например «завтра 10:00–11:00»" : mode === "deadline" ? "например «до пятницы» или «до 12.09 18:00»" : "например «завтра в 10» или «пн 9:30»";
+  return `Напиши, когда: ${hint}. Причину можно добавить после |`;
 }
 
 export function helpText(config: AppConfig, locale: TelegramLocale): string {

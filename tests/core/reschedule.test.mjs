@@ -45,3 +45,29 @@ test("one occurrence of a recurring series cannot become fuzzy", () => {
   const recurring = { ...task, recurrenceRule: "FREQ=DAILY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "expire" };
   assert.throws(() => rescheduledDefinition(recurring, { fuzzyHorizonText: "к осени", reviewAt: new Date("2026-09-01T07:00:00Z") }));
 });
+
+test("a fuzzy task becomes concrete when the reschedule names the target time mode", () => {
+  const fuzzy = { ...task, timeMode: "fuzzy", plannedStartAt: undefined, fuzzyHorizonText: "к осени", reviewAt: new Date("2026-09-01T07:00:00Z") };
+  delete fuzzy.plannedStartAt;
+  const point = rescheduledDefinition(fuzzy, { plannedStartAt: new Date("2026-08-11T10:00:00Z") }, "point");
+  assert.equal(point.timeMode, "point");
+  assert.equal(point.plannedStartAt.toISOString(), "2026-08-11T10:00:00.000Z");
+  assert.equal("fuzzyHorizonText" in point, false);
+  assert.equal("reviewAt" in point, false);
+
+  const allDay = rescheduledDefinition(fuzzy, { plannedLocalDate: "2026-08-12" }, "window");
+  assert.equal(allDay.timeMode, "window");
+  assert.equal(allDay.plannedLocalDate, "2026-08-12");
+
+  const deadline = rescheduledDefinition(fuzzy, { dueLocalDate: "2026-08-15" }, "deadline");
+  assert.equal(deadline.timeMode, "deadline");
+  assert.equal(deadline.dueLocalDate, "2026-08-15");
+
+  // Without the target mode a fuzzy task cannot silently become a point: the definition is invalid.
+  assert.throws(() => rescheduledDefinition(fuzzy, { plannedStartAt: new Date("2026-08-11T10:00:00Z") }));
+});
+
+test("targetTimeMode never overrides a return to fuzzy planning", () => {
+  const next = rescheduledDefinition(task, { fuzzyHorizonText: "в течение осени", reviewAt: new Date("2026-09-01T07:00:00Z") }, "point");
+  assert.equal(next.timeMode, "fuzzy");
+});

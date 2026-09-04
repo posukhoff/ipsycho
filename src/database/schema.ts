@@ -5,7 +5,7 @@
  * workspace-scoped source_action_group foreign keys on tasks/goals) live only
  * in migrations; keep schema.ts and migrations reviewed together.
  */
-import { bigint, boolean, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, bigint, boolean, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const userStatus = pgEnum("user_status", ["active", "disabled", "deletion_pending"]);
@@ -383,12 +383,16 @@ export const messages = pgTable("messages", {
   aiRetryCount: integer("ai_retry_count").notNull().default(0),
   aiNextRetryAt: timestamp("ai_next_retry_at", { withTimezone: true }),
   aiLastErrorAt: timestamp("ai_last_error_at", { withTimezone: true }),
+  /** The proposal card this assistant message carries; a bare "да" confirms it. */
+  pendingGroupId: uuid("pending_group_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   foreignKey({ columns: [t.workspaceId, t.userId], foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId], name: "messages_user_membership_fk" }),
   foreignKey({ columns: [t.workspaceId, t.topicId], foreignColumns: [conversationTopics.workspaceId, conversationTopics.id], name: "messages_topic_workspace_fk" }),
+  foreignKey({ columns: [t.workspaceId, t.pendingGroupId], foreignColumns: [actionGroups.workspaceId, actionGroups.id], name: "messages_pending_group_workspace_fk" }),
   uniqueIndex("messages_workspace_chat_message_uq").on(t.workspaceId, t.telegramChatId, t.telegramMessageId),
   index("messages_workspace_created_idx").on(t.workspaceId, t.createdAt),
+  index("messages_workspace_user_role_created_idx").on(t.workspaceId, t.userId, t.role, t.createdAt),
 ]);
 
 export const aiProviderConsents = pgTable("ai_provider_consents", {
@@ -404,7 +408,7 @@ export const actionGroups = pgTable("action_groups", {
   id: uuid("id").primaryKey().defaultRandom(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   actorUserId: uuid("actor_user_id").notNull(),
-  sourceMessageId: uuid("source_message_id").references(() => messages.id, { onDelete: "set null" }),
+  sourceMessageId: uuid("source_message_id").references((): AnyPgColumn => messages.id, { onDelete: "set null" }),
   status: actionGroupStatus("status").notNull(),
   requiresConfirmation: boolean("requires_confirmation").notNull().default(false),
   undoExpiresAt: timestamp("undo_expires_at", { withTimezone: true }),

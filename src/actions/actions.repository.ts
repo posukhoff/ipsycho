@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, isNotNull, lte, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, lte, or } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { actionEvents, actionGroups, pendingActions } from "../database/schema.js";
 
@@ -52,24 +52,26 @@ export class ActionsRepository {
     });
   }
 
-  /** The one proposal a bare "да"/"нет" can be about: the newest unexpired pending group. */
-  async findLatestPendingGroup(workspaceId: string, actorUserId: string, now: Date): Promise<{ groupId: string; createdAt: Date } | null> {
+  /** One unexpired pending proposal with its stored payloads; the card a "да" refers to. */
+  async findPendingGroup(workspaceId: string, actorUserId: string, groupId: string, now = new Date()): Promise<{
+    groupId: string; createdAt: Date; status: "pending"; actions: Array<{ actionType: string; payload: unknown }>;
+  } | null> {
     const [group] = await this.database.db.select({ id: actionGroups.id, createdAt: actionGroups.createdAt })
       .from(actionGroups)
       .where(and(
         eq(actionGroups.workspaceId, workspaceId),
+        eq(actionGroups.id, groupId),
         eq(actionGroups.actorUserId, actorUserId),
         eq(actionGroups.status, "pending"),
       ))
-      .orderBy(desc(actionGroups.createdAt))
       .limit(1);
     if (!group) return null;
-    const [action] = await this.database.db.select({ expiresAt: pendingActions.expiresAt })
+    const rows = await this.database.db.select({ actionType: pendingActions.actionType, payload: pendingActions.payload, expiresAt: pendingActions.expiresAt })
       .from(pendingActions)
       .where(and(eq(pendingActions.workspaceId, workspaceId), eq(pendingActions.groupId, group.id)))
-      .limit(1);
-    if (!action || action.expiresAt <= now) return null;
-    return { groupId: group.id, createdAt: group.createdAt };
+      .orderBy(pendingActions.createdAt);
+    if (!rows.length || rows.some((row) => row.expiresAt <= now)) return null;
+    return { groupId: group.id, createdAt: group.createdAt, status: "pending", actions: rows.map((row) => ({ actionType: row.actionType, payload: row.payload })) };
   }
 
   async claimPendingGroup(workspaceId: string, actorUserId: string, groupId: string, now: Date) {
@@ -113,20 +115,31 @@ export class ActionsRepository {
     });
   }
 
-  async cancelPendingTaskBatches(now: Date): Promise<number> {
+  /**
+   * Pending proposals stored under an older contract cannot be confirmed any more: their group is
+   * cancelled with an audit event so the user sees a fresh proposal instead of a silent failure.
+   */
+  async expireLegacyPendingGroups(now: Date, isValid: (actionType: string, payload: unknown) => boolean): Promise<number> {
     return this.database.db.transaction(async (tx) => {
-      const rows = await tx.select({ workspaceId: pendingActions.workspaceId, groupId: pendingActions.groupId })
-        .from(pendingActions).where(eq(pendingActions.actionType, "task_batch"));
-      const unique = [...new Map(rows.map((row) => [`${row.workspaceId}:${row.groupId}`, row])).values()];
+      const rows = await tx.select({ workspaceId: pendingActions.workspaceId, groupId: pendingActions.groupId, actionType: pendingActions.actionType, payload: pendingActions.payload })
+        .from(pendingActions);
+      const legacy = new Map<string, { workspaceId: string; groupId: string }>();
+      for (const row of rows) {
+        if (isValid(row.actionType, row.payload)) continue;
+        legacy.set(`${row.workspaceId}:${row.groupId}`, { workspaceId: row.workspaceId, groupId: row.groupId });
+      }
       let cancelledCount = 0;
-      for (const row of unique) {
+      for (const row of legacy.values()) {
         const [cancelled] = await tx.update(actionGroups).set({ status: "cancelled" }).where(and(
           eq(actionGroups.workspaceId, row.workspaceId), eq(actionGroups.id, row.groupId), eq(actionGroups.status, "pending"),
         )).returning({ id: actionGroups.id });
         if (!cancelled) continue;
         cancelledCount += 1;
         await tx.delete(pendingActions).where(and(eq(pendingActions.workspaceId, row.workspaceId), eq(pendingActions.groupId, row.groupId)));
-        await tx.insert(actionEvents).values({ workspaceId: row.workspaceId, groupId: row.groupId, actionType: "task_batch_rollout_cancelled", entityType: "action_group", entityId: row.groupId, afterState: { cancelledAt: now.toISOString(), reason: "rollout_disabled" } });
+        await tx.insert(actionEvents).values({
+          workspaceId: row.workspaceId, groupId: row.groupId, actionType: "legacy_contract_expired", entityType: "action_group", entityId: row.groupId,
+          afterState: { cancelledAt: now.toISOString(), reason: "contract_v2" },
+        });
       }
       return cancelledCount;
     });

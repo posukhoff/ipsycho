@@ -17,19 +17,19 @@ Current package version: `1.0.0-rc.4`. The product contract is defined by [Imple
 
 ## Chat control model
 
-Ordinary natural-language messages go to the agent first. The agent can propose validated actions for:
+Ordinary natural-language messages go to the agent. The agent answers with nine kinds of action, every one addressed to an entity by the short id the context assigned this turn (`t1`, `g2`, `m3`):
 
-- creating and editing tasks, goals, plans, reminders and recurring series;
-- starting, completing, postponing, skipping or cancelling an occurrence;
-- recording Seen or a concrete blocker;
-- linking tasks to goals and managing non-sensitive memory;
-- changing chat-accessible timezone, language, digest, weekly-review, quiet-hour, snooze and reminder-default settings.
+- `create_task`, `update_task`, `set_task_state` (done, started, seen with an optional blocker note, skipped, cancelled), `reschedule`, `set_reminder`;
+- `goal` (create, update, link, unlink) and `plan` (a new goal with its first tasks);
+- `memory` (save, update, delete) and `settings` (timezone, language, digests, weekly review, quiet hours, snooze, reminder defaults).
 
-Explicit safe instructions can be applied immediately. Inferred or risky changes require confirmation. Reversible mutations receive a 24-hour Undo where the domain supports a truthful rollback. Buttons and commands remain deterministic shortcuts and recovery paths, not a competing natural-language pre-parser.
+The action names only the task; the server decides whether it means the current occurrence, the whole series (`scope`) or the task itself. Time is one `when` shape (exact, date-only day, deadline, fuzzy horizon with a review day) in the user's timezone; ids, versions and the current occurrence are resolved on the server.
 
-When `TASK_BATCH_ENABLED=true`, one natural-language request may contain a mixed package of 1–12 task operations: create, update, reschedule and link to a goal. The package has one safety disposition, one confirmation and one Undo. It is committed atomically: if any target is missing, stale, outside the workspace or otherwise invalid, none of the package is applied. Memory, settings, consent and account actions cannot be mixed into a task batch.
+The model marks each action `intent: explicit` (the user asked for exactly this, or accepted a proposal) or `intent: inferred` (the model proposes it). The server computes the risk from the action alone: explicit reversible changes are applied immediately with a 24-hour Undo; inferred changes, and always-confirm changes (cancel, skip, critical importance, habit mode, quiet-hours bypass, sensitive memory, memory edits and deletion, goal cancellation) wait for one confirmation card. All actions of one message are one package: one card or one applied group, committed in one transaction, undone as a whole.
 
-The agent cannot change operator configuration, provider keys/models, allowlists or deployment state; invite users; revoke consent; or access another workspace. Account deletion/restoration and other high-impact account operations stay behind dedicated deterministic flows.
+One user message is one model call; a malformed structured output is repaired once inside the provider. A domain or reference failure is answered deterministically with what the user can change, never by a second model call. A bare "да"/"нет" answers the confirmation card the bot sent last; any other message goes to the model, which sees the still-open proposal in its context.
+
+Buttons and commands remain deterministic shortcuts and recovery paths. The agent cannot change operator configuration, provider keys/models, allowlists or deployment state; invite users; revoke consent; or access another workspace. Account deletion/restoration and other high-impact account operations stay behind dedicated deterministic flows.
 
 ## Safety and reliability
 
@@ -58,10 +58,6 @@ npm run dev
 ```
 
 `AI_MODEL` intentionally has no default. Set `AI_PRICING_JSON` when monetary usage warnings must be meaningful. With `AI_PROVIDER=openai`, voice messages use `AI_TRANSCRIPTION_MODEL` (default `gpt-4o-mini-transcribe`); audio remains in memory only for transcription.
-
-`TASK_BATCH_ENABLED` defaults to `false`. Enable it only after migration `0022_complex_planning_foundations.sql` is applied and disabled-mode smoke tests pass. To roll back generation and application, set it back to `false` and restart the app; startup cancels incompatible pending batches and records an audit event. Already committed batches remain available for truthful Undo during their normal window.
-
-While the flag is disabled, a request that combines different task-operation types is rejected before provider execution: the assistant states that nothing changed and may offer to handle operations individually, without implying that the original package was atomic. Homogeneous task creation and ordinary single-task actions continue through their existing validation paths.
 
 ## Verification
 

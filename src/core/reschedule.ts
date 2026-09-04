@@ -1,6 +1,6 @@
 import { buildOneTimeOccurrence } from "./recurrence.js";
 import { validateTaskDefinition } from "./task-policy.js";
-import type { TaskDefinition } from "./types.js";
+import type { TaskDefinition, TimeMode } from "./types.js";
 
 export interface RescheduleFields {
   plannedStartAt?: Date;
@@ -12,7 +12,7 @@ export interface RescheduleFields {
   reviewAt?: Date;
 }
 
-export function rescheduledDefinition(current: TaskDefinition, schedule: RescheduleFields): TaskDefinition {
+export function rescheduledDefinition(current: TaskDefinition, schedule: RescheduleFields, targetTimeMode?: TimeMode): TaskDefinition {
   const {
     plannedStartAt: _plannedStartAt, plannedEndAt: _plannedEndAt, plannedLocalDate: _plannedLocalDate,
     dueAt: _dueAt, dueLocalDate: _dueLocalDate, fuzzyHorizonText: _fuzzyHorizonText, reviewAt: _reviewAt,
@@ -21,7 +21,7 @@ export function rescheduledDefinition(current: TaskDefinition, schedule: Resched
   const becomesFuzzy = Boolean(schedule.fuzzyHorizonText || schedule.reviewAt);
   const next: TaskDefinition = {
     ...stable,
-    timeMode: becomesFuzzy ? "fuzzy" : current.timeMode,
+    timeMode: becomesFuzzy ? "fuzzy" : targetTimeMode ?? current.timeMode,
     ...(schedule.plannedStartAt ? { plannedStartAt: schedule.plannedStartAt } : {}),
     ...(schedule.plannedEndAt ? { plannedEndAt: schedule.plannedEndAt } : {}),
     ...(schedule.plannedLocalDate ? { plannedLocalDate: schedule.plannedLocalDate } : {}),

@@ -52,7 +52,9 @@ export function compileStructuredLocalSchedule(input: StructuredLocalScheduleInp
   if (input.mode === "date") {
     requireOnlyAbsent({ startTime, endDate, endTime, dueDate, dueTime, duration, fuzzy: input.fuzzyHorizonText, reviewDate, reviewTime }, "date");
     if (!startDate) throw new Error("date schedule requires startDate");
-    return { timeMode: "point", timezone: input.timezone, plannedLocalDate: startDate };
+    // A day without a clock time is an all-day window: it materialises an occurrence and
+    // gets the morning default reminder, whereas a point requires an exact start.
+    return { timeMode: "window", timezone: input.timezone, plannedLocalDate: startDate };
   }
   if (input.mode === "window") {
     requireOnlyAbsent({ dueDate, dueTime, fuzzy: input.fuzzyHorizonText, reviewDate, reviewTime }, "window");

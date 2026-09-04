@@ -1,4 +1,4 @@
-import { formatLocalDateTime, type OccurrenceScheduleView } from "./time-presentation.js";
+import { formatLocalDateTime, formatLocalTime, scheduleLabel, type OccurrenceScheduleView } from "./time-presentation.js";
 import { localDateAt } from "./timezone.js";
 import type { Importance } from "./types.js";
 
@@ -21,7 +21,7 @@ export type AppliedReportItem =
     goalTitle?: string | null;
   }
   | { kind: "task_updated"; title: string; changes: TaskFieldChange[] }
-  | { kind: "task_rescheduled"; title: string; before: OccurrenceScheduleView | null; after: OccurrenceScheduleView | null; reminderAt: Date | null; reason?: string | null }
+  | { kind: "task_rescheduled"; title: string; before: OccurrenceScheduleView | null; after: OccurrenceScheduleView | null; reminderAt: Date | null; reason?: string | null; fromFuzzy?: string | null }
   | { kind: "occurrence"; title: string; operation: "done" | "start" | "skip" | "cancel" | "seen" | "record_blocker"; details?: string | null }
   | { kind: "reminder"; title: string; mode: "add" | "replace" | "clear"; schedule: OccurrenceScheduleView | null; reminderAt: Date | null }
   | { kind: "series"; title: string; operation: "pause" | "resume" | "stop" | "cancel" | "edit" }
@@ -29,6 +29,7 @@ export type AppliedReportItem =
   | { kind: "goal_updated"; title: string }
   | { kind: "goal_plan"; goalTitle: string; tasks: Array<Extract<AppliedReportItem, { kind: "task_created" }>> }
   | { kind: "goal_linked"; taskTitle: string; goalTitle: string }
+  | { kind: "goal_unlinked"; taskTitle: string; goalTitle: string }
   | { kind: "memory"; operation: "saved" | "updated" | "deleted"; content: string }
   | { kind: "settings"; operation: "timezone" | "language" | "digest" | "weekly_review" | "quiet_hours" | "snooze" | "reminder_defaults" }
   | { kind: "generic"; title: string };
@@ -136,6 +137,8 @@ function renderItem(item: Exclude<AppliedReportItem, { kind: "task_created" }>, 
       ].join("\n");
     case "goal_linked":
       return `🔗 «${item.taskTitle}» → цель «${item.goalTitle}»`;
+    case "goal_unlinked":
+      return `🎯 Отвязано от цели «${item.goalTitle}»: «${item.taskTitle}»`;
     case "memory":
       return `🧠 ${item.operation === "saved" ? "Запомнил" : item.operation === "updated" ? "Обновил в памяти" : "Убрал из памяти"}: «${truncate(item.content, 120)}»`;
     case "settings":
@@ -184,37 +187,13 @@ function renderChange(change: TaskFieldChange): string {
   return `«${change.before}» → «${change.after}»`;
 }
 
-function scheduleLabel(schedule: OccurrenceScheduleView, now: Date): string {
-  if (schedule.plannedStartAt && schedule.plannedEndAt) {
-    const end = localDateAt(schedule.plannedStartAt, schedule.timezone) === localDateAt(schedule.plannedEndAt, schedule.timezone)
-      ? timeOnly(schedule.plannedEndAt, schedule.timezone)
-      : formatLocalDateTime(schedule.plannedEndAt, schedule.timezone, now);
-    return `${formatLocalDateTime(schedule.plannedStartAt, schedule.timezone, now)}–${end}`;
-  }
-  if (schedule.plannedStartAt) return formatLocalDateTime(schedule.plannedStartAt, schedule.timezone, now);
-  if (schedule.dueAt) return `до ${formatLocalDateTime(schedule.dueAt, schedule.timezone, now)}`;
-  if (schedule.plannedLocalDate) return dateLabel(schedule.plannedLocalDate, schedule.timezone, now);
-  if (schedule.dueLocalDate) return `до ${dateLabel(schedule.dueLocalDate, schedule.timezone, now)}`;
-  return "без времени";
-}
-
 /** Reminder relative to the displayed anchor: same minute, same day, or a full timestamp. */
 function reminderLabel(reminderAt: Date, schedule: OccurrenceScheduleView, now: Date, alwaysFull = false): string {
   const anchor = schedule.plannedStartAt ?? schedule.dueAt ?? schedule.plannedEndAt;
   if (!alwaysFull && anchor && Math.floor(anchor.getTime() / 60_000) === Math.floor(reminderAt.getTime() / 60_000)) return "в момент начала";
   const anchorDate = anchor ? localDateAt(anchor, schedule.timezone) : schedule.plannedLocalDate ?? schedule.dueLocalDate;
-  if (!alwaysFull && anchorDate && localDateAt(reminderAt, schedule.timezone) === anchorDate) return timeOnly(reminderAt, schedule.timezone);
+  if (!alwaysFull && anchorDate && localDateAt(reminderAt, schedule.timezone) === anchorDate) return formatLocalTime(reminderAt, schedule.timezone);
   return formatLocalDateTime(reminderAt, schedule.timezone, now);
-}
-
-function timeOnly(at: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("ru-RU", { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(at);
-}
-
-function dateLabel(localDate: string, timezone: string, now: Date): string {
-  const [year, month, day] = localDate.split("-");
-  if (!year || !month || !day) return localDate;
-  return localDateAt(now, timezone).slice(0, 4) === year ? `${day}.${month}` : `${day}.${month}.${year}`;
 }
 
 function truncate(value: string, max: number): string {
