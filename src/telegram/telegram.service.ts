@@ -61,8 +61,8 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     });
   }
 
-  async sendMessage(telegramUserId: number, text: string): Promise<number> {
-    const message = await this.bot.api.sendMessage(telegramUserId, text);
+  async sendMessage(telegramUserId: number, text: string, keyboard?: InlineKeyboard): Promise<number> {
+    const message = await this.bot.api.sendMessage(telegramUserId, text, keyboard ? { reply_markup: keyboard } : {});
     return message.message_id;
   }
 
@@ -98,24 +98,6 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       if (reviewKinds.includes("weekly")) keyboard.text("🗓 Спланировать неделю", `review:weekly:${reviewDeliveryId}`);
     }
     const message = await this.bot.api.sendMessage(telegramUserId, text, keyboard ? { reply_markup: keyboard } : {});
-    return message.message_id;
-  }
-
-  async sendActionResult(input: {
-    telegramUserId: number;
-    text: string;
-    appliedGroupId?: string;
-    pendingGroupId?: string;
-    checkpointTopicId?: string;
-  }): Promise<number> {
-    const keyboard = new InlineKeyboard();
-    if (input.pendingGroupId) keyboard.text("Подтвердить", `act:confirm:${input.pendingGroupId}`).text("Не делать", `act:cancel:${input.pendingGroupId}`);
-    if (input.appliedGroupId) {
-      if (input.pendingGroupId) keyboard.row();
-      keyboard.text("Отменить изменение", `act:undo:${input.appliedGroupId}`);
-    }
-    const hasKeyboard = Boolean(input.appliedGroupId || input.pendingGroupId);
-    const message = await this.bot.api.sendMessage(input.telegramUserId, input.text, hasKeyboard ? { reply_markup: keyboard } : {});
     return message.message_id;
   }
 

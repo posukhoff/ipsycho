@@ -1,5 +1,7 @@
 import { Injectable, type OnApplicationBootstrap, type OnApplicationShutdown } from "@nestjs/common";
+import { InlineKeyboard } from "grammy";
 import { MessagesRepository } from "../messages/messages.repository.js";
+import { renderChatResult } from "../telegram/telegram-chat-render.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { ChatService } from "./chat.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
@@ -44,22 +46,20 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
             continue;
           }
           if (result.kind !== "ok") continue;
-          const suffix = actionSummary(result.pendingCount, result.pendingTitles ?? [], result.warnings);
-          const text = [result.text, result.report, suffix].filter((part) => part && part.trim()).join("\n\n");
-          const telegramMessageId = await this.telegram.sendActionResult({
-            telegramUserId: row.user.telegramUserId,
-            text,
-            ...(result.appliedGroupId ? { appliedGroupId: result.appliedGroupId } : {}),
-            ...(result.pendingGroupId ? { pendingGroupId: result.pendingGroupId } : {}),
-            ...(result.checkpointTopicId ? { checkpointTopicId: result.checkpointTopicId } : {}),
-          });
+          const rendered = renderChatResult(result);
+          if (result.supersededPendingGroupId) await this.dropCardButtons(row.message.workspaceId, result.supersededPendingGroupId);
+          // The bot only serves private chats, where the chat id is the user's Telegram id.
+          const telegramChatId = row.user.telegramUserId;
+          const telegramMessageId = await this.telegram.sendMessage(telegramChatId, rendered.responseText, rendered.keyboard);
+          if (result.skipAssistantHistory) continue;
           await this.chat.recordAssistantMessage({
             workspaceId: row.message.workspaceId,
             userId: row.message.userId,
-            content: text,
-            telegramChatId: row.user.telegramUserId,
+            content: rendered.persistedText,
+            telegramChatId,
             telegramMessageId,
             ...(result.topicId ? { topicId: result.topicId } : {}),
+            ...(result.pendingGroupId ? { pendingGroupId: result.pendingGroupId } : {}),
           });
         } catch (error) {
           console.error("automatic AI retry failed", { messageId: row.message.id, message: safeMessageMetadata(row.message.content), error: safeError(error) });
@@ -69,10 +69,11 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
       this.running = false;
     }
   }
-}
 
-function actionSummary(pending: number, pendingTitles: readonly string[], warnings: readonly string[]): string {
-  const parts = [...warnings];
-  if (pending) parts.push([`⏳ Нужно подтвердить (${pending}):`, ...pendingTitles.slice(0, 8).map((title) => `• ${title}`)].join("\n"));
-  return parts.join("\n\n");
+  /** A replaced confirmation card keeps its text but loses its buttons; the group is already cancelled. */
+  private async dropCardButtons(workspaceId: string, groupId: string): Promise<void> {
+    const card = await this.chat.findCardMessage(workspaceId, groupId).catch(() => null);
+    if (!card?.telegramMessageId) return;
+    await this.telegram.bot.api.editMessageReplyMarkup(card.telegramChatId, card.telegramMessageId, { reply_markup: new InlineKeyboard() }).catch(() => undefined);
+  }
 }
