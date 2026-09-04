@@ -1,7 +1,8 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { ZodError } from "zod";
 import type { AppConfig } from "../config.js";
+import { createOpenAiCompatibleClient } from "./ai-client.js";
 import { AiTurnSchema } from "./ai-contracts.js";
 import { AiStructuredOutputError, describeStructuredIssues, structuredRepairSuffix, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
@@ -10,7 +11,7 @@ export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAI | null;
 
   constructor(config: AppConfig) {
-    this.client = config.openAiApiKey ? new OpenAI({ apiKey: config.openAiApiKey, maxRetries: 0 }) : null;
+    this.client = config.openAiApiKey ? createOpenAiCompatibleClient({ apiKey: config.openAiApiKey }) : null;
   }
 
   isConfigured(): boolean {

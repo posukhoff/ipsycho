@@ -1,6 +1,7 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import type { AppConfig } from "../config.js";
+import { createOpenAiCompatibleClient } from "./ai-client.js";
 import { AiTurnSchema } from "./ai-contracts.js";
 import { AiStructuredOutputError, describeStructuredIssues, structuredRepairSuffix, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 import { isStructuredOutputValidationError } from "./openai.provider.js";
@@ -13,7 +14,7 @@ export class GeminiProvider implements AiProvider {
 
   constructor(config: AppConfig) {
     this.client = config.geminiApiKey
-      ? new OpenAI({ apiKey: config.geminiApiKey, baseURL: GEMINI_OPENAI_BASE_URL, maxRetries: 0 })
+      ? createOpenAiCompatibleClient({ apiKey: config.geminiApiKey, baseURL: GEMINI_OPENAI_BASE_URL })
       : null;
   }
 

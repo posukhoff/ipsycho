@@ -1,6 +1,7 @@
 import { Inject, Injectable, type OnModuleInit } from "@nestjs/common";
 import { InlineKeyboard } from "grammy";
 import { AccessService } from "../access/access.service.js";
+import { VOICE_DOWNLOAD_TIMEOUT_MS } from "../ai/ai-client.js";
 import { TranscriptionService } from "../ai/transcription.service.js";
 import { BriefingContentService } from "../briefings/briefing-content.service.js";
 import { ChatService } from "../chat/chat.service.js";
@@ -59,7 +60,7 @@ export class TelegramConversationHandlersService implements OnModuleInit {
         statusMessageId = status.message_id;
         const file = await ctx.getFile();
         if (!file.file_path) throw new Error("Telegram did not return a file path");
-        const response = await fetch(`https://api.telegram.org/file/bot${this.telegram.bot.token}/${file.file_path}`);
+        const response = await fetch(`https://api.telegram.org/file/bot${this.telegram.bot.token}/${file.file_path}`, { signal: AbortSignal.timeout(VOICE_DOWNLOAD_TIMEOUT_MS) });
         if (!response.ok) throw new Error("Telegram file download failed");
         const audio = Buffer.from(await response.arrayBuffer());
         if (!this.transcription.acceptsVoice(voice.duration, audio.length)) throw new Error("voice file too large");

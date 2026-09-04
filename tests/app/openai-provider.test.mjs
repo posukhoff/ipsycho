@@ -47,3 +47,11 @@ test("AiStructuredOutputError is a plain Error subclass without a payload", () =
   assert.deepEqual(Object.keys(error).filter((key) => key !== "name"), []);
   assert.equal("payload" in error, false);
 });
+
+test("every provider client carries a bounded request timeout instead of the SDK's ten minutes", async () => {
+  const { AI_REQUEST_TIMEOUT_MS, createOpenAiCompatibleClient } = await import("../../dist/ai/ai-client.js");
+  const client = createOpenAiCompatibleClient({ apiKey: "sk-test-key-with-enough-length" });
+  assert.equal(client.timeout, AI_REQUEST_TIMEOUT_MS);
+  assert.equal(client.maxRetries, 0);
+  assert.ok(AI_REQUEST_TIMEOUT_MS <= 60_000);
+});

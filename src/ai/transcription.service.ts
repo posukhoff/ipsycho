@@ -1,8 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
-import OpenAI, { toFile } from "openai";
+import type OpenAI from "openai";
+import { toFile } from "openai";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { estimateAudioCostUsd } from "../core/ai-usage-policy.js";
 import { voiceWithinLimits } from "../core/voice-policy.js";
+import { createOpenAiCompatibleClient } from "./ai-client.js";
 import { AiRepository } from "./ai.repository.js";
 
 @Injectable()
@@ -10,7 +12,7 @@ export class TranscriptionService {
   private readonly client: OpenAI | null;
 
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig, private readonly repository: AiRepository) {
-    this.client = config.aiProvider === "openai" && config.openAiApiKey ? new OpenAI({ apiKey: config.openAiApiKey, maxRetries: 0 }) : null;
+    this.client = config.aiProvider === "openai" && config.openAiApiKey ? createOpenAiCompatibleClient({ apiKey: config.openAiApiKey }) : null;
   }
 
   isAvailable(): boolean { return this.client !== null; }
