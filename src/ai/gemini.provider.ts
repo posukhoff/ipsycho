@@ -3,8 +3,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import type { AppConfig } from "../config.js";
 import { createOpenAiCompatibleClient } from "./ai-client.js";
 import { AiTurnSchema } from "./ai-contracts.js";
-import { AiStructuredOutputError, describeStructuredIssues, structuredRepairSuffix, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
-import { isStructuredOutputValidationError } from "./openai.provider.js";
+import { structuredTurn, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
 const GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
 
@@ -23,41 +22,30 @@ export class GeminiProvider implements AiProvider {
   }
 
   async generate(request: AiRequest): Promise<AiProviderResult> {
-    if (!this.client) throw new Error("Gemini is not configured");
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let issues: string[] = [];
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      let response;
-      try {
-        // Transport/API errors propagate: durable retry policy lives in MessagesRepository.
-        response = await this.client.chat.completions.parse({
-          model: request.model,
-          messages: [
-            { role: "system", content: attempt ? `${request.systemPrompt}\n\n${structuredRepairSuffix(issues)}` : request.systemPrompt },
-            ...request.messages.map((message) => ({ role: message.role, content: message.content })),
-          ],
-          response_format: zodResponseFormat(AiTurnSchema, "ipsycho_turn"),
-        });
-      } catch (error) {
-        if (!isStructuredOutputValidationError(error)) throw error;
-        issues = describeStructuredIssues(error);
-        continue;
-      }
-      inputTokens += response.usage?.prompt_tokens ?? 0;
-      outputTokens += response.usage?.completion_tokens ?? 0;
-      const turn = response.choices[0]?.message.parsed;
-      if (!turn) {
-        issues = [];
-        continue;
-      }
+    const client = this.client;
+    if (!client) throw new Error("Gemini is not configured");
+    return structuredTurn(this.name, async (repairSuffix) => {
+      const response = await client.chat.completions.create({
+        model: request.model,
+        messages: [
+          { role: "system", content: repairSuffix ? `${request.systemPrompt}\n\n${repairSuffix}` : request.systemPrompt },
+          ...request.messages.map((message) => ({ role: message.role, content: message.content })),
+        ],
+        response_format: zodResponseFormat(AiTurnSchema, "ipsycho_turn"),
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+        ...(request.maxOutputTokens !== undefined ? { max_completion_tokens: request.maxOutputTokens } : {}),
+      });
+      const message = response.choices[0]?.message;
       return {
-        turn,
-        ...(response.id ? { requestId: response.id } : {}),
-        ...(inputTokens ? { inputTokens } : {}),
-        ...(outputTokens ? { outputTokens } : {}),
+        text: message?.content ?? null,
+        refusal: message?.refusal ?? null,
+        requestId: response.id,
+        usage: {
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
+          cachedInputTokens: response.usage?.prompt_tokens_details?.cached_tokens,
+        },
       };
-    }
-    throw new AiStructuredOutputError("Gemini returned no valid structured output after one repair attempt");
+    });
   }
 }

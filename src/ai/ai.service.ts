@@ -4,7 +4,7 @@ import { estimateAiCostUsd } from "../core/ai-usage-policy.js";
 import { formatCurrentTimeLine } from "../core/ai-time-context.js";
 import { redactSensitiveText } from "../observability/safe-error.js";
 import type { AiMessage } from "./ai-provider.js";
-import { AI_PROVIDER, type AiProvider } from "./ai-provider.js";
+import { AI_PROVIDER, AiStructuredOutputError, STRUCTURED_ATTEMPTS, type AiProvider } from "./ai-provider.js";
 import { AiRepository } from "./ai.repository.js";
 
 @Injectable()
@@ -91,19 +91,23 @@ export class AiService implements OnApplicationBootstrap {
           correction: input.correction,
         }),
         messages: redactMessagesForExternalAi(input.messages),
+        ...(this.config.aiTemperature !== undefined ? { temperature: this.config.aiTemperature } : {}),
+        maxOutputTokens: this.config.aiMaxOutputTokens,
       });
       const pricing = this.config.aiPricing[model];
       const estimatedCostUsd = pricing && result.inputTokens !== undefined && result.outputTokens !== undefined
-        ? estimateAiCostUsd(result.inputTokens, result.outputTokens, pricing)
+        ? estimateAiCostUsd(result.inputTokens, result.outputTokens, pricing, result.cachedInputTokens ?? 0)
         : undefined;
       await this.repository.recordUsage({
         workspaceId: input.workspaceId,
         userId: input.userId,
         provider: this.provider.name,
         model,
+        attempts: result.attempts,
         ...(result.requestId ? { providerRequestId: result.requestId } : {}),
         ...(result.inputTokens !== undefined ? { inputTokens: result.inputTokens } : {}),
         ...(result.outputTokens !== undefined ? { outputTokens: result.outputTokens } : {}),
+        ...(result.cachedInputTokens !== undefined ? { cachedInputTokens: result.cachedInputTokens } : {}),
         ...(pricing ? { pricingRevision: pricing.revision } : {}),
         ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
         latencyMs: Date.now() - started,
@@ -111,11 +115,13 @@ export class AiService implements OnApplicationBootstrap {
       });
       return result.turn;
     } catch (error) {
+      // A failed call still made at least one request (two when the repair attempt failed too).
       await this.repository.recordUsage({
         workspaceId: input.workspaceId,
         userId: input.userId,
         provider: this.provider.name,
         model,
+        attempts: error instanceof AiStructuredOutputError ? STRUCTURED_ATTEMPTS : 1,
         latencyMs: Date.now() - started,
         status: "error",
       }).catch(() => undefined);

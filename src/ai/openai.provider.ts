@@ -4,7 +4,7 @@ import { ZodError } from "zod";
 import type { AppConfig } from "../config.js";
 import { createOpenAiCompatibleClient } from "./ai-client.js";
 import { AiTurnSchema } from "./ai-contracts.js";
-import { AiStructuredOutputError, describeStructuredIssues, structuredRepairSuffix, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
+import { structuredTurn, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
 export class OpenAiProvider implements AiProvider {
   readonly name = "openai";
@@ -19,43 +19,35 @@ export class OpenAiProvider implements AiProvider {
   }
 
   async generate(request: AiRequest): Promise<AiProviderResult> {
-    if (!this.client) throw new Error("OpenAI is not configured");
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let issues: string[] = [];
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      let response;
-      try {
-        // Transport/API errors propagate: durable retry policy lives in MessagesRepository.
-        response = await this.client.responses.parse({
-          model: request.model,
-          input: [
-            { role: "system", content: attempt ? `${request.systemPrompt}\n\n${structuredRepairSuffix(issues)}` : request.systemPrompt },
-            ...request.messages.map((message) => ({ role: message.role, content: message.content })),
-          ],
-          text: { format: zodTextFormat(AiTurnSchema, "ipsycho_turn") },
-        });
-      } catch (error) {
-        if (!isStructuredOutputValidationError(error)) throw error;
-        issues = describeStructuredIssues(error);
-        continue;
-      }
-      const usage = response.usage as { input_tokens?: number; output_tokens?: number } | undefined;
-      inputTokens += usage?.input_tokens ?? 0;
-      outputTokens += usage?.output_tokens ?? 0;
-      const turn = response.output_parsed;
-      if (!turn) {
-        issues = [];
-        continue;
-      }
+    const client = this.client;
+    if (!client) throw new Error("OpenAI is not configured");
+    return structuredTurn(this.name, async (repairSuffix) => {
+      const response = await client.responses.create({
+        model: request.model,
+        input: [
+          { role: "system", content: repairSuffix ? `${request.systemPrompt}\n\n${repairSuffix}` : request.systemPrompt },
+          ...request.messages.map((message) => ({ role: message.role, content: message.content })),
+        ],
+        text: { format: zodTextFormat(AiTurnSchema, "ipsycho_turn") },
+        // Conversation content is not retained on the provider side: consent covers processing, not storage.
+        store: false,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+        ...(request.maxOutputTokens !== undefined ? { max_output_tokens: request.maxOutputTokens } : {}),
+      });
+      const refusal = response.output
+        .flatMap((item) => (item.type === "message" ? item.content : []))
+        .find((part) => part.type === "refusal");
       return {
-        turn,
-        ...(response.id ? { requestId: response.id } : {}),
-        ...(inputTokens ? { inputTokens } : {}),
-        ...(outputTokens ? { outputTokens } : {}),
+        text: response.output_text || null,
+        refusal: refusal?.type === "refusal" ? refusal.refusal : null,
+        requestId: response.id,
+        usage: {
+          inputTokens: response.usage?.input_tokens,
+          outputTokens: response.usage?.output_tokens,
+          cachedInputTokens: response.usage?.input_tokens_details?.cached_tokens,
+        },
       };
-    }
-    throw new AiStructuredOutputError("OpenAI returned no valid structured output after one repair attempt");
+    });
   }
 }
 

@@ -477,6 +477,8 @@ export const aiUsage = pgTable("ai_usage", {
   providerRequestId: varchar("provider_request_id", { length: 255 }),
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
+  cachedInputTokens: integer("cached_input_tokens"),
+  attempts: integer("attempts").notNull().default(1),
   latencyMs: integer("latency_ms").notNull(),
   status: varchar("status", { length: 32 }).notNull(),
   pricingRevision: varchar("pricing_revision", { length: 64 }),

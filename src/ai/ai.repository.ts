@@ -54,6 +54,8 @@ export class AiRepository {
     providerRequestId?: string;
     inputTokens?: number;
     outputTokens?: number;
+    cachedInputTokens?: number;
+    attempts?: number;
     latencyMs: number;
     status: string;
     pricingRevision?: string;
@@ -69,13 +71,16 @@ export class AiRepository {
       ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
       ...(input.inputTokens !== undefined ? { inputTokens: input.inputTokens } : {}),
       ...(input.outputTokens !== undefined ? { outputTokens: input.outputTokens } : {}),
+      ...(input.cachedInputTokens !== undefined ? { cachedInputTokens: input.cachedInputTokens } : {}),
+      ...(input.attempts !== undefined ? { attempts: input.attempts } : {}),
       ...(input.pricingRevision ? { pricingRevision: input.pricingRevision } : {}),
       ...(input.estimatedCostUsd !== undefined ? { estimatedCostUsd: input.estimatedCostUsd.toFixed(6) } : {}),
     });
   }
 
+  /** Provider requests, not AiService calls: a repaired turn counts twice against the hourly limit. */
   async countCallsSince(userId: string, since: Date): Promise<number> {
-    const [row] = await this.database.db.select({ count: sql<number>`count(*)::int` }).from(aiUsage)
+    const [row] = await this.database.db.select({ count: sql<number>`coalesce(sum(${aiUsage.attempts}), 0)::int` }).from(aiUsage)
       .where(and(eq(aiUsage.userId, userId), gte(aiUsage.createdAt, since)));
     return row?.count ?? 0;
   }

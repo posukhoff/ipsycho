@@ -55,3 +55,38 @@ test("every provider client carries a bounded request timeout instead of the SDK
   assert.equal(client.maxRetries, 0);
   assert.ok(AI_REQUEST_TIMEOUT_MS <= 60_000);
 });
+
+test("a repaired call counts both requests and their cached tokens, and never stores content", async () => {
+  const { OpenAiProvider } = await import("../../dist/ai/openai.provider.js");
+  const requests = [];
+  const validTurn = JSON.stringify({ reply: "Записал.", question: null, actions: [], topic: { mode: "none", title: null, summary: null } });
+  const responses = [
+    { id: "resp-1", output: [], output_text: "{ not json", usage: { input_tokens: 100, output_tokens: 5, input_tokens_details: { cached_tokens: 60 } } },
+    { id: "resp-2", output: [], output_text: validTurn, usage: { input_tokens: 110, output_tokens: 20, input_tokens_details: { cached_tokens: 60 } } },
+  ];
+  const provider = Object.create(OpenAiProvider.prototype);
+  provider.client = { responses: { create: async (request) => { requests.push(request); return responses.shift(); } } };
+
+  const result = await provider.generate({ model: "m", systemPrompt: "system", messages: [{ role: "user", content: "привет" }], maxOutputTokens: 4000 });
+  assert.equal(result.attempts, 2);
+  assert.equal(result.inputTokens, 210);
+  assert.equal(result.outputTokens, 25);
+  assert.equal(result.cachedInputTokens, 120);
+  assert.equal(result.requestId, "resp-2");
+  assert.equal(result.turn.reply, "Записал.");
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].store, false);
+  assert.equal(requests[0].max_output_tokens, 4000);
+  assert.equal("temperature" in requests[0], false, "temperature is sent only when configured");
+  assert.match(requests[1].input[0].content, /Previous structured output was invalid/);
+});
+
+test("a refusal is repaired once and then surfaces as unusable output", async () => {
+  const { OpenAiProvider } = await import("../../dist/ai/openai.provider.js");
+  const refusal = { id: "r", output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }], output_text: "", usage: { input_tokens: 1, output_tokens: 1 } };
+  const provider = Object.create(OpenAiProvider.prototype);
+  let calls = 0;
+  provider.client = { responses: { create: async () => { calls += 1; return refusal; } } };
+  await assert.rejects(() => provider.generate({ model: "m", systemPrompt: "s", messages: [] }), AiStructuredOutputError);
+  assert.equal(calls, 2);
+});

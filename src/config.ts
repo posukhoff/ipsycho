@@ -4,6 +4,7 @@ const optionalSecret = z.preprocess((value) => value === "" ? undefined : value,
 const pricingEntrySchema = z.object({
   inputUsdPerMillion: z.number().nonnegative().optional(),
   outputUsdPerMillion: z.number().nonnegative().optional(),
+  cachedInputUsdPerMillion: z.number().nonnegative().optional(),
   audioUsdPerMinute: z.number().nonnegative().optional(),
   revision: z.string().min(1).max(64),
 }).superRefine((value, ctx) => {
@@ -51,6 +52,10 @@ const schema = z.object({
   AI_VOICE_MAX_BYTES: z.coerce.number().int().min(1).max(20 * 1024 * 1024).default(20 * 1024 * 1024),
   AI_CONSENT_VERSION: z.string().min(1).max(32).default("2026-08-voice"),
   AI_PRICING_JSON: optionalPricing,
+  /** Sent only when set: reasoning models accept only their default sampling and reject the field. */
+  AI_TEMPERATURE: z.preprocess((value) => value === "" || value === undefined ? undefined : value, z.coerce.number().min(0).max(2).optional()),
+  /** Upper bound on generated tokens per request, reasoning included; the reply itself is capped at 4000 characters. */
+  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(32_000).default(4_000),
   AI_MAX_MESSAGES_PER_HOUR: z.coerce.number().int().min(5).max(1000).default(60),
   AI_MAX_CALLS_PER_HOUR: z.coerce.number().int().min(5).max(1000).default(60),
   /** Default monthly AI spend (USD) at which a user and the owner are warned; per-user settings override it. */
@@ -67,7 +72,7 @@ const schema = z.object({
 });
 
 export type AiProviderName = "openai" | "gemini" | "deepseek";
-export interface AiModelPricing { inputUsdPerMillion?: number | undefined; outputUsdPerMillion?: number | undefined; audioUsdPerMinute?: number | undefined; revision: string }
+export interface AiModelPricing { inputUsdPerMillion?: number | undefined; outputUsdPerMillion?: number | undefined; cachedInputUsdPerMillion?: number | undefined; audioUsdPerMinute?: number | undefined; revision: string }
 
 export interface AppConfig {
   nodeEnv: "development" | "test" | "production";
@@ -86,6 +91,8 @@ export interface AppConfig {
   aiVoiceMaxBytes: number;
   aiConsentVersion: string;
   aiPricing: Record<string, AiModelPricing>;
+  aiTemperature?: number;
+  aiMaxOutputTokens: number;
   aiMaxMessagesPerHour: number;
   aiMaxCallsPerHour: number;
   aiMonthlyWarningUsd?: number;
@@ -115,6 +122,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     aiVoiceMaxBytes: value.AI_VOICE_MAX_BYTES,
     aiConsentVersion: value.AI_CONSENT_VERSION,
     aiPricing: value.AI_PRICING_JSON ?? {},
+    ...(value.AI_TEMPERATURE !== undefined ? { aiTemperature: value.AI_TEMPERATURE } : {}),
+    aiMaxOutputTokens: value.AI_MAX_OUTPUT_TOKENS,
     aiMaxMessagesPerHour: value.AI_MAX_MESSAGES_PER_HOUR,
     aiMaxCallsPerHour: value.AI_MAX_CALLS_PER_HOUR,
     ...(value.AI_MONTHLY_WARNING_USD ? { aiMonthlyWarningUsd: value.AI_MONTHLY_WARNING_USD } : {}),
