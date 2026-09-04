@@ -25,14 +25,14 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>125/125</span>
+                <span class='fraction'>140/140</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">94.44% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>13/13</span>
+                <span class='fraction'>17/18</span>
             </div>
         
             
@@ -46,7 +46,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>125/125</span>
+                <span class='fraction'>140/140</span>
             </div>
         
             
@@ -188,7 +188,23 @@
 <a name='L123'></a><a href='#L123'>123</a>
 <a name='L124'></a><a href='#L124'>124</a>
 <a name='L125'></a><a href='#L125'>125</a>
-<a name='L126'></a><a href='#L126'>126</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -312,10 +328,25 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSystemPrompt } from "../../dist/ai/ai.service.js";
+import { AiTurnSchema } from "../../dist/core/ai-contract.js";
 &nbsp;
 const at = new Date("2026-08-11T12:00:00.000Z");
 const prompt = buildSystemPrompt({ timezone: "Europe/Kyiv", now: at });
@@ -417,8 +448,8 @@ test("AI prompt contains no vocabulary of the removed contract", () =&gt; {
 test("AI prompt stays inside its size budget without context", () =&gt; {
   // The budget exists so rules keep moving into code rather than accumulating here.
   // It is a budget, not a rule: raising it is a decision, and the number says by how much.
-  // 2026-09-04: raised from 9400 for the reply-length rule (§12) and the n1/n2 same-message references (§7).
-  assert.ok(prompt.length &lt; 9600, `prompt is ${prompt.length} characters`);
+  // 2026-09-04: raised from 9600 for the three worked examples (§16), which sit in the cacheable prefix.
+  assert.ok(prompt.length &lt; 11_500, `prompt is ${prompt.length} characters`);
 });
 &nbsp;
 test("AI prompt ends with one local CURRENT_TIME line and the context when given", () =&gt; {
@@ -438,6 +469,20 @@ test("AI prompt ends with one local CURRENT_TIME line and the context when given
   assert.match(withContext, /Correction required: Return intent for every action\.$/);
   assert.ok(withContext.indexOf("CURRENT_TIME=") &lt; withContext.indexOf("CURRENT_CONTEXT="));
 });
+&nbsp;
+test("every worked example in the prompt is a turn the contract actually accepts", () =&gt; {
+  const prompt = buildSystemPrompt({ now: new Date("2026-09-04T09:00:00Z"), timezone: "Europe/Kyiv", language: "ru" });
+  const examples = prompt
+    .slice(prompt.indexOf("EXAMPLES."))
+    .split("\n")
+    .filter((line) =&gt; line.startsWith("user:"))
+    .map((line) =&gt; line.slice(line.indexOf("→ ") + 2));
+  assert.equal(examples.length, 3, "the prompt must carry three worked examples");
+  for (const example of examples) {
+    const parsed = AiTurnSchema.safeParse(JSON.parse(example));
+    assert.ok(parsed.success, `example rejected by the contract: ${parsed.error<span class="branch-0 cbranch-no" title="branch not covered" >?.issues?.map(</span>(issue) =&gt; `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+  }
+});
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -445,7 +490,7 @@ test("AI prompt ends with one local CURRENT_TIME line and the context when given
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-09-04T18:51:25.163Z
+                at 2026-09-04T19:36:36.151Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

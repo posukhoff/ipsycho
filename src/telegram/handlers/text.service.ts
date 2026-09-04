@@ -15,7 +15,7 @@ import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { OnboardingService } from "./onboarding.service.js";
 import { ScreensService } from "./screens.service.js";
-import { TaskCallbacksService } from "./task-callbacks.service.js";
+import { RescheduleCallbacksService } from "./reschedule-callbacks.service.js";
 import { logger } from "../../observability/logger.js";
 
 type TextContext = Filter<AppContext, "message:text">;
@@ -33,7 +33,7 @@ export class TextService {
     private readonly chat: ChatService,
     private readonly chatReply: TelegramChatReplyService,
     private readonly screens: ScreensService,
-    private readonly taskCallbacks: TaskCallbacksService,
+    private readonly rescheduleCallbacks: RescheduleCallbacksService,
     private readonly onboarding: OnboardingService,
   ) {}
 
@@ -135,8 +135,8 @@ export class TextService {
       if (pending.kind === "quick_reschedule_reason") {
         const reason = ctx.message.text.trim();
         if (reason.length < 2) throw new Error("reschedule reason is too short");
-        const schedule = await this.taskCallbacks.buildQuickReschedule(access, pending.occurrenceId, pending.choice);
-        const applied = await this.taskCallbacks.applyReschedule(access, pending.occurrenceId, schedule, reason);
+        const schedule = await this.rescheduleCallbacks.buildQuickReschedule(access, pending.occurrenceId, pending.choice);
+        const applied = await this.rescheduleCallbacks.applyReschedule(access, pending.occurrenceId, schedule, reason);
         const current = await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId);
         if (current)
           await ctx.reply(await this.screens.taskCard(access.workspaceId, current, locale), {
@@ -177,7 +177,7 @@ export class TextService {
         await this.processWithModel(ctx, { occurrenceId: pending.occurrenceId, action: "reschedule" });
         return;
       }
-      const applied = await this.taskCallbacks.applyReschedule(access, pending.occurrenceId, parsed.schedule, parsed.reason);
+      const applied = await this.rescheduleCallbacks.applyReschedule(access, pending.occurrenceId, parsed.schedule, parsed.reason);
       const report = applied.items?.length ? renderAppliedReport(applied.items, new Date(), locale) : "";
       const headline = t(locale, parsed.schedule.fuzzyHorizonText ? "rescheduled_fuzzy_text" : "rescheduled_text");
       await ctx.reply(report ? `${headline}\n\n${report}` : headline, {

@@ -6,8 +6,8 @@
   "report-dir": "coverage",
   "//": "Ratchet: raise these as coverage grows, never lower them to make a run pass.",
   "check-coverage": true,
-  "lines": 63,
-  "statements": 63,
+  "lines": 64,
+  "statements": 64,
   "branches": 72,
   "functions": 53
 }

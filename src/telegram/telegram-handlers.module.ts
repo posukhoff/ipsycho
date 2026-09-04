@@ -14,6 +14,7 @@ import { OnboardingService } from "./handlers/onboarding.service.js";
 import { ScreensService } from "./handlers/screens.service.js";
 import { SettingsCommandsService } from "./handlers/settings-commands.service.js";
 import { SystemCommandsService } from "./handlers/system-commands.service.js";
+import { RescheduleCallbacksService } from "./handlers/reschedule-callbacks.service.js";
 import { TaskCallbacksService } from "./handlers/task-callbacks.service.js";
 import { TextService } from "./handlers/text.service.js";
 import { TelegramChatReplyService } from "./telegram-chat-reply.service.js";
@@ -43,6 +44,7 @@ import { TelegramModule } from "./telegram.module.js";
     SystemCommandsService,
     SettingsCommandsService,
     TaskCallbacksService,
+    RescheduleCallbacksService,
     TextService,
     TelegramConversationHandlersService,
     TelegramHandlersService,
