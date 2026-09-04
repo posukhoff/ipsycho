@@ -7,6 +7,8 @@ import { TasksRepository } from "../../dist/tasks/tasks.repository.js";
 import { TasksService } from "../../dist/tasks/tasks.service.js";
 import { ReminderSchedulingService } from "../../dist/reminders/reminder-scheduling.service.js";
 import { AiRepository } from "../../dist/ai/ai.repository.js";
+import { AccessService, DELETION_GRACE_DAYS } from "../../dist/access/access.service.js";
+import { SettingsService } from "../../dist/settings/settings.service.js";
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url) throw new Error("TEST_DATABASE_URL is required; run npm run test:e2e");
@@ -50,6 +52,7 @@ async function createTask({ workspaceId, userId }, title, startInMinutes = 60) {
 
 beforeEach(async () => {
   await database.pool.query("truncate table users cascade");
+  await database.pool.query("delete from admin_audit_log");
 });
 
 after(async () => {
@@ -172,4 +175,56 @@ test("monthly spend is summed per user in one grouped query", async () => {
   assert.equal(spend.get(a.userId), 0.75);
   assert.equal(spend.get(b.userId), 2);
   assert.equal(await ai.monthlySpendUsd(a.userId, monthStart), 0.75);
+});
+
+test("deletion waits out its grace period, restore cancels it, and the finalizer only removes expired accounts", async () => {
+  const scope = await fixture();
+  const access = new AccessService(database);
+  const telegramId = (await database.pool.query("select telegram_user_id from users where id=$1", [scope.userId])).rows[0].telegram_user_id;
+  const now = new Date("2026-09-01T10:00:00Z");
+
+  const deleteAfter = await access.requestDeletion(Number(telegramId), now);
+  assert.equal(Math.round((deleteAfter.getTime() - now.getTime()) / 86_400_000), DELETION_GRACE_DAYS);
+  assert.equal(await access.finalizeExpiredDeletions(new Date(deleteAfter.getTime() - 1000)), 0);
+
+  assert.equal(await access.restoreDeletion(Number(telegramId), now), true);
+  assert.equal((await database.pool.query("select status from users where id=$1", [scope.userId])).rows[0].status, "active");
+  assert.equal(await access.finalizeExpiredDeletions(new Date(deleteAfter.getTime() + 1000)), 0);
+
+  await access.requestDeletion(Number(telegramId), now);
+  const beforeFinalize = await database.pool.query("select action from admin_audit_log where target_user_id=$1 order by created_at", [scope.userId]);
+  assert.deepEqual(
+    beforeFinalize.rows.map((row) => row.action),
+    ["users:delete-request", "users:delete-restore", "users:delete-request"],
+  );
+  assert.equal(await access.finalizeExpiredDeletions(new Date(deleteAfter.getTime() + 1000)), 1);
+  assert.equal((await database.pool.query("select count(*)::int as count from users where id=$1", [scope.userId])).rows[0].count, 0);
+  // The audit trail outlives the account but is anonymised: target_user_id is ON DELETE SET NULL.
+  const orphaned = await database.pool.query("select action from admin_audit_log where target_user_id is null");
+  assert.ok(orphaned.rows.some((row) => row.action === "users:delete-finalize"));
+  assert.equal((await database.pool.query("select count(*)::int as count from admin_audit_log where target_user_id=$1", [scope.userId])).rows[0].count, 0);
+});
+
+test("every settings write bumps the version once and a pending input is consumed exactly once", async () => {
+  const scope = await fixture();
+  const settings = new SettingsService(database);
+  const read = async () =>
+    (await database.pool.query("select version, morning_digest_enabled, quiet_hours_enabled, timezone from user_settings where user_id=$1", [scope.userId])).rows[0];
+
+  const start = await read();
+  await settings.apply(scope.userId, { operation: "digest", kind: "morning", enabled: true });
+  const afterDigest = await read();
+  assert.equal(afterDigest.version, start.version + 1);
+  assert.equal(afterDigest.morning_digest_enabled, true);
+
+  await settings.setTimezone(scope.userId, "Europe/Berlin", { applyTo: "both" });
+  const afterTimezone = await read();
+  assert.equal(afterTimezone.timezone, "Europe/Berlin");
+  assert.ok(afterTimezone.version > afterDigest.version);
+
+  await settings.setPendingInput(scope.userId, { kind: "blocker", occurrenceId: "11111111-1111-1111-1111-111111111111" });
+  const first = await settings.consumePendingInput(scope.userId);
+  const second = await settings.consumePendingInput(scope.userId);
+  assert.deepEqual(first, { kind: "blocker", occurrenceId: "11111111-1111-1111-1111-111111111111" });
+  assert.equal(second, null);
 });
