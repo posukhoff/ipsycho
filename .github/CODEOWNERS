@@ -1,0 +1,5 @@
+# Every change is reviewed by the maintainer; migrations and the deploy path get an explicit look.
+*                       @iposukhoff
+/migrations/            @iposukhoff
+/scripts/               @iposukhoff
+/.github/workflows/     @iposukhoff

@@ -1,5 +1,7 @@
 # IPsycho product and technical production QA — 2026-08-23
 
+> **Stale (2026-09-04).** The code paths this audit names (`goal-focus`, task batches, the three-layer action contract) were removed in the September rework. Only the dialogue scores below remain useful, as the baseline the eval loop compares against.
+
 > Remediation status: QA-PT-001 through QA-PT-004 have been addressed locally after this audit with deterministic guards, prompt changes and regression tests. The fixes are not yet deployed to production; see the post-QA verification notes in the active OpenSpec change.
 
 ## Executive summary

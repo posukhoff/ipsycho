@@ -40,7 +40,6 @@
 | `isClearConversationRequest` | `conversation-control.ts:26` | очистка истории |
 | `bareConfirmationDecision` | `chat.service.ts:683` | голое «да/ок/нет» при pending ≤ 30 мин |
 | `isMixedTaskMutationRequest` | `ai-actions.ts:246` | ≥2 «семейства» глаголов + слово задача/встреча/цель → отказ без модели (флаг выключен) |
-| `goalResolution` | `goal-focus.ts:15`, `context.service.ts:32` | слово «цель/приоритет/разбери» в тексте при 2+ целях → состояние `ambiguous`, любое действие модели отклоняется |
 | `validateMutationIntent` | `ai-actions.ts:270` | словарь из 90 глаголов; вопрос по `?` или «как/что/можно ли» |
 | `validateActionBatchShape` | `ai-actions.ts:216` | два действия разных типов |
 | `normalizeReviewTurn` | `chat.service.ts:894` | вечерний обзор: все действия принудительно `ai_inferred`, а затем `validateMutationIntent` их же отклоняет за отсутствие глагола |

@@ -30,6 +30,8 @@ export const REMINDER_QUEUE = "reminder-delivery";
 const MAX_DELIVERY_ATTEMPTS = 3;
 const RECONCILE_INTERVAL_MS = 60_000;
 /** Boot enqueues everything overdue plus this much of the future; reconciliation covers the rest. */
+/** A pending delivery this far past its time was neither sent nor failed: the queue is not draining. */
+const STALE_PENDING_MS = 10 * 60_000;
 const BOOT_HORIZON_MS = 24 * 60 * 60_000;
 const RECONCILE_HORIZON_MS = 2 * 60_000;
 const ENQUEUE_BATCH = 1000;
@@ -78,15 +80,17 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
   }
 
   /** Queue depth for /status: what is waiting and what could not be confirmed as delivered. */
-  async queueSummary(): Promise<{ pending: number; ambiguous: number; deadLettered: number }> {
+  async queueSummary(now = new Date()): Promise<{ pending: number; stalePending: number; ambiguous: number; deadLettered: number }> {
+    const staleBefore = new Date(now.getTime() - STALE_PENDING_MS);
     const [row] = await this.database.db
       .select({
         pending: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'pending')::int`,
+        stalePending: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'pending' and ${reminderDeliveries.scheduledFor} < ${staleBefore})::int`,
         ambiguous: sql<number>`count(*) filter (where ${reminderDeliveries.status} = 'ambiguous')::int`,
       })
       .from(reminderDeliveries);
     const deadLettered = await this.queue.deadLetterCount(REMINDER_QUEUE).catch(() => 0);
-    return { pending: row?.pending ?? 0, ambiguous: row?.ambiguous ?? 0, deadLettered };
+    return { pending: row?.pending ?? 0, stalePending: row?.stalePending ?? 0, ambiguous: row?.ambiguous ?? 0, deadLettered };
   }
 
   async reconcile(now = new Date()): Promise<void> {

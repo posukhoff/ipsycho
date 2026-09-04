@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Safe restore drill: decrypt an encrypted Compose backup and restore it into a
 # temporary PostgreSQL container. The production database is never connected.
@@ -27,6 +27,9 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+if [ -r "$INPUT.sha256" ]; then
+  (cd "$(dirname "$INPUT")" && sha256sum -c "$(basename "$INPUT").sha256" >/dev/null) || { echo "checksum mismatch for $INPUT" >&2; exit 1; }
+fi
 openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$BACKUP_KEY_FILE" -in "$INPUT" -out "$RAW"
 docker run --detach --name "$CONTAINER" \
   --env POSTGRES_DB=ipsycho_restore \
@@ -48,7 +51,7 @@ done
 
 docker cp "$RAW" "$CONTAINER:/tmp/backup.dump"
 docker exec "$CONTAINER" pg_restore --list /tmp/backup.dump >/dev/null
-docker exec "$CONTAINER" pg_restore --no-owner --no-privileges --username=ipsycho_restore --dbname=ipsycho_restore /tmp/backup.dump
+docker exec "$CONTAINER" pg_restore --exit-on-error --single-transaction --no-owner --no-privileges --username=ipsycho_restore --dbname=ipsycho_restore /tmp/backup.dump
 TABLE_COUNT="$(docker exec "$CONTAINER" psql --tuples-only --no-align --username=ipsycho_restore --dbname=ipsycho_restore --command="select count(*) from pg_tables where schemaname='public'")"
 [ "$TABLE_COUNT" -gt 0 ] || { echo "restore completed without public tables" >&2; exit 1; }
 

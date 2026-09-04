@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Production backup runner for the Docker Compose deployment. The PostgreSQL
 # port stays private: pg_dump and pg_restore run inside the database container.
@@ -32,6 +32,12 @@ aws_s3() {
   fi
 }
 
+# One backup at a time: a slow S3 upload must not overlap the next cron run.
+LOCK_FILE="${LOCK_FILE:-$BACKUP_DIR/.backup.lock}"
+mkdir -p "$BACKUP_DIR"
+exec 9>"$LOCK_FILE"
+flock -n 9 || { echo "another backup is still running" >&2; exit 1; }
+
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 command -v openssl >/dev/null 2>&1 || { echo "openssl is required" >&2; exit 1; }
 command -v aws >/dev/null 2>&1 || { echo "aws CLI is required" >&2; exit 1; }
@@ -45,12 +51,14 @@ docker compose exec -T postgres pg_dump --format=custom --no-owner --no-privileg
 openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass "file:$BACKUP_KEY_FILE" -in "$RAW" -out "$ENC_TMP"
 openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$BACKUP_KEY_FILE" -in "$ENC_TMP" | docker compose exec -T postgres pg_restore --list >/dev/null
 mv "$ENC_TMP" "$ENC"
+# The sidecar lets a restore drill prove the file it got is the file that was written.
+(cd "$DAILY_DIR" && sha256sum "$(basename "$ENC")" > "$(basename "$ENC").sha256")
 
 prune_local() {
   directory="$1" pattern="$2" keep="$3"
   find "$directory" -maxdepth 1 -type f -name "$pattern" -exec basename {} \; \
     | sort -r | awk -v keep="$keep" 'NR>keep' \
-    | while IFS= read -r name; do [ -n "$name" ] && rm -f "$directory/$name"; done
+    | while IFS= read -r name; do [ -n "$name" ] && rm -f "$directory/$name" "$directory/$name.sha256"; done
 }
 
 # Keep the newest seven local daily copies and four local weekly copies.
@@ -58,19 +66,24 @@ prune_local "$DAILY_DIR" 'ipsycho-*.dump.enc' 7
 if [ "$DOW" = "7" ]; then
   WEEKLY="$WEEKLY_DIR/ipsycho-$WEEK.dump.enc"
   cp "$ENC" "$WEEKLY"
+  (cd "$WEEKLY_DIR" && sha256sum "$(basename "$WEEKLY")" > "$(basename "$WEEKLY").sha256")
   prune_local "$WEEKLY_DIR" 'ipsycho-*.dump.enc' 4
 fi
 
 REMOTE_BASE="${S3_BACKUP_URI%/}"
 aws_s3 cp "$ENC" "$REMOTE_BASE/daily/$(basename "$ENC")" --only-show-errors
+aws_s3 cp "$ENC.sha256" "$REMOTE_BASE/daily/$(basename "$ENC").sha256" --only-show-errors
 if [ "${WEEKLY:-}" != "" ]; then
   aws_s3 cp "$WEEKLY" "$REMOTE_BASE/weekly/$(basename "$WEEKLY")" --only-show-errors
+  aws_s3 cp "$WEEKLY.sha256" "$REMOTE_BASE/weekly/$(basename "$WEEKLY").sha256" --only-show-errors
 fi
-aws_s3 ls "$REMOTE_BASE/daily/" | awk '{print $4}' | grep '^ipsycho-.*\.dump\.enc$' | sort -r | awk 'NR>7' | while IFS= read -r name; do
-  [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/daily/$name" --only-show-errors
+aws_s3 ls "$REMOTE_BASE/daily/" | awk '{print $4}' | { grep '^ipsycho-.*\.dump\.enc$' || true; } | sort -r | awk 'NR>7' | while IFS= read -r name; do
+  [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/daily/$name" --only-show-errors && aws_s3 rm "$REMOTE_BASE/daily/$name.sha256" --only-show-errors
 done
-aws_s3 ls "$REMOTE_BASE/weekly/" | awk '{print $4}' | grep '^ipsycho-.*\.dump\.enc$' | sort -r | awk 'NR>4' | while IFS= read -r name; do
-  [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/weekly/$name" --only-show-errors
+aws_s3 ls "$REMOTE_BASE/weekly/" | awk '{print $4}' | { grep '^ipsycho-.*\.dump\.enc$' || true; } | sort -r | awk 'NR>4' | while IFS= read -r name; do
+  [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/weekly/$name" --only-show-errors && aws_s3 rm "$REMOTE_BASE/weekly/$name.sha256" --only-show-errors
 done
 
+# Optional dead-man switch (healthchecks.io or similar): a missing ping means the cron stopped.
+if [ -n "${BACKUP_PING_URL:-}" ]; then curl -fsS -m 10 --retry 3 "$BACKUP_PING_URL" >/dev/null || echo "backup ping failed" >&2; fi
 printf 'backup_ok file=%s\n' "$ENC"

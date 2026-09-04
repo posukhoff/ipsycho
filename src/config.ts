@@ -45,6 +45,7 @@ const schema = z
     TELEGRAM_BOT_TOKEN: z.string().min(20),
     BOT_IDENTITY: z.string().min(1).max(64).default("ipsycho-main"),
     OWNER_TELEGRAM_USER_ID: optionalSafeInteger,
+    HEALTHCHECK_PING_URL: z.preprocess((value) => (value === "" || value === undefined ? undefined : value), z.url().optional()),
     AI_PROVIDER: z.enum(["openai", "gemini", "deepseek"]).default("openai"),
     AI_MODEL: z.string().min(1),
     AI_MODEL_DEEP: z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional()),
@@ -96,6 +97,8 @@ export interface AppConfig {
   telegramBotToken: string;
   botIdentity: string;
   ownerTelegramUserId?: number;
+  /** Dead-man switch: pinged after every successful maintenance tick; the service alerts when pings stop. */
+  healthcheckPingUrl?: string;
   aiProvider: AiProviderName;
   aiModel: string;
   aiDeepModel?: string;
@@ -127,6 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     telegramBotToken: value.TELEGRAM_BOT_TOKEN,
     botIdentity: value.BOT_IDENTITY,
     ...(value.OWNER_TELEGRAM_USER_ID ? { ownerTelegramUserId: value.OWNER_TELEGRAM_USER_ID } : {}),
+    ...(value.HEALTHCHECK_PING_URL ? { healthcheckPingUrl: value.HEALTHCHECK_PING_URL } : {}),
     aiProvider: value.AI_PROVIDER,
     aiModel: value.AI_MODEL,
     ...(value.AI_MODEL_DEEP ? { aiDeepModel: value.AI_MODEL_DEEP } : {}),

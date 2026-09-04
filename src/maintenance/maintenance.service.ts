@@ -16,6 +16,7 @@ import { MessagesRepository } from "../messages/messages.repository.js";
 import { TasksRepository } from "../tasks/tasks.repository.js";
 import { RESULT_CHECK_IGNORE_GRACE_MINUTES } from "../core/result-check.js";
 import { ReminderSchedulingService } from "../reminders/reminder-scheduling.service.js";
+import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
 import { loopHealth } from "../observability/loop-health.js";
@@ -32,6 +33,8 @@ export const TELEGRAM_UPDATE_RETENTION_DAYS = 7;
 export class MaintenanceService implements OnApplicationBootstrap, OnApplicationShutdown {
   private timer?: NodeJS.Timeout;
   private running = false;
+  /** The last queue problem reported to the owner; the same problem is not repeated every hour. */
+  private lastAlertSignature = "";
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -43,6 +46,7 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
     private readonly context: ContextService,
     private readonly tasks: TasksRepository,
     private readonly reminders: ReminderSchedulingService,
+    private readonly reminderQueue: ReminderQueueService,
     private readonly settings: SettingsService,
     private readonly telegram: TelegramService,
   ) {}
@@ -90,6 +94,8 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
       // therefore scrubs content instead of deleting the topic metadata/foreign-key target.
       const topicSummariesCleared = await this.context.scrubExpiredTopicSummaries(now);
       await this.checkAiSpendWarnings(now);
+      await this.alertOwnerOnQueueProblems(now);
+      await this.pingDeadManSwitch();
       if (
         messagesDeleted ||
         topicSummariesCleared ||
@@ -134,6 +140,34 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
         .where(and(eq(telegramUpdates.botIdentity, this.config.botIdentity), inArray(telegramUpdates.telegramUpdateId, batch)));
       return result.rowCount ?? 0;
     });
+  }
+
+  /** Reminders that stopped moving are the failure a user notices first and the operator last. */
+  async alertOwnerOnQueueProblems(now: Date): Promise<void> {
+    if (!this.config.ownerTelegramUserId) return;
+    const queue = await this.reminderQueue.queueSummary(now).catch(() => null);
+    if (!queue) return;
+    const problems = [
+      ...(queue.stalePending ? [`pending>10min=${queue.stalePending}`] : []),
+      ...(queue.deadLettered ? [`dead_letter=${queue.deadLettered}`] : []),
+      ...(queue.ambiguous ? [`ambiguous=${queue.ambiguous}`] : []),
+    ];
+    const signature = problems.join(" ");
+    if (signature === this.lastAlertSignature) return;
+    this.lastAlertSignature = signature;
+    if (!problems.length) return;
+    logger.warn("reminder queue needs attention", { ...queue });
+    await this.telegram.sendMessage(this.config.ownerTelegramUserId, t("ru", "ops_alert", { details: signature })).catch(() => undefined);
+  }
+
+  private async pingDeadManSwitch(): Promise<void> {
+    if (!this.config.healthcheckPingUrl) return;
+    try {
+      const response = await fetch(this.config.healthcheckPingUrl, { method: "GET", signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) logger.warn("healthcheck ping rejected", { status: response.status });
+    } catch (error) {
+      logger.warn("healthcheck ping failed", { error: safeError(error) });
+    }
   }
 
   /** One grouped SUM for everyone, then a notice per user who crossed their threshold this month. */

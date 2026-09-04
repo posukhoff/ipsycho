@@ -234,6 +234,7 @@ export const uk: Record<keyof typeof ru, string> = {
   voice_suspended: "AI-обробку для акаунта призупинено. Голосове введення недоступне.",
   ai_spend_warning: "Попередження: оцінні витрати AI цього місяця досягли ${amount}. Це лише сповіщення; AI автоматично не вимикається.",
   ai_spend_owner_notice: "IPsycho: користувач {userId} досяг AI spend warning ${amount}.",
+  ops_alert: "IPsycho: черга нагадувань потребує уваги. {details}",
   voice_too_long: "Голосове надто довге або велике. Надішли запис до {minutes} хв і {mb} МБ або текст.",
   voice_openai_only: "Голосове введення зараз доступне лише з налаштованим OpenAI.",
   voice_rate_limited: "Досягнуто годинний ліміт AI. Спробуй пізніше, кнопки й нагадування працюють.",

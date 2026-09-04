@@ -62,13 +62,26 @@ Telegram long polling needs only outbound HTTPS access.
    | --- | --- |
    | `DEPLOY_HOST` | VPS public IP or host name |
    | `DEPLOY_USER` | `deploy` |
-   | `DEPLOY_SSH_PRIVATE_KEY` | private key for Actions to SSH into the VPS |
+   | `DEPLOY_SSH_PRIVATE_KEY_BASE64` | the private key for Actions to SSH into the VPS, base64-encoded (`base64 -w0 < key`) so newlines survive the secret store |
    | `DEPLOY_KNOWN_HOSTS` | pinned `ssh-keyscan -H <host>` output, verified against the provider console fingerprint |
 
 Pushes to `main` first run CI. A successful CI run deploys its exact commit;
 the server checks out that commit in detached mode, so the deployed code cannot
 silently advance to a later, unverified commit. Keep server-specific changes in
 `.env` or outside the repository.
+
+The deploy itself is `scripts/deploy-remote.sh`, taken from the commit being
+deployed and run over SSH. It takes a plain `pg_dump` into
+`backups/pre-deploy/` (the last three are kept), rebuilds with
+`docker compose up --wait`, and then polls `/ready` until the reported `commit`
+equals the deployed SHA. If that does not happen within about 150 seconds the
+previous commit is checked out and rebuilt, and the workflow fails. Old images
+are no longer pruned during a deploy; schedule
+`docker image prune -f --filter until=168h` weekly instead.
+
+Container logs rotate at 5 × 10 MB per service. `stop_grace_period: 30s` gives
+the old container time to release the migration advisory lock before the new
+one starts.
 
 ## Backups and operations
 
@@ -92,7 +105,20 @@ parsed, retains 7 daily and 4 weekly copies locally and remotely, and fails if
 the Compose PostgreSQL service is unavailable.
 
 Schedule `backup-compose.sh` daily as the `deploy` user and alert on any non-zero
-exit. At least monthly, verify a selected encrypted backup without touching the
+exit. Every dump gets a `.sha256` sidecar, the script refuses to run twice at
+once (`flock`), and `BACKUP_PING_URL` (a healthchecks.io-style URL) is pinged
+after a successful upload so a silent cron failure is noticed. Suggested crontab:
+
+```cron
+15 3 * * *  cd /opt/ipsycho && BACKUP_KEY_FILE=/opt/ipsycho-secrets/backup.key S3_BACKUP_URI=s3://bucket/ipsycho BACKUP_PING_URL=https://hc-ping.com/... ./scripts/backup-compose.sh >> backups/backup.log 2>&1
+0 4 1 * *   cd /opt/ipsycho && BACKUP_KEY_FILE=/opt/ipsycho-secrets/backup.key ./scripts/restore-compose.sh "$(ls -t backups/daily/*.dump.enc | head -1)" >> backups/restore-drill.log 2>&1
+30 4 * * 0  docker image prune -f --filter until=168h
+```
+
+Runtime alerts go to `OWNER_TELEGRAM_USER_ID`: the hourly maintenance tick
+reports reminders pending more than ten minutes past their time, non-empty
+dead-letter queues and ambiguous deliveries, once per change. Set
+`HEALTHCHECK_PING_URL` to have the same tick ping a dead-man switch. At least monthly, verify a selected encrypted backup without touching the
 production database:
 
 ```sh

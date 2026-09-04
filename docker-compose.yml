@@ -2,6 +2,11 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     environment:
       POSTGRES_DB: ipsycho
       POSTGRES_USER: ipsycho
@@ -22,6 +27,10 @@ services:
       args:
         APP_COMMIT: ${APP_COMMIT:-unknown}
     restart: unless-stopped
+    logging: *logging
+    # The old container must release the advisory lock before the new one migrates; the runner
+    # stops polling and drains in-flight updates within this window.
+    stop_grace_period: 30s
     env_file: .env
     environment:
       HOST: 0.0.0.0
