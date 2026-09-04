@@ -334,6 +334,25 @@ export class ReminderSchedulingService {
     return row?.scheduledFor ?? null;
   }
 
+  /** `nextUserReminderAt` for many occurrences in one grouped query, keyed by occurrence id. */
+  async nextUserReminderAtMany(workspaceId: string, occurrenceIds: readonly string[]): Promise<Map<string, Date>> {
+    if (!occurrenceIds.length) return new Map();
+    const rows = await this.database.db
+      .select({ occurrenceId: reminderDeliveries.occurrenceId, scheduledFor: sql<Date>`min(${reminderDeliveries.scheduledFor})` })
+      .from(reminderDeliveries)
+      .innerJoin(reminderRules, and(eq(reminderRules.workspaceId, reminderDeliveries.workspaceId), eq(reminderRules.id, reminderDeliveries.reminderRuleId)))
+      .where(
+        and(
+          eq(reminderDeliveries.workspaceId, workspaceId),
+          inArray(reminderDeliveries.occurrenceId, [...occurrenceIds]),
+          eq(reminderDeliveries.status, "pending"),
+          eq(reminderRules.purpose, "user_reminder"),
+        ),
+      )
+      .groupBy(reminderDeliveries.occurrenceId);
+    return new Map(rows.flatMap((row) => (row.occurrenceId ? [[row.occurrenceId, new Date(row.scheduledFor)] as const] : [])));
+  }
+
   async rebuildOccurrence(workspaceId: string, occurrenceId: string, now = new Date()): Promise<number> {
     const [row] = await this.database.db
       .select({ task: tasks, occurrence: taskOccurrences, recipientUserId: workspaces.ownerUserId, settings: userSettings })

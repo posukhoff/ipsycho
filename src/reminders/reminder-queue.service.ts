@@ -24,6 +24,7 @@ import { applyNotificationPolicy } from "../core/reminder-planning.js";
 import { nextCriticalEscalationAt, reminderBriefingBundleDecision } from "../core/reminder-escalation.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
+import { loopHealth } from "../observability/loop-health.js";
 
 export const REMINDER_QUEUE = "reminder-delivery";
 const MAX_DELIVERY_ATTEMPTS = 3;
@@ -55,6 +56,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    loopHealth.register("reminder_reconcile", RECONCILE_INTERVAL_MS);
     await this.queue.ensureQueue(REMINDER_QUEUE, { retryLimit: MAX_DELIVERY_ATTEMPTS - 1, retryDelaySeconds: 30 });
     // Boot recovery runs before the worker starts. Rows left in `processing` by a previous
     // process are reset first; if the worker were already consuming, it could claim a row
@@ -90,6 +92,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
   async reconcile(now = new Date()): Promise<void> {
     await this.enqueuePending(new Date(now.getTime() + RECONCILE_HORIZON_MS));
     this.lastTickAt = now;
+    loopHealth.beat("reminder_reconcile", now.getTime());
   }
 
   async enqueue(deliveryId: string, scheduledFor: Date): Promise<void> {

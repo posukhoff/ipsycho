@@ -7,6 +7,7 @@ import { briefingDeliveries, userSettings, users, workspaceMembers, workspaces }
 import { BriefingQueueService } from "./briefing-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
+import { loopHealth } from "../observability/loop-health.js";
 
 const RECONCILE_MS = 15 * 60_000;
 
@@ -21,6 +22,7 @@ export class BriefingSchedulingService implements OnApplicationBootstrap, OnAppl
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    loopHealth.register("briefing_scheduling", RECONCILE_MS);
     await this.reconcile();
     this.timer = setInterval(() => void this.reconcile().catch((error) => logger.error("briefing scheduling reconciliation failed", { error: safeError(error) })), RECONCILE_MS);
     this.timer.unref();
@@ -45,6 +47,7 @@ export class BriefingSchedulingService implements OnApplicationBootstrap, OnAppl
         const today = localDateAt(now, row.settings.digestTimezone);
         for (const date of [today, shiftLocalDate(today, 1)]) await this.materializeDate(row.workspaceId, row.user.id, row.settings, date, now);
       }
+      loopHealth.beat("briefing_scheduling");
     } finally {
       this.running = false;
     }

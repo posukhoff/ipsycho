@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { and, eq, gt, inArray, isNotNull, lte, or } from "drizzle-orm";
+import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
 import { actionEvents, actionGroups, pendingActions } from "../database/schema.js";
 import { DomainRuleError } from "../core/errors.js";
@@ -262,23 +263,20 @@ export class ActionsRepository {
       .where(inArray(actionGroups.status, ["applying", "undoing"]));
   }
 
-  async scrubExpiredActionPayloads(now = new Date()): Promise<number> {
-    const groups = await this.database.db
-      .select({ id: actionGroups.id })
-      .from(actionGroups)
-      .where(
-        or(
-          and(eq(actionGroups.status, "applied"), isNotNull(actionGroups.undoExpiresAt), lte(actionGroups.undoExpiresAt, now)),
-          inArray(actionGroups.status, ["undone", "failed", "expired", "cancelled"]),
-        ),
-      );
-    if (!groups.length) return 0;
-    const ids = groups.map((group) => group.id);
-    const changed = await this.database.db
-      .update(actionEvents)
-      .set({ beforeState: null, afterState: null })
-      .where(and(inArray(actionEvents.groupId, ids), or(isNotNull(actionEvents.beforeState), isNotNull(actionEvents.afterState))))
-      .returning({ id: actionEvents.id });
-    return changed.length;
+  async scrubExpiredActionPayloads(now = new Date(), batchSize = CLEANUP_BATCH): Promise<number> {
+    const expiredGroup = or(
+      and(eq(actionGroups.status, "applied"), isNotNull(actionGroups.undoExpiresAt), lte(actionGroups.undoExpiresAt, now)),
+      inArray(actionGroups.status, ["undone", "failed", "expired", "cancelled"]),
+    );
+    return drainInBatches(batchSize, async () => {
+      const batch = this.database.db
+        .select({ id: actionEvents.id })
+        .from(actionEvents)
+        .innerJoin(actionGroups, and(eq(actionGroups.workspaceId, actionEvents.workspaceId), eq(actionGroups.id, actionEvents.groupId)))
+        .where(and(expiredGroup, or(isNotNull(actionEvents.beforeState), isNotNull(actionEvents.afterState))))
+        .limit(batchSize);
+      const result = await this.database.db.update(actionEvents).set({ beforeState: null, afterState: null }).where(inArray(actionEvents.id, batch));
+      return result.rowCount ?? 0;
+    });
   }
 }

@@ -145,16 +145,16 @@ export class ActionsService implements OnApplicationBootstrap {
   /** Domain rules that need the current stored state; one issue per action index. */
   async validate(actions: readonly ResolvedAction[], scope: Omit<ActionScope, "sourceMessageId">): Promise<ActionIssue[]> {
     const now = scope.now ?? new Date();
+    // Validation only reads; the actions of one package are checked concurrently.
+    const results = await Promise.allSettled(actions.map((action) => this.validateOne(action, { ...scope, now })));
     const issues: ActionIssue[] = [];
-    for (const [index, action] of actions.entries()) {
-      try {
-        await this.validateOne(action, { ...scope, now });
-      } catch (error) {
-        const code = error instanceof InvalidAiActionError ? error.code : "invalid_action";
-        const message = error instanceof Error ? error.message : "invalid action";
-        issues.push({ kind: /stale|missing/i.test(message) ? "reference" : "domain", index, code, message });
-      }
-    }
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") return;
+      const error: unknown = result.reason;
+      const code = error instanceof InvalidAiActionError ? error.code : "invalid_action";
+      const message = error instanceof Error ? error.message : "invalid action";
+      issues.push({ kind: /stale|missing/i.test(message) ? "reference" : "domain", index, code, message });
+    });
     return issues;
   }
 
@@ -674,34 +674,71 @@ export class ActionsService implements OnApplicationBootstrap {
     await this.tasks.enqueuePreparedTaskPlans(
       result.preparedPlans.map((plan) => ({ plan, result: { taskId: plan.task.id, occurrenceIds: [], deliveryIds: [], reminderSchedules: [] } })),
     );
-    for (const occurrenceId of result.reminderRebuildOccurrenceIds) {
-      await this.reminders
-        .rebuildOccurrence(scope.workspaceId, occurrenceId, now)
-        .catch((error) => logger.error("reminder rebuild deferred", { occurrenceId, error: safeError(error) }));
-    }
+    // Each rebuild is its own transaction on its own rows; within a category they run together.
+    // Categories stay ordered because a series reconciliation may create the occurrences a
+    // later fuzzy rebuild reads.
+    await Promise.all(
+      [...new Set(result.reminderRebuildOccurrenceIds)].map((occurrenceId) =>
+        this.reminders
+          .rebuildOccurrence(scope.workspaceId, occurrenceId, now)
+          .catch((error) => logger.error("reminder rebuild deferred", { occurrenceId, error: safeError(error) })),
+      ),
+    );
     const fuzzyTaskIds = new Set<string>([
       ...result.fuzzyRebuildTaskIds,
       ...result.steps.filter((step) => step.kind === "cancel_task" || step.kind === "complete_task" || step.kind === "concretise_task").map((step) => step.taskId),
     ]);
-    for (const taskId of fuzzyTaskIds) {
-      await this.reminders
-        .rebuildFuzzyTask(scope.workspaceId, scope.recipientUserId, taskId, now)
-        .catch((error) => logger.error("planning reminder rebuild deferred", { taskId, error: safeError(error) }));
-    }
-    for (const taskId of result.reconcileTaskIds) {
-      await this.tasks.reconcileRecurringTask(scope.workspaceId, taskId, now).catch((error) => logger.error("series reconciliation deferred", { taskId, error: safeError(error) }));
-    }
-    for (const step of result.steps) {
-      if (step.kind !== "occurrence_interaction" || step.operation !== "seen") continue;
-      await this.reminders
-        .scheduleSeenFallback({ workspaceId: scope.workspaceId, userId: scope.recipientUserId, occurrenceId: step.occurrenceId, now })
-        .catch((error) => logger.error("seen fallback deferred", { occurrenceId: step.occurrenceId, error: safeError(error) }));
-    }
+    await Promise.all(
+      [...fuzzyTaskIds].map((taskId) =>
+        this.reminders
+          .rebuildFuzzyTask(scope.workspaceId, scope.recipientUserId, taskId, now)
+          .catch((error) => logger.error("planning reminder rebuild deferred", { taskId, error: safeError(error) })),
+      ),
+    );
+    await Promise.all(
+      [...new Set(result.reconcileTaskIds)].map((taskId) =>
+        this.tasks.reconcileRecurringTask(scope.workspaceId, taskId, now).catch((error) => logger.error("series reconciliation deferred", { taskId, error: safeError(error) })),
+      ),
+    );
+    await Promise.all(
+      result.steps
+        .filter((step): step is Extract<ActionGroupStepResult, { kind: "occurrence_interaction" }> => step.kind === "occurrence_interaction" && step.operation === "seen")
+        .map((step) =>
+          this.reminders
+            .scheduleSeenFallback({ workspaceId: scope.workspaceId, userId: scope.recipientUserId, occurrenceId: step.occurrenceId, now })
+            .catch((error) => logger.error("seen fallback deferred", { occurrenceId: step.occurrenceId, error: safeError(error) })),
+        ),
+    );
     void actions;
   }
 
   /** The user-facing report is built from what the repositories stored, never from the model. */
   private async reportItems(steps: readonly ActionGroupStepResult[], scope: ActionScope, actions: readonly ResolvedAction[]): Promise<AppliedReportItem[]> {
+    // Two queries for the whole package instead of two to four per created task.
+    const createdTaskIds = steps.flatMap((step) => (step.kind === "create_task" ? [step.taskId] : step.kind === "goal_plan" ? step.taskIds : []));
+    const occurrences = await this.tasks.findCurrentOccurrences(scope.workspaceId, createdTaskIds).catch(() => new Map<string, never>());
+    const occurrenceIds = new Set<string>([...occurrences.values()].map((occurrence) => occurrence.id));
+    for (const step of steps) {
+      if (step.kind === "reschedule_occurrence" || step.kind === "concretise_task" || step.kind === "change_reminder") occurrenceIds.add(step.occurrenceId);
+    }
+    const reminders = await this.reminders.nextUserReminderAtMany(scope.workspaceId, [...occurrenceIds]).catch(() => new Map<string, Date>());
+    const scheduleForTask = (taskId: string) => {
+      const occurrence = occurrences.get(taskId);
+      if (!occurrence) return null;
+      return {
+        timezone: occurrence.timezone,
+        plannedStartAt: occurrence.plannedStartAt ?? null,
+        plannedEndAt: occurrence.plannedEndAt ?? null,
+        plannedLocalDate: occurrence.plannedLocalDate ?? null,
+        dueAt: occurrence.dueAt ?? null,
+        dueLocalDate: occurrence.dueLocalDate ?? null,
+      };
+    };
+    const reminderForTask = (taskId: string) => {
+      const occurrence = occurrences.get(taskId);
+      return occurrence ? (reminders.get(occurrence.id) ?? null) : null;
+    };
+    const reminderForOccurrence = (occurrenceId: string) => reminders.get(occurrenceId) ?? null;
     const items: AppliedReportItem[] = [];
     for (const step of steps) {
       switch (step.kind) {
@@ -712,9 +749,9 @@ export class ActionsService implements OnApplicationBootstrap {
             title: step.title,
             timezone: created?.timezone ?? "UTC",
             ...(created ? { importance: created.body.importance, recurring: Boolean(created.body.recurrence) } : {}),
-            schedule: await this.occurrenceScheduleForTask(scope.workspaceId, step.taskId),
+            schedule: scheduleForTask(step.taskId),
             fuzzyHorizonText: created?.body.when.mode === "fuzzy" ? created.body.when.horizonText : null,
-            reminderAt: await this.nextReminderForTask(scope.workspaceId, step.taskId),
+            reminderAt: reminderForTask(step.taskId),
             goalTitle: step.goalTitle,
           });
           break;
@@ -723,15 +760,13 @@ export class ActionsService implements OnApplicationBootstrap {
           items.push({
             kind: "goal_plan",
             goalTitle: step.goalTitle,
-            tasks: await Promise.all(
-              step.taskIds.map(async (taskId, index) => ({
-                kind: "task_created" as const,
-                title: step.taskTitles[index] ?? "",
-                timezone: actions.find((action) => action.type === "plan")?.timezone ?? "UTC",
-                schedule: await this.occurrenceScheduleForTask(scope.workspaceId, taskId),
-                reminderAt: await this.nextReminderForTask(scope.workspaceId, taskId),
-              })),
-            ),
+            tasks: step.taskIds.map((taskId, index) => ({
+              kind: "task_created" as const,
+              title: step.taskTitles[index] ?? "",
+              timezone: actions.find((action) => action.type === "plan")?.timezone ?? "UTC",
+              schedule: scheduleForTask(taskId),
+              reminderAt: reminderForTask(taskId),
+            })),
           });
           break;
         case "update_task":
@@ -755,7 +790,7 @@ export class ActionsService implements OnApplicationBootstrap {
             title: step.title,
             before: step.previousSchedule,
             after: step.occurrenceSchedule,
-            reminderAt: await this.reminders.nextUserReminderAt(scope.workspaceId, step.occurrenceId).catch(() => null),
+            reminderAt: reminderForOccurrence(step.occurrenceId),
             reason: step.reason,
           });
           break;
@@ -765,7 +800,7 @@ export class ActionsService implements OnApplicationBootstrap {
             title: step.title,
             before: null,
             after: step.occurrenceSchedule,
-            reminderAt: await this.reminders.nextUserReminderAt(scope.workspaceId, step.occurrenceId).catch(() => null),
+            reminderAt: reminderForOccurrence(step.occurrenceId),
             reason: step.reason,
             fromFuzzy: step.previousFuzzyHorizonText,
           });
@@ -776,7 +811,7 @@ export class ActionsService implements OnApplicationBootstrap {
             title: step.title,
             mode: step.mode,
             schedule: step.occurrenceSchedule,
-            reminderAt: await this.reminders.nextUserReminderAt(scope.workspaceId, step.occurrenceId).catch(() => null),
+            reminderAt: reminderForOccurrence(step.occurrenceId),
           });
           break;
         case "change_series":
@@ -809,25 +844,6 @@ export class ActionsService implements OnApplicationBootstrap {
       }
     }
     return items;
-  }
-
-  private async occurrenceScheduleForTask(workspaceId: string, taskId: string) {
-    const occurrence = await this.tasks.findCurrentOccurrence(workspaceId, taskId, {}).catch(() => null);
-    if (!occurrence) return null;
-    return {
-      timezone: occurrence.timezone,
-      plannedStartAt: occurrence.plannedStartAt ?? null,
-      plannedEndAt: occurrence.plannedEndAt ?? null,
-      plannedLocalDate: occurrence.plannedLocalDate ?? null,
-      dueAt: occurrence.dueAt ?? null,
-      dueLocalDate: occurrence.dueLocalDate ?? null,
-    };
-  }
-
-  private async nextReminderForTask(workspaceId: string, taskId: string): Promise<Date | null> {
-    const occurrence = await this.tasks.findCurrentOccurrence(workspaceId, taskId, {}).catch(() => null);
-    if (!occurrence) return null;
-    return this.reminders.nextUserReminderAt(workspaceId, occurrence.id).catch(() => null);
   }
 
   private async validateSettingsAction(action: ResolvedActionOf<"settings">, userId: string, now: Date): Promise<void> {

@@ -4,8 +4,11 @@ import { ActionsService } from "../actions/actions.service.js";
 import { AiService } from "../ai/ai.service.js";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { DatabaseService } from "../database/database.service.js";
-import { users, userSettings } from "../database/schema.js";
-import { eq } from "drizzle-orm";
+import { telegramUpdates, users, userSettings } from "../database/schema.js";
+import { and, eq, inArray, lt, ne, or, isNull } from "drizzle-orm";
+import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
+import { interfaceLocale } from "../core/language.js";
+import { t } from "../telegram/copy/index.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { ContextService } from "../context/context.service.js";
@@ -15,9 +18,15 @@ import { RESULT_CHECK_IGNORE_GRACE_MINUTES } from "../core/result-check.js";
 import { ReminderSchedulingService } from "../reminders/reminder-scheduling.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
+import { loopHealth } from "../observability/loop-health.js";
 
 const TICK_MS = 60 * 60_000;
-const RAW_MESSAGE_RETENTION_MS = 90 * 24 * 60 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+const RAW_MESSAGE_RETENTION_MS = 90 * DAY_MS;
+/** The task journal feeds counters and recent history only; a year is longer than any reader looks back. */
+export const TASK_EVENT_RETENTION_DAYS = 365;
+/** Telegram update ids are the idempotency ledger; Telegram itself stops redelivering long before this. */
+export const TELEGRAM_UPDATE_RETENTION_DAYS = 7;
 
 @Injectable()
 export class MaintenanceService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -39,6 +48,7 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    loopHealth.register("maintenance", TICK_MS);
     await this.tick();
     this.timer = setInterval(() => void this.tick(), TICK_MS);
     this.timer.unref();
@@ -55,7 +65,17 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
       const now = new Date();
       const cutoff = new Date(now.getTime() - RAW_MESSAGE_RETENTION_MS);
       const ignoredCheckCutoff = new Date(now.getTime() - RESULT_CHECK_IGNORE_GRACE_MINUTES * 60_000);
-      const [messagesDeleted, confirmationsExpired, auditPayloadsCleared, eventDetailsCleared, accountsDeleted, ignoredResultChecks, fuzzyReviewsRebuilt] = await Promise.all([
+      const [
+        messagesDeleted,
+        confirmationsExpired,
+        auditPayloadsCleared,
+        eventDetailsCleared,
+        accountsDeleted,
+        ignoredResultChecks,
+        fuzzyReviewsRebuilt,
+        eventsDeleted,
+        updatesDeleted,
+      ] = await Promise.all([
         this.messages.deleteRawOlderThan(cutoff),
         this.actions.cleanupExpiredConfirmations(now),
         this.actions.cleanupExpiredAuditPayloads(now),
@@ -63,6 +83,8 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
         this.access.finalizeExpiredDeletions(now),
         this.tasks.markIgnoredResultChecks(ignoredCheckCutoff, now),
         this.reminders.reconcileFuzzyReviews(now),
+        this.tasks.deleteEventsOlderThan(new Date(now.getTime() - TASK_EVENT_RETENTION_DAYS * DAY_MS)),
+        this.deleteTelegramUpdatesOlderThan(new Date(now.getTime() - TELEGRAM_UPDATE_RETENTION_DAYS * DAY_MS)),
       ]);
       // Topic rows may still be referenced by slightly newer assistant messages. Retention
       // therefore scrubs content instead of deleting the topic metadata/foreign-key target.
@@ -76,7 +98,9 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
         eventDetailsCleared ||
         accountsDeleted ||
         ignoredResultChecks ||
-        fuzzyReviewsRebuilt
+        fuzzyReviewsRebuilt ||
+        eventsDeleted ||
+        updatesDeleted
       ) {
         logger.info("maintenance completed", {
           messagesDeleted,
@@ -87,14 +111,32 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
           accountsDeleted,
           ignoredResultChecks,
           fuzzyReviewsRebuilt,
+          eventsDeleted,
+          updatesDeleted,
         });
       }
+      loopHealth.beat("maintenance");
     } catch (error) {
       logger.error("maintenance failed", { error: safeError(error) });
     } finally {
       this.running = false;
     }
   }
+  private async deleteTelegramUpdatesOlderThan(cutoff: Date): Promise<number> {
+    return drainInBatches(CLEANUP_BATCH, async () => {
+      const batch = this.database.db
+        .select({ id: telegramUpdates.telegramUpdateId })
+        .from(telegramUpdates)
+        .where(and(eq(telegramUpdates.botIdentity, this.config.botIdentity), lt(telegramUpdates.createdAt, cutoff)))
+        .limit(CLEANUP_BATCH);
+      const result = await this.database.db
+        .delete(telegramUpdates)
+        .where(and(eq(telegramUpdates.botIdentity, this.config.botIdentity), inArray(telegramUpdates.telegramUpdateId, batch)));
+      return result.rowCount ?? 0;
+    });
+  }
+
+  /** One grouped SUM for everyone, then a notice per user who crossed their threshold this month. */
   private async checkAiSpendWarnings(now: Date): Promise<void> {
     const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -102,22 +144,22 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
       .select({ user: users, settings: userSettings })
       .from(users)
       .innerJoin(userSettings, eq(userSettings.userId, users.id))
-      .where(eq(users.status, "active"));
+      .where(and(eq(users.status, "active"), or(isNull(userSettings.lastAiSpendWarningMonth), ne(userSettings.lastAiSpendWarningMonth, month))));
+    if (!rows.length) return;
+    const spendByUser = await this.ai.monthlySpendByUser(monthStart);
     for (const row of rows) {
-      if (row.settings.lastAiSpendWarningMonth === month) continue;
       const userThreshold = Number(row.settings.aiMonthlyWarningUsd);
       const threshold = Number.isFinite(userThreshold) && userThreshold > 0 ? userThreshold : (this.config.aiMonthlyWarningUsd ?? 0);
       if (threshold <= 0) continue;
-      const spend = await this.ai.monthlySpendUsd(row.user.id, monthStart);
+      const spend = spendByUser.get(row.user.id) ?? 0;
       if (spend < threshold) continue;
       const marked = await this.settings.markSpendWarning(row.user.id, month);
       if (!marked) continue;
       const amount = spend.toFixed(2);
-      await this.telegram
-        .sendMessage(row.user.telegramUserId, `Предупреждение: оценочные расходы AI в этом месяце достигли $${amount}. Это только уведомление; AI автоматически не отключается.`)
-        .catch(() => undefined);
+      const locale = interfaceLocale(row.settings.pinnedLanguage);
+      await this.telegram.sendMessage(row.user.telegramUserId, t(locale, "ai_spend_warning", { amount })).catch(() => undefined);
       if (this.config.ownerTelegramUserId && this.config.ownerTelegramUserId !== row.user.telegramUserId) {
-        await this.telegram.sendMessage(this.config.ownerTelegramUserId, `IPsycho: пользователь ${row.user.id} достиг AI spend warning $${amount}.`).catch(() => undefined);
+        await this.telegram.sendMessage(this.config.ownerTelegramUserId, t("ru", "ai_spend_owner_notice", { userId: row.user.id, amount })).catch(() => undefined);
       }
     }
   }

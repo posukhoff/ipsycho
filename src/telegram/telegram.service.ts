@@ -9,6 +9,7 @@ import { SettingsService } from "../settings/settings.service.js";
 import { taskKeyboard, type TelegramOccurrenceStatus } from "./telegram-ui.js";
 import type { BriefingKind } from "../core/digest-policy.js";
 import { compactText } from "../core/telegram-ux.js";
+import { and, eq, lt } from "drizzle-orm";
 import { telegramUpdates } from "../database/schema.js";
 import { safeError } from "../observability/safe-error.js";
 import { t } from "./copy/index.js";
@@ -22,6 +23,8 @@ const ALLOWED_UPDATES = ["message", "callback_query"] as const;
 const UPDATE_CONCURRENCY = 16;
 /** A turn that has not finished in this long is logged, not killed: the model call has its own 45 s timeout. */
 const UPDATE_SLOW_MS = 90_000;
+/** An update still `received` this long after arrival belongs to a process that died mid-handler. */
+const LOST_UPDATE_AFTER_MS = 10 * 60_000;
 /** Telegram rejects longer texts; every outbound message is cut here rather than failing the send. */
 export const TELEGRAM_MESSAGE_MAX = 4_000;
 /** Commands an unknown user may still reach: registration by invitation and account restore. */
@@ -101,6 +104,12 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
         .returning({ updateId: telegramUpdates.telegramUpdateId });
       if (!inserted.length) return;
       await next();
+      // A row still `received` after the handler is one the process died inside; the boot sweep
+      // marks those `lost` so the ledger shows what was never answered.
+      await this.database.db
+        .update(telegramUpdates)
+        .set({ status: "handled" })
+        .where(and(eq(telegramUpdates.botIdentity, this.config.botIdentity), eq(telegramUpdates.telegramUpdateId, ctx.update.update_id)));
     });
   }
 
@@ -168,6 +177,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       logger.error("Telegram command menu setup failed", { error: safeError(error) });
     }
     await this.bot.init();
+    await this.markLostUpdates();
     this.runner = run(this.bot, {
       runner: { fetch: { allowed_updates: [...ALLOWED_UPDATES] } },
       sink: {
@@ -252,5 +262,20 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
 
   async onApplicationShutdown(): Promise<void> {
     if (this.runner?.isRunning()) await this.runner.stop();
+  }
+
+  /** Updates a previous process accepted but never finished. They are not replayed: Telegram already considers them delivered. */
+  private async markLostUpdates(): Promise<void> {
+    const result = await this.database.db
+      .update(telegramUpdates)
+      .set({ status: "lost" })
+      .where(
+        and(
+          eq(telegramUpdates.botIdentity, this.config.botIdentity),
+          eq(telegramUpdates.status, "received"),
+          lt(telegramUpdates.createdAt, new Date(Date.now() - LOST_UPDATE_AFTER_MS)),
+        ),
+      );
+    if (result.rowCount) logger.warn("Telegram updates left unhandled by a previous process", { count: result.rowCount });
   }
 }

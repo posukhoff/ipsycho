@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, notExists, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { tsQueryFor } from "../core/search-query.js";
+import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
 import {
   goals,
@@ -84,6 +86,28 @@ export class TasksRepository {
       )
       .limit(1);
     return row ?? null;
+  }
+
+  /** `findCurrentOccurrence` for many tasks in one query, keyed by task id. */
+  async findCurrentOccurrences(workspaceId: string, taskIds: readonly string[]) {
+    const result = new Map<string, typeof taskOccurrences.$inferSelect>();
+    if (!taskIds.length) return result;
+    const rows = await this.database.db
+      .selectDistinctOn([taskOccurrences.taskId])
+      .from(taskOccurrences)
+      .where(
+        and(eq(taskOccurrences.workspaceId, workspaceId), inArray(taskOccurrences.taskId, [...taskIds]), inArray(taskOccurrences.status, ["in_progress", "open", "scheduled"])),
+      )
+      .orderBy(
+        asc(taskOccurrences.taskId),
+        sql`case ${taskOccurrences.status} when 'in_progress' then 0 when 'open' then 1 when 'scheduled' then 2 else 3 end`,
+        sql`coalesce(${taskOccurrences.plannedStartAt}, ${taskOccurrences.dueAt}) asc nulls last`,
+        asc(taskOccurrences.plannedLocalDate),
+        asc(taskOccurrences.dueLocalDate),
+        asc(taskOccurrences.id),
+      );
+    for (const row of rows) result.set(row.taskId, row);
+    return result;
   }
 
   async listActionableForTelegram(workspaceId: string, limit?: number) {
@@ -283,66 +307,83 @@ export class TasksRepository {
     });
   }
 
+  /**
+   * A result check the user never answered: the occurrence is still in progress and no later
+   * event on it came from a person. One query finds them; the marker row it inserts makes the
+   * same check drop out of the next scan, so an old backlog can never starve newer checks.
+   */
   async markIgnoredResultChecks(cutoff: Date, now = new Date(), limit = 200): Promise<number> {
+    const later = alias(taskEvents, "later");
     const sentChecks = await this.database.db
-      .select({
-        id: taskEvents.id,
-        workspaceId: taskEvents.workspaceId,
-        taskId: taskEvents.taskId,
-        occurrenceId: taskEvents.occurrenceId,
-        createdAt: taskEvents.createdAt,
-      })
+      .select({ workspaceId: taskEvents.workspaceId, taskId: taskEvents.taskId, occurrenceId: taskEvents.occurrenceId })
       .from(taskEvents)
-      .where(and(eq(taskEvents.eventType, "occurrence:result_check_sent"), lte(taskEvents.createdAt, cutoff), isNotNull(taskEvents.occurrenceId)))
+      .innerJoin(taskOccurrences, and(eq(taskOccurrences.workspaceId, taskEvents.workspaceId), eq(taskOccurrences.id, taskEvents.occurrenceId)))
+      .where(
+        and(
+          eq(taskEvents.eventType, "occurrence:result_check_sent"),
+          lte(taskEvents.createdAt, cutoff),
+          eq(taskOccurrences.status, "in_progress"),
+          notExists(
+            this.database.db
+              .select({ one: sql`1` })
+              .from(later)
+              .where(
+                and(
+                  eq(later.workspaceId, taskEvents.workspaceId),
+                  eq(later.occurrenceId, taskEvents.occurrenceId),
+                  gt(later.createdAt, taskEvents.createdAt),
+                  or(eq(later.eventType, "occurrence:result_check_ignored"), isNotNull(later.actorUserId)),
+                ),
+              ),
+          ),
+        ),
+      )
       .orderBy(asc(taskEvents.createdAt))
       .limit(limit);
-
-    let marked = 0;
-    for (const sent of sentChecks) {
-      if (!sent.occurrenceId) continue;
-      const [occurrence] = await this.database.db
-        .select({ status: taskOccurrences.status })
-        .from(taskOccurrences)
-        .where(and(eq(taskOccurrences.workspaceId, sent.workspaceId), eq(taskOccurrences.id, sent.occurrenceId)))
-        .limit(1);
-      if (occurrence?.status !== "in_progress") continue;
-
-      const later = await this.database.db
-        .select({ eventType: taskEvents.eventType, actorUserId: taskEvents.actorUserId })
-        .from(taskEvents)
-        .where(and(eq(taskEvents.workspaceId, sent.workspaceId), eq(taskEvents.occurrenceId, sent.occurrenceId), gt(taskEvents.createdAt, sent.createdAt)))
-        .orderBy(asc(taskEvents.createdAt))
-        .limit(50);
-      if (later.some((event) => event.eventType === "occurrence:result_check_ignored")) continue;
-      if (later.some((event) => event.actorUserId !== null)) continue;
-
-      await this.database.db.insert(taskEvents).values({
+    const byOccurrence = new Map<string, (typeof sentChecks)[number]>();
+    for (const sent of sentChecks) if (sent.occurrenceId && !byOccurrence.has(sent.occurrenceId)) byOccurrence.set(sent.occurrenceId, sent);
+    if (!byOccurrence.size) return 0;
+    await this.database.db.insert(taskEvents).values(
+      [...byOccurrence.values()].map((sent) => ({
         workspaceId: sent.workspaceId,
         taskId: sent.taskId,
         occurrenceId: sent.occurrenceId,
         eventType: "occurrence:result_check_ignored",
         createdAt: now,
-      });
-      marked += 1;
-    }
-    return marked;
+      })),
+    );
+    return byOccurrence.size;
   }
 
-  async clearEventDetailsOlderThan(cutoff: Date): Promise<number> {
-    const rows = await this.database.db
-      .update(taskEvents)
-      .set({ details: null })
-      .where(and(lt(taskEvents.createdAt, cutoff), isNotNull(taskEvents.details)))
-      .returning({ id: taskEvents.id });
-    return rows.length;
+  async clearEventDetailsOlderThan(cutoff: Date, batchSize = CLEANUP_BATCH): Promise<number> {
+    return drainInBatches(batchSize, async () => {
+      const batch = this.database.db
+        .select({ id: taskEvents.id })
+        .from(taskEvents)
+        .where(and(lt(taskEvents.createdAt, cutoff), isNotNull(taskEvents.details)))
+        .limit(batchSize);
+      const result = await this.database.db.update(taskEvents).set({ details: null }).where(inArray(taskEvents.id, batch));
+      return result.rowCount ?? 0;
+    });
   }
 
-  async listLifecycleCandidates(limit = 1000) {
+  /** The task journal is not kept forever: counters and history readers only look at recent rows. */
+  async deleteEventsOlderThan(cutoff: Date, batchSize = CLEANUP_BATCH): Promise<number> {
+    return drainInBatches(batchSize, async () => {
+      const batch = this.database.db.select({ id: taskEvents.id }).from(taskEvents).where(lt(taskEvents.createdAt, cutoff)).limit(batchSize);
+      const result = await this.database.db.delete(taskEvents).where(inArray(taskEvents.id, batch));
+      return result.rowCount ?? 0;
+    });
+  }
+
+  /** One page of live occurrences in id order; the caller walks pages so no row is starved by a LIMIT. */
+  async listLifecycleCandidates(afterId: string | null, limit = 500) {
     return this.database.db
       .select({ task: tasks, occurrence: taskOccurrences })
       .from(taskOccurrences)
       .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
-      .where(and(eq(tasks.status, "active"), inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"])))
+      .where(and(eq(tasks.status, "active"), inArray(taskOccurrences.status, ["scheduled", "open", "in_progress"]), afterId ? gt(taskOccurrences.id, afterId) : undefined))
+      .orderBy(asc(taskOccurrences.id))
       .limit(limit);
   }
 

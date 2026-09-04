@@ -6,6 +6,7 @@ import { TelegramService } from "../telegram/telegram.service.js";
 import { ChatService } from "./chat.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
+import { loopHealth } from "../observability/loop-health.js";
 
 const RETRY_TICK_MS = 60_000;
 
@@ -21,6 +22,7 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    loopHealth.register("ai_retry", RETRY_TICK_MS);
     await this.tick();
     this.timer = setInterval(() => void this.tick().catch((error) => logger.error("automatic AI retry tick failed", { error: safeError(error) })), RETRY_TICK_MS);
     this.timer.unref();
@@ -68,6 +70,7 @@ export class AiRetryService implements OnApplicationBootstrap, OnApplicationShut
           logger.error("automatic AI retry failed", { messageId: row.message.id, message: safeMessageMetadata(row.message.content), error: safeError(error) });
         }
       }
+      loopHealth.beat("ai_retry");
     } finally {
       this.running = false;
     }

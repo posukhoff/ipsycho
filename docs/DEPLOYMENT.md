@@ -41,8 +41,9 @@ Telegram long polling needs only outbound HTTPS access.
    ```
 
    `APP_COMMIT` is baked into the image and reported by `/status` in Telegram and
-   by `GET /health` (`commit` field), so the running build can be verified without
-   shell access. The deploy workflow passes the exact verified commit automatically.
+   by `GET /health` and `GET /ready` (`commit` field), so the running build can be
+   verified without shell access. Docker's healthcheck polls `/ready`, which also
+   probes the database and the periodic loops; `/health` is process liveness only. The deploy workflow passes the exact verified commit automatically.
 
    The app image applies database migrations before it starts. Do not run a
    separate migration while the app container owns the database lock.

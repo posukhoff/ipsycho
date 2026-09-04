@@ -451,6 +451,10 @@ export class TasksService {
     return this.repository.findCurrentOccurrence(workspaceId, taskId, opts);
   }
 
+  findCurrentOccurrences(workspaceId: string, taskIds: readonly string[]) {
+    return this.repository.findCurrentOccurrences(workspaceId, taskIds);
+  }
+
   async getOccurrenceContext(workspaceId: string, occurrenceId: string) {
     const occurrence = await this.repository.findOccurrence(workspaceId, occurrenceId);
     if (!occurrence) return null;

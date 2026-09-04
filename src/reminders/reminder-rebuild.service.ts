@@ -5,6 +5,7 @@ import { taskOccurrences } from "../database/schema.js";
 import { ReminderSchedulingService } from "./reminder-scheduling.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
+import { loopHealth } from "../observability/loop-health.js";
 
 const TICK_MS = 60_000;
 
@@ -19,6 +20,7 @@ export class ReminderRebuildService implements OnApplicationBootstrap, OnApplica
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    loopHealth.register("reminder_rebuild", TICK_MS);
     await this.tick();
     this.timer = setInterval(() => void this.tick().catch((error) => logger.error("reminder rebuild tick failed", { error: safeError(error) })), TICK_MS);
     this.timer.unref();
@@ -44,6 +46,7 @@ export class ReminderRebuildService implements OnApplicationBootstrap, OnApplica
           logger.error("reminder rebuild failed", { occurrenceId: row.id, error: safeError(error) });
         }
       }
+      loopHealth.beat("reminder_rebuild");
     } finally {
       this.running = false;
     }

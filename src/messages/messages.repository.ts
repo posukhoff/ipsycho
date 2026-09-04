@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { and, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
 import { nextAutomaticAiRetryAt } from "../core/ai-retry-policy.js";
 import { messages, userSettings, users } from "../database/schema.js";
@@ -190,12 +191,16 @@ export class MessagesRepository {
     return row ?? null;
   }
 
-  async deleteRawOlderThan(cutoff: Date): Promise<number> {
-    const rows = await this.database.db
-      .delete(messages)
-      .where(and(lt(messages.createdAt, cutoff), inArray(messages.status, ["processed", "waiting_ai", "blocked_consent", "processing"])))
-      .returning({ id: messages.id });
-    return rows.length;
+  async deleteRawOlderThan(cutoff: Date, batchSize = CLEANUP_BATCH): Promise<number> {
+    return drainInBatches(batchSize, async () => {
+      const batch = this.database.db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(lt(messages.createdAt, cutoff), inArray(messages.status, ["processed", "waiting_ai", "blocked_consent", "processing"])))
+        .limit(batchSize);
+      const result = await this.database.db.delete(messages).where(inArray(messages.id, batch));
+      return result.rowCount ?? 0;
+    });
   }
 
   /** Clears conversational memory only; tasks, goals, deliveries and Telegram messages remain intact. */

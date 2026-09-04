@@ -63,6 +63,10 @@ export class AiService implements OnApplicationBootstrap {
     return this.repository.monthlySpendUsd(userId, monthStart);
   }
 
+  monthlySpendByUser(monthStart: Date): Promise<Map<string, number>> {
+    return this.repository.monthlySpendByUser(monthStart);
+  }
+
   get maxCallsPerHour(): number {
     return this.config.aiMaxCallsPerHour;
   }

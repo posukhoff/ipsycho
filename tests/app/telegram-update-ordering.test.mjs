@@ -16,7 +16,12 @@ const botInfo = {
 };
 
 function fakeDatabase() {
-  return { db: { insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [{ updateId: 1 }] }) }) }) } };
+  return {
+    db: {
+      insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [{ updateId: 1 }] }) }) }),
+      update: () => ({ set: () => ({ where: async () => ({ rowCount: 1 }) }) }),
+    },
+  };
 }
 const known = new Set([100, 200]);
 const fakeAccess = { resolveActiveUser: async (id) => (known.has(id) ? { user: { id: `u${id}`, aiStatus: "enabled", telegramUserId: id }, workspaceId: `w${id}` } : null) };

@@ -483,14 +483,18 @@ export class ChatService {
       const cardReply = await this.resolveCardReply(input, liveCard, now);
       if (cardReply) return cardReply;
 
-      const activeTopicHint = input.reviewTopicId ? await this.context.findTopic(input.workspaceId, input.userId, input.reviewTopicId) : null;
-      const ctx = await this.turnContext.build({
-        ...scope,
-        query: input.inbound.content,
-        ...(input.review ? { review: input.review } : {}),
-        ...(input.focus ? { focus: input.focus } : {}),
-        pendingGroup: liveCard,
-      });
+      // Domain context, the recent history and the topic hint do not depend on each other.
+      const [activeTopicHint, ctx, historyRows] = await Promise.all([
+        input.reviewTopicId ? this.context.findTopic(input.workspaceId, input.userId, input.reviewTopicId) : null,
+        this.turnContext.build({
+          ...scope,
+          query: input.inbound.content,
+          ...(input.review ? { review: input.review } : {}),
+          ...(input.focus ? { focus: input.focus } : {}),
+          pendingGroup: liveCard,
+        }),
+        this.messages.listRecentForAi(input.workspaceId, input.userId, 19),
+      ]);
       const activeTopic =
         ctx.activeTopic ??
         (activeTopicHint
@@ -506,7 +510,6 @@ export class ChatService {
       const review = input.review ?? (activeTopic?.reviewKind === "evening" || activeTopic?.reviewKind === "weekly" ? activeTopic.reviewKind : undefined);
       const clarificationCountBeforeTurn = activeTopic?.clarificationCount ?? 0;
       const forceReviewConclusion = review ? reviewClarificationDecision({ kind: review, clarificationCountBeforeTurn, askedQuestion: false }).forceConclusion : false;
-      const historyRows = await this.messages.listRecentForAi(input.workspaceId, input.userId, 19);
       const history: AiMessage[] = [...budgetHistory(historyRows.map((row) => ({ role: row.role, content: row.content }))), { role: "user", content: input.inbound.content }];
       const domainContext = ctx.model;
       const control = detectConversationControl(input.inbound.content);
@@ -516,8 +519,6 @@ export class ChatService {
           ? "The user explicitly said not to save anything from this turn. Return actions=[]; ordinary conversational reply is allowed."
           : undefined;
 
-      const providerGate = await this.currentAiGate(input.workspaceId, input.userId, input.inbound.id);
-      if (providerGate) return providerGate;
       const modelTurn = await this.runModelTurn({ scope, history, domainContext, modelMode: ctx.modelMode, ...(correction ? { correction } : {}) });
       if (modelTurn.kind === "unparseable") {
         await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed").catch(() => undefined);

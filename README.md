@@ -50,6 +50,8 @@ First run: `/start` asks for the timezone (buttons or a typed city), then digest
 
 Telegram delivery is an external side effect. For reminders and digests the outcome of a failed send is classified before any retry: a 429 waits for Telegram's `retry_after` without spending an attempt, a permanent rejection (blocked bot, unknown chat) marks the delivery `failed`, a connection that never opened is retried, and a timeout after the request left the process is recorded as `ambiguous` and never resent automatically. Chat replies are still sent without that bookkeeping, so an ambiguous failure there can still produce a resend.
 
+Retention and health. Maintenance runs hourly in bounded batches: raw message bodies and task-event details are cleared after 90 days, the task journal (`task_events`) is deleted after 365 days, and the Telegram update ledger (`telegram_updates`) after 7 days. `GET /health` only says the process is up; `GET /ready` (the Docker healthcheck) also probes PostgreSQL with a two-second timeout and reports every periodic loop, answering 503 when a loop has not completed a tick within three of its intervals.
+
 ## Local development
 
 Requires Node.js 24+, Docker and Docker Compose.

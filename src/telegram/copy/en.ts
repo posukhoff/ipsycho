@@ -230,6 +230,8 @@ export const en: Record<keyof typeof ru, string> = {
   mute_escalation_toast: "No more reminders for this task",
 
   voice_suspended: "AI processing is suspended for this account. Voice input is unavailable.",
+  ai_spend_warning: "Heads-up: estimated AI spend this month reached ${amount}. This is only a notice; AI is not switched off automatically.",
+  ai_spend_owner_notice: "IPsycho: user {userId} reached the AI spend warning of ${amount}.",
   voice_too_long: "The voice message is too long or too large. Send a recording up to {minutes} min and {mb} MB, or text.",
   voice_openai_only: "Voice input is available only with OpenAI configured.",
   voice_rate_limited: "The hourly AI limit is reached. Try later; buttons and reminders keep working.",

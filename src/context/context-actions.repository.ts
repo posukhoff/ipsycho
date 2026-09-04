@@ -450,37 +450,35 @@ export async function goalPlanInTx(tx: DbTransaction, input: GoalPlanInput): Pro
     taskTitles.push(plan.task.title);
     touched.push({ entity: "task", id: plan.task.id, version: 1 });
   }
-  await tx
-    .insert(actionEvents)
-    .values([
-      {
-        workspaceId: input.workspaceId,
-        groupId: input.groupId,
-        actionType: "goal_plan",
-        entityType: "goal",
-        entityId: goal.id,
-        postVersion: goal.version,
-        afterState: { title: goal.title },
-      },
-      ...input.plans.map((plan) => ({
-        workspaceId: input.workspaceId,
-        groupId: input.groupId,
-        actionType: "create_task",
-        entityType: "task",
-        entityId: plan.task.id,
-        postVersion: 1,
-        afterState: { title: plan.task.title, goalId: goal.id },
-      })),
-      ...input.plans.map((plan) => ({
-        workspaceId: input.workspaceId,
-        groupId: input.groupId,
-        actionType: "link_task_to_goal",
-        entityType: "task_goal",
-        entityId: plan.task.id,
-        postVersion: null,
-        afterState: { taskId: plan.task.id, goalId: goal.id, source: input.source, confidence: 100 },
-      })),
-    ]);
+  await tx.insert(actionEvents).values([
+    {
+      workspaceId: input.workspaceId,
+      groupId: input.groupId,
+      actionType: "goal_plan",
+      entityType: "goal",
+      entityId: goal.id,
+      postVersion: goal.version,
+      afterState: { title: goal.title },
+    },
+    ...input.plans.map((plan) => ({
+      workspaceId: input.workspaceId,
+      groupId: input.groupId,
+      actionType: "create_task",
+      entityType: "task",
+      entityId: plan.task.id,
+      postVersion: 1,
+      afterState: { title: plan.task.title, goalId: goal.id },
+    })),
+    ...input.plans.map((plan) => ({
+      workspaceId: input.workspaceId,
+      groupId: input.groupId,
+      actionType: "link_task_to_goal",
+      entityType: "task_goal",
+      entityId: plan.task.id,
+      postVersion: null,
+      afterState: { taskId: plan.task.id, goalId: goal.id, source: input.source, confidence: 100 },
+    })),
+  ]);
   return { kind: "goal_plan", goalId: goal.id, goalTitle: goal.title, taskIds, taskTitles, touched };
 }
 

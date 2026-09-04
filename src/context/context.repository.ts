@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { tsQueryFor } from "../core/search-query.js";
+import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
 import { conversationTopics, goals, memoryItems, messages, taskEvents, taskGoals, tasks } from "../database/schema.js";
 
@@ -192,19 +193,19 @@ export class ContextRepository {
       .where(and(eq(conversationTopics.workspaceId, workspaceId), eq(conversationTopics.userId, userId), eq(conversationTopics.id, topicId)));
   }
 
-  async scrubExpiredTopicSummaries(now: Date): Promise<number> {
-    const rows = await this.database.db
-      .update(conversationTopics)
-      .set({
-        title: "",
-        summary: "",
-        status: "abandoned",
-        mode: "normal",
-        updatedAt: now,
-      })
-      .where(and(lte(conversationTopics.summaryExpiresAt, now), or(ne(conversationTopics.title, ""), ne(conversationTopics.summary, ""))))
-      .returning({ id: conversationTopics.id });
-    return rows.length;
+  async scrubExpiredTopicSummaries(now: Date, batchSize = CLEANUP_BATCH): Promise<number> {
+    return drainInBatches(batchSize, async () => {
+      const batch = this.database.db
+        .select({ id: conversationTopics.id })
+        .from(conversationTopics)
+        .where(and(lte(conversationTopics.summaryExpiresAt, now), or(ne(conversationTopics.title, ""), ne(conversationTopics.summary, ""))))
+        .limit(batchSize);
+      const result = await this.database.db
+        .update(conversationTopics)
+        .set({ title: "", summary: "", status: "abandoned", mode: "normal", updatedAt: now })
+        .where(inArray(conversationTopics.id, batch));
+      return result.rowCount ?? 0;
+    });
   }
 
   async setMessageTopic(workspaceId: string, messageId: string, topicId: string | null): Promise<void> {

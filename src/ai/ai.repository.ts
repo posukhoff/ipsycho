@@ -100,6 +100,16 @@ export class AiRepository {
     return row?.count ?? 0;
   }
 
+  /** Estimated spend since `since` for every user with usage, in one grouped query. */
+  async monthlySpendByUser(since: Date): Promise<Map<string, number>> {
+    const rows = await this.database.db
+      .select({ userId: aiUsage.userId, total: sql<string>`coalesce(sum(${aiUsage.estimatedCostUsd}), 0)::text` })
+      .from(aiUsage)
+      .where(gte(aiUsage.createdAt, since))
+      .groupBy(aiUsage.userId);
+    return new Map(rows.map((row) => [row.userId, Number(row.total)]));
+  }
+
   async monthlySpendUsd(userId: string, since: Date): Promise<number> {
     const [row] = await this.database.db
       .select({ total: sql<string>`coalesce(sum(${aiUsage.estimatedCostUsd}), 0)::text` })

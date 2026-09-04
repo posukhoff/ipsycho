@@ -512,7 +512,13 @@ export const telegramUpdates = pgTable(
     status: varchar("status", { length: 32 }).notNull().default("received"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.botIdentity, t.telegramUpdateId] })],
+  (t) => [
+    primaryKey({ columns: [t.botIdentity, t.telegramUpdateId] }),
+    index("telegram_updates_created_at_idx").on(t.createdAt),
+    uniqueIndex("telegram_chat_message_uq")
+      .on(t.botIdentity, t.chatId, t.telegramMessageId)
+      .where(sql`telegram_message_id IS NOT NULL`),
+  ],
 );
 
 export const adminAuditLog = pgTable("admin_audit_log", {
