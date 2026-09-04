@@ -1,0 +1,111 @@
+### start
+Hi — I help you remember, plan, and follow through on what matters.
+
+Write naturally or send a voice message. For example: “Remind me to call the doctor tomorrow at 16:00” or “I want to prepare for a half marathon by October”.
+
+Your plan: /today · tasks: /tasks · goals: /goals
+Full guide: /help.
+
+### onboarding: timezone
+Hi, I’m IPsycho — a personal assistant for tasks and plans. Write naturally: I can save a task, remind you, or break a goal into steps.
+
+A few quick questions first; everything can be changed later in /settings.
+
+### help
+IPsycho, in short
+
+Write naturally or send a voice message — commands are not needed to create tasks. I help you remember, plan, and return to what matters without adding bureaucracy.
+
+What you can write
+• “Remind me to call the doctor tomorrow at 16:00”
+• “Move ‘buy pet food’ to Friday”
+• “I want to prepare for a half marathon by October”
+• “For the presentation, it is important to align the numbers with Lena”
+• “Do not message me until morning” or “weekly review on Sunday at 18:00”
+
+View and manage
+• /today — today’s plan
+• /tasks or /task — all active tasks
+• /goals — goals and linked tasks
+• /reminders — upcoming reminders
+• /settings — notification and chat settings
+• /context — what is useful to know about you
+• /status — whether the bot, database, and AI are available
+
+Use the button below for details about tasks, goals, reminders, reports, and AI processing.
+Relative time uses your timezone; unclear or sensitive changes need confirmation. /clear removes only AI history.
+Do not send passwords or access keys in chat.
+Limits: 60 messages / 60 AI calls per hour; voice up to 5 min and 20 MB.
+
+### guide
+undefined
+
+### settings
+⚙️ Settings
+
+🌍 Timezone: Europe/Kyiv
+🗣 Interface language: automatic (Telegram)
+☀️ Morning briefing: 08:30
+🌙 Evening briefing: off
+📅 Weekly review: Sun 18:00
+🔕 Quiet hours: 22:00–08:00 (weekdays), 23:00–09:00 (weekends)
+💬 AI history: 42 messages
+
+Describe what you want to change: briefing time, weekly-review day, language, or quiet hours.
+
+### today
+☀️ Today · 1 task
+
+Main: Позвонить клиенту
+
+🟡 Позвонить клиенту · 05/09, 10:30
+
+✅ Completed today: 2
+
+### tasks
+📋 Tasks
+
+1. 🟡 Позвонить клиенту · 05/09, 10:30
+
+To change, complete, or reschedule a task, just write it in a message.
+
+### goals
+🎯 Goals
+
+1. Запустить первую платную группу · by 2026-12-01
+   Why: Проверить спрос
+   • Позвонить клиенту — Подготовить список
+
+To edit a goal or link a task, just write it in a message.
+
+### task card
+🟡 Позвонить клиенту
+📅 05/09, 10:30 (Europe/Kyiv) · 🔔 10:20
+
+💡 Why: Объяснить ошибку и предложить два решения.
+➡️ Next step: Подготовить список вариантов
+☑️ Checklist 1/2
+✅ Собрать факты
+◻️ Написать письмо
+🎯 Goal: «Запустить первую платную группу»
+
+### reminder card
+🔔 🟡 Позвонить клиенту
+📅 05/09, 10:30 (Europe/Kyiv) · 🔔 10:20 · in 23 h
+➡️ Подготовить список вариантов
+☑️ Checklist 1/2
+✅ Собрать факты
+◻️ Написать письмо
+
+### terminal card
+✅ Позвонить клиенту
+Done · 12:00
+
+### applied report
+✅ Task created: “Позвонить клиенту” 🟡
+📅 05/09, 10:30 (Europe/Kyiv) · 🔔 10:20
+🎯 Goal: «Запустить первую платную группу»
+
+✅ Done: «Полить цветы»
+
+⚙️ Settings updated: quiet hours

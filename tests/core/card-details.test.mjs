@@ -162,3 +162,51 @@ test("stored cards from production 2026-08-23 lose every line that restates the 
     { why: null, nextAction: null, context: null },
   );
 });
+
+test("Ukrainian and English cards drop the same planning chores and reminder echoes as Russian ones", () => {
+  const uk = selectCardDetails({
+    title: "Зателефонувати до банку",
+    why: "Щоб не забути.",
+    nextAction: "Поставити собі нагадування",
+    context: "Нагадування за годину до дзвінка.",
+  });
+  assert.deepEqual(uk, { why: null, nextAction: null, context: null });
+
+  const en = selectCardDetails({
+    title: "Call the bank",
+    why: "So I don't forget.",
+    nextAction: "Add it to the calendar",
+    context: "A follow-up reminder an hour before.",
+  });
+  assert.deepEqual(en, { why: null, nextAction: null, context: null });
+});
+
+test("a real Ukrainian or English reason still survives", () => {
+  const uk = selectCardDetails({
+    title: "Зателефонувати до банку",
+    why: "Картку заблокували після поїздки.",
+    nextAction: "Підготувати номер договору",
+    context: "Гаряча лінія працює до 18:00.",
+  });
+  assert.deepEqual(uk, { why: "Картку заблокували після поїздки.", nextAction: "Підготувати номер договору", context: "Гаряча лінія працює до 18:00." });
+
+  const en = selectCardDetails({
+    title: "Call the bank",
+    why: "The card was blocked after the trip.",
+    nextAction: "Find the contract number first",
+    context: "Their line closes at 6pm.",
+  });
+  assert.deepEqual(en, { why: "The card was blocked after the trip.", nextAction: "Find the contract number first", context: "Their line closes at 6pm." });
+});
+
+test("English and Ukrainian phrasings of a chore are recognised as chores, not steps", () => {
+  for (const chore of ["Set a reminder for Monday", "Add this to the todo list", "Schedule a time for it", "Pick a date", "Decide when to do it"]) {
+    assert.equal(looksLikePlanningChore(chore), true, chore);
+  }
+  for (const chore of ["Поставити собі нагадування", "Додати до списку завдань", "Запланувати час", "Обрати дату", "Вирішити, коли робити"]) {
+    assert.equal(looksLikePlanningChore(chore), true, chore);
+  }
+  for (const real of ["Call the bank before noon", "Підготувати документи", "Купить билеты"]) {
+    assert.equal(looksLikePlanningChore(real), false, real);
+  }
+});

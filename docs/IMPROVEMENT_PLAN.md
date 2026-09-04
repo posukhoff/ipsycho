@@ -389,6 +389,7 @@
 - Сделать: `SettingsRepository`, `AccessRepository`, `RemindersRepository`, `BriefingsRepository`, `TelegramUpdatesRepository`; тела запросов переносить дословно.
 
 ### P6.5 Домен не импортирует Telegram-рендер
+- Частично: реальный вред (эмодзи брифинга в промпте) снят — `stripPresentation` (`core/telegram-ux.ts`) чистит недельный снимок перед моделью. `briefing-content` и `reminder-queue` по-прежнему зовут `telegram-ui`: это путь доставки в Telegram, отдельный слой рендера там ничего не защищает.
 - `briefing-content.service.ts:8` и `reminder-queue.service.ts:8` импортируют `telegram-ui.ts`; брифинг с эмодзи уходит в промпт модели.
 - Сделать: контент-сервисы возвращают структуру (`DigestItem[]`), рендер в `telegram-ui.ts`; модели отдавать plain-текст.
 

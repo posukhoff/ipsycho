@@ -6,6 +6,7 @@ import type { ReviewKind } from "../core/review-policy.js";
 import { interfaceLocale } from "../core/language.js";
 import { localDateAt } from "../core/timezone.js";
 import { budgetModelContext, composeTurnContext, selectTasksForContext, type ModelContext } from "../core/turn-context.js";
+import { stripPresentation } from "../core/telegram-ux.js";
 import { parseWeeklyReviewState, type WeeklyReviewState } from "../core/weekly-review-state.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TasksService } from "../tasks/tasks.service.js";
@@ -112,6 +113,9 @@ export class TurnContextService {
             })
           ).text
         : null;
+    // The model reads the same weekly numbers, without the emoji and bullets that only mean
+    // something on a phone screen.
+    const modelSnapshot = snapshot === null ? null : stripPresentation(snapshot);
 
     const locale = interfaceLocale(input.language);
     const composed = composeTurnContext({
@@ -137,7 +141,7 @@ export class TurnContextService {
         ? {
             kind: reviewKind,
             questionsAsked: activeTopic?.reviewKind === reviewKind ? activeTopic.clarificationCount : 0,
-            ...(snapshot ? { snapshot } : {}),
+            ...(modelSnapshot ? { snapshot: modelSnapshot } : {}),
             ...(reviewKind === "weekly" && activeTopic?.reviewState ? { state: activeTopic.reviewState } : {}),
           }
         : null,

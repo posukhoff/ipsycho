@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compactText, quickRescheduleSchedule } from "../../.core-dist/telegram-ux.js";
+import { compactText, quickRescheduleSchedule, stripPresentation } from "../../.core-dist/telegram-ux.js";
 
 test("quick reschedule +1h uses an exact instant for point tasks", () => {
   const now = new Date("2026-08-11T12:00:00.000Z");
@@ -70,4 +70,17 @@ test("quick reschedule tomorrow keeps date-only windows date-only", () => {
     now: new Date("2026-08-11T12:00:00.000Z"),
   });
   assert.deepEqual(result, { plannedLocalDate: "2026-08-12" });
+});
+
+test("presentation is stripped for the model: emoji, bullets and emphasis go, the numbers stay", () => {
+  const digest = ["📅 **Недельный обзор**", "", "🎯 Цели", "• Запустить курс — выполнений: 3; активных задач: 2.", "🔴 Просрочено: 1", "  ", "💡 Фокус на неделю"].join("\n");
+  assert.equal(
+    stripPresentation(digest),
+    ["Недельный обзор", "", "Цели", "- Запустить курс — выполнений: 3; активных задач: 2.", "Просрочено: 1", "", "Фокус на неделю"].join("\n"),
+  );
+});
+
+test("stripping presentation leaves ordinary text untouched", () => {
+  const plain = "Позвонить клиенту в 10:30.\nПричина: объяснить ошибку.";
+  assert.equal(stripPresentation(plain), plain);
 });

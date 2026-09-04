@@ -79,3 +79,23 @@ export function compactText(value: string, max = 500): string {
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, Math.max(1, max - 1)).trimEnd()}…`;
 }
+
+/**
+ * The same text without presentation: emoji, decorative bullets and Markdown emphasis.
+ *
+ * Screens are written for a phone, so they carry «☀️», «🔴», «•» and bold markers. That text is
+ * also the weekly snapshot handed to the model, where every one of those characters is a token
+ * that carries no meaning and invites the model to answer in the same decorated style.
+ */
+export function stripPresentation(value: string): string {
+  return value
+    .replace(/\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}]|\u{FE0F}|\u{20E3}|\u{200D}/gu, "")
+    .replace(/^[\s]*[•·—–*]\s+/gmu, "- ")
+    .replace(/\*\*(.+?)\*\*/gu, "$1")
+    .replace(/__(.+?)__/gu, "$1")
+    .replace(/[ \t]{2,}/gu, " ")
+    .replace(/[ \t]+$/gmu, "")
+    .replace(/^[ \t]+/gmu, "")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+}
