@@ -1,4 +1,6 @@
 import { Inject, Injectable, OnApplicationBootstrap, OnApplicationShutdown } from "@nestjs/common";
+import { autoRetry } from "@grammyjs/auto-retry";
+import { run, sequentialize, type RunnerHandle } from "@grammyjs/runner";
 import { Bot, InlineKeyboard } from "grammy";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -7,10 +9,17 @@ import type { BriefingKind } from "../core/digest-policy.js";
 import { telegramUpdates } from "../database/schema.js";
 import { safeError } from "../observability/safe-error.js";
 
+/** Only these update kinds have handlers; asking Telegram for the rest is wasted traffic. */
+const ALLOWED_UPDATES = ["message", "callback_query"] as const;
+/** Updates from different chats run concurrently; one chat is always processed in order. */
+const UPDATE_CONCURRENCY = 16;
+/** A turn that has not finished in this long is logged, not killed: the model call has its own 45 s timeout. */
+const UPDATE_SLOW_MS = 90_000;
+
 @Injectable()
 export class TelegramService implements OnApplicationBootstrap, OnApplicationShutdown {
   readonly bot: Bot;
-  private pollingStarted = false;
+  private runner: RunnerHandle | null = null;
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -18,6 +27,9 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   ) {
     if (!config.telegramBotToken) throw new Error("TELEGRAM_BOT_TOKEN is required to run the app");
     this.bot = new Bot(config.telegramBotToken);
+    // Telegram answers 429 with retry_after; without this every burst (a digest hour, a Today
+    // screen refresh) surfaced as a failed call instead of a short wait.
+    this.bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 60 }));
     this.bot.catch((error) => {
       console.error("Telegram update failed", {
         updateId: error.ctx.update.update_id,
@@ -28,6 +40,10 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   }
 
   private registerBaseMiddleware(): void {
+    // The runner processes updates concurrently; this keeps one chat strictly in order so a
+    // button tap cannot overtake the message that produced the card it belongs to.
+    this.bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
+
     this.bot.use(async (ctx, next) => {
       if (ctx.chat && ctx.chat.type !== "private") return;
       await next();
@@ -104,7 +120,6 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   }
 
   async onApplicationBootstrap(): Promise<void> {
-    this.pollingStarted = true;
     try {
       const russianCommands = [
         { command: "today", description: "План на сегодня" },
@@ -160,15 +175,26 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     } catch (error) {
       console.error("Telegram command menu setup failed", safeError(error));
     }
-    void this.bot.start({ onStart: () => console.log(`Telegram long polling started (${this.config.botIdentity})`) })
-      .catch((error) => {
-        console.error("Telegram polling stopped with error", safeError(error));
-        process.exitCode = 1;
-        process.kill(process.pid, "SIGTERM");
-      });
+    await this.bot.init();
+    this.runner = run(this.bot, {
+      runner: { fetch: { allowed_updates: [...ALLOWED_UPDATES] } },
+      sink: {
+        concurrency: UPDATE_CONCURRENCY,
+        timeout: {
+          milliseconds: UPDATE_SLOW_MS,
+          handler: (update) => console.warn("Telegram update is taking unusually long", { updateId: update.update_id }),
+        },
+      },
+    });
+    console.log(`Telegram long polling started (${this.config.botIdentity})`);
+    void this.runner.task()?.catch((error) => {
+      console.error("Telegram polling stopped with error", safeError(error));
+      process.exitCode = 1;
+      process.kill(process.pid, "SIGTERM");
+    });
   }
 
   async onApplicationShutdown(): Promise<void> {
-    if (this.pollingStarted) await this.bot.stop();
+    if (this.runner?.isRunning()) await this.runner.stop();
   }
 }

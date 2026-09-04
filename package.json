@@ -21,6 +21,8 @@
     "check": "npm run typecheck && npm run test:core && npm run test:app"
   },
   "dependencies": {
+    "@grammyjs/auto-retry": "2.0.2",
+    "@grammyjs/runner": "2.0.3",
     "@nestjs/common": "^11.1.29",
     "@nestjs/core": "^11.1.29",
     "@nestjs/platform-express": "^11.1.29",
