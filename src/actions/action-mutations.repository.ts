@@ -8,6 +8,7 @@ import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import { taskFieldChanges, type AppliedReportItem, type TaskFieldChange } from "../core/applied-report.js";
 import type { ReminderRuleSpec } from "../core/reminder-planning.js";
 import type { TaskDefinition, TimeMode } from "../core/types.js";
+import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { type DatabaseService } from "../database/database.service.js";
 import {
   actionEvents,
@@ -564,7 +565,7 @@ export async function cancelTaskInTx(tx: DbTransaction, input: CancelTaskInput):
 
 export async function rescheduleOccurrenceInTx(tx: DbTransaction, input: RescheduleOccurrenceInput): Promise<InTx<RescheduleOccurrenceStepResult>> {
   const row = await loadOccurrence(tx, input.workspaceId, input.occurrenceId, input.expectedVersion);
-  if (["done", "skipped", "cancelled", "elapsed"].includes(row.occurrence.status)) throw new DomainRuleError("terminal occurrence cannot be rescheduled");
+  if (isTerminalOccurrenceStatus(row.occurrence.status)) throw new DomainRuleError("terminal occurrence cannot be rescheduled");
   if (input.scheduleTimezone !== row.occurrence.timezone) throw new DomainRuleError("reschedule timezone must match the occurrence timezone");
 
   const previousReschedules = await tx
@@ -814,7 +815,7 @@ export async function concretiseTaskInTx(tx: DbTransaction, input: ConcretiseTas
 
 export async function changeReminderInTx(tx: DbTransaction, input: ChangeReminderInput): Promise<InTx<ChangeReminderStepResult>> {
   const row = await loadOccurrence(tx, input.workspaceId, input.occurrenceId, input.expectedVersion);
-  if (["done", "skipped", "cancelled", "elapsed"].includes(row.occurrence.status)) throw new DomainRuleError("terminal occurrence cannot change reminders");
+  if (isTerminalOccurrenceStatus(row.occurrence.status)) throw new DomainRuleError("terminal occurrence cannot change reminders");
 
   const explicit = await tx
     .select({ id: reminderRules.id })

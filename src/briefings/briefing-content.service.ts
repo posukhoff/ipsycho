@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { and, eq, gte, inArray } from "drizzle-orm";
-import { localDateAt } from "../core/timezone.js";
+import { occurrenceFallsOnLocalDate } from "../core/local-schedule.js";
+import { importanceRank } from "../core/types.js";
 import { deadlineUrgency } from "../core/deadline-urgency.js";
 import { selectCardDetails } from "../core/card-details.js";
 import { aggregateHistoricalGoalMovement, habitCompletionStats, WEEKLY_MOVEMENT_EVENT_TYPES, WEEKLY_REVIEW_GOAL_STATUSES } from "../core/weekly-review-policy.js";
@@ -124,14 +125,7 @@ export class BriefingContentService {
       .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
       .where(and(eq(taskOccurrences.workspaceId, input.workspaceId), eq(tasks.status, "active"), inArray(taskOccurrences.status, [...NONTERMINAL])));
 
-    const relevant = occurrenceRows.filter(({ task, occurrence }) => {
-      if (occurrence.overdue) return true;
-      if (occurrence.plannedLocalDate === input.localDate || occurrence.dueLocalDate === input.localDate) return true;
-      if (occurrence.plannedStartAt && localDateAt(occurrence.plannedStartAt, occurrence.timezone) === input.localDate) return true;
-      if (occurrence.dueAt && localDateAt(occurrence.dueAt, occurrence.timezone) === input.localDate) return true;
-      if (task.timeMode === "window" && occurrence.plannedEndAt && localDateAt(occurrence.plannedEndAt, occurrence.timezone) === input.localDate) return true;
-      return false;
-    });
+    const relevant = occurrenceRows.filter(({ task, occurrence }) => occurrenceFallsOnLocalDate({ ...occurrence, timeMode: task.timeMode }, input.localDate));
 
     const morning = () => {
       const ordered = [...relevant].sort((a, b) => importanceRank(a.task.importance) - importanceRank(b.task.importance));
@@ -344,10 +338,6 @@ export class BriefingContentService {
     if (!delivery || delivery.status !== "sent" || delivery.localDate !== input.localDate || delivery.telegramMessageId !== input.telegramMessageId) return false;
     return input.kind === "evening" ? ["evening", "evening_weekly"].includes(delivery.kind) : ["weekly", "evening_weekly"].includes(delivery.kind);
   }
-}
-
-function importanceRank(value: (typeof tasks.$inferSelect)["importance"]): number {
-  return value === "critical" ? 0 : value === "required" ? 1 : 2;
 }
 
 function urgencyRank(value: "normal" | "watch" | "high" | "urgent" | "overdue" | null): number {

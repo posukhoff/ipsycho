@@ -48,3 +48,15 @@ export type ReminderTemplate =
       reference: "morning" | "evening";
       purpose?: "user_reminder" | "follow_up" | "planning_review";
     };
+
+/** A status no further transition can leave; every caller used to inline this list. */
+export const TERMINAL_OCCURRENCE_STATUSES: readonly OccurrenceStatus[] = ["done", "skipped", "cancelled", "elapsed"];
+
+export function isTerminalOccurrenceStatus(status: string): boolean {
+  return (TERMINAL_OCCURRENCE_STATUSES as readonly string[]).includes(status);
+}
+
+/** Critical first, then required, then normal. Used to order digests and task lists. */
+export function importanceRank(value: Importance): number {
+  return value === "critical" ? 0 : value === "required" ? 1 : 2;
+}

@@ -5,6 +5,7 @@ import { buildOneTimeOccurrence, buildRecurringOccurrences, type OccurrenceProje
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
 import { localDateAt } from "../core/timezone.js";
+import { occurrenceFallsOnLocalDate } from "../core/local-schedule.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import type { TaskDefinition } from "../core/types.js";
 import type { reminderDeliveries, taskChecklistItems, taskOccurrences, taskRecurrenceExclusions, tasks } from "../database/schema.js";
@@ -267,14 +268,7 @@ export class TasksService {
       this.repository.listActionableForTelegram(workspaceId),
       this.repository.listFuzzyReviewsForLocalDate(workspaceId, localDate, limit),
     ]);
-    const rows = actionable.filter(({ task, occurrence }) => {
-      if (occurrence.overdue) return true;
-      if (occurrence.plannedLocalDate === localDate || occurrence.dueLocalDate === localDate) return true;
-      if (occurrence.plannedStartAt && localDateAt(occurrence.plannedStartAt, occurrence.timezone) === localDate) return true;
-      if (occurrence.dueAt && localDateAt(occurrence.dueAt, occurrence.timezone) === localDate) return true;
-      if (task.timeMode === "window" && occurrence.plannedEndAt && localDateAt(occurrence.plannedEndAt, occurrence.timezone) === localDate) return true;
-      return false;
-    });
+    const rows = actionable.filter(({ task, occurrence }) => occurrenceFallsOnLocalDate({ ...occurrence, timeMode: task.timeMode }, localDate));
     const reviews = fuzzy.map((task) => ({ task, occurrence: null }));
     return [...rows, ...reviews].sort(compareTelegramTasks).slice(0, limit);
   }

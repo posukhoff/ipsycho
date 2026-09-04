@@ -1,4 +1,5 @@
 import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from "@nestjs/common";
+import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { and, asc, eq, gt, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { JobQueueService } from "../queue/job-queue.service.js";
@@ -174,7 +175,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       await this.suppress(deliveryId, "access");
       return;
     }
-    const terminalOccurrence = row.occurrence?.status && ["done", "skipped", "cancelled", "elapsed"].includes(row.occurrence.status);
+    const terminalOccurrence = Boolean(row.occurrence?.status && isTerminalOccurrenceStatus(row.occurrence.status));
     if (row.occurrence?.defaultRemindersSuppressed && row.rule.origin === "default") {
       await this.suppress(deliveryId, "no_longer_applicable");
       return;

@@ -1,4 +1,4 @@
-import { Inject, Injectable, type OnApplicationBootstrap, type OnApplicationShutdown } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { AccessService } from "../access/access.service.js";
 import { ActionsService } from "../actions/actions.service.js";
 import { AiService } from "../ai/ai.service.js";
@@ -19,7 +19,7 @@ import { ReminderSchedulingService } from "../reminders/reminder-scheduling.serv
 import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
-import { loopHealth } from "../observability/loop-health.js";
+import { PeriodicService } from "../runtime/periodic.service.js";
 
 const TICK_MS = 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
@@ -30,9 +30,9 @@ export const TASK_EVENT_RETENTION_DAYS = 365;
 export const TELEGRAM_UPDATE_RETENTION_DAYS = 7;
 
 @Injectable()
-export class MaintenanceService implements OnApplicationBootstrap, OnApplicationShutdown {
-  private timer?: NodeJS.Timeout;
-  private running = false;
+export class MaintenanceService extends PeriodicService {
+  protected readonly loopName = "maintenance";
+  protected readonly intervalMs = TICK_MS;
   /** The last queue problem reported to the owner; the same problem is not repeated every hour. */
   private lastAlertSignature = "";
 
@@ -49,28 +49,56 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
     private readonly reminderQueue: ReminderQueueService,
     private readonly settings: SettingsService,
     private readonly telegram: TelegramService,
-  ) {}
-
-  async onApplicationBootstrap(): Promise<void> {
-    loopHealth.register("maintenance", TICK_MS);
-    await this.tick();
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    this.timer.unref();
+  ) {
+    super();
   }
 
-  onApplicationShutdown(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
-  private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
-    try {
-      const now = new Date();
-      const cutoff = new Date(now.getTime() - RAW_MESSAGE_RETENTION_MS);
-      const ignoredCheckCutoff = new Date(now.getTime() - RESULT_CHECK_IGNORE_GRACE_MINUTES * 60_000);
-      const [
+  protected async runTick(): Promise<void> {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - RAW_MESSAGE_RETENTION_MS);
+    const ignoredCheckCutoff = new Date(now.getTime() - RESULT_CHECK_IGNORE_GRACE_MINUTES * 60_000);
+    const [
+      messagesDeleted,
+      confirmationsExpired,
+      auditPayloadsCleared,
+      eventDetailsCleared,
+      accountsDeleted,
+      ignoredResultChecks,
+      fuzzyReviewsRebuilt,
+      eventsDeleted,
+      updatesDeleted,
+    ] = await Promise.all([
+      this.messages.deleteRawOlderThan(cutoff),
+      this.actions.cleanupExpiredConfirmations(now),
+      this.actions.cleanupExpiredAuditPayloads(now),
+      this.tasks.clearEventDetailsOlderThan(cutoff),
+      this.access.finalizeExpiredDeletions(now),
+      this.tasks.markIgnoredResultChecks(ignoredCheckCutoff, now),
+      this.reminders.reconcileFuzzyReviews(now),
+      this.tasks.deleteEventsOlderThan(new Date(now.getTime() - TASK_EVENT_RETENTION_DAYS * DAY_MS)),
+      this.deleteTelegramUpdatesOlderThan(new Date(now.getTime() - TELEGRAM_UPDATE_RETENTION_DAYS * DAY_MS)),
+    ]);
+    // Topic rows may still be referenced by slightly newer assistant messages. Retention
+    // therefore scrubs content instead of deleting the topic metadata/foreign-key target.
+    const topicSummariesCleared = await this.context.scrubExpiredTopicSummaries(now);
+    await this.checkAiSpendWarnings(now);
+    await this.alertOwnerOnQueueProblems(now);
+    await this.pingDeadManSwitch();
+    if (
+      messagesDeleted ||
+      topicSummariesCleared ||
+      confirmationsExpired ||
+      auditPayloadsCleared ||
+      eventDetailsCleared ||
+      accountsDeleted ||
+      ignoredResultChecks ||
+      fuzzyReviewsRebuilt ||
+      eventsDeleted ||
+      updatesDeleted
+    ) {
+      logger.info("maintenance completed", {
         messagesDeleted,
+        topicSummariesCleared,
         confirmationsExpired,
         auditPayloadsCleared,
         eventDetailsCleared,
@@ -79,55 +107,10 @@ export class MaintenanceService implements OnApplicationBootstrap, OnApplication
         fuzzyReviewsRebuilt,
         eventsDeleted,
         updatesDeleted,
-      ] = await Promise.all([
-        this.messages.deleteRawOlderThan(cutoff),
-        this.actions.cleanupExpiredConfirmations(now),
-        this.actions.cleanupExpiredAuditPayloads(now),
-        this.tasks.clearEventDetailsOlderThan(cutoff),
-        this.access.finalizeExpiredDeletions(now),
-        this.tasks.markIgnoredResultChecks(ignoredCheckCutoff, now),
-        this.reminders.reconcileFuzzyReviews(now),
-        this.tasks.deleteEventsOlderThan(new Date(now.getTime() - TASK_EVENT_RETENTION_DAYS * DAY_MS)),
-        this.deleteTelegramUpdatesOlderThan(new Date(now.getTime() - TELEGRAM_UPDATE_RETENTION_DAYS * DAY_MS)),
-      ]);
-      // Topic rows may still be referenced by slightly newer assistant messages. Retention
-      // therefore scrubs content instead of deleting the topic metadata/foreign-key target.
-      const topicSummariesCleared = await this.context.scrubExpiredTopicSummaries(now);
-      await this.checkAiSpendWarnings(now);
-      await this.alertOwnerOnQueueProblems(now);
-      await this.pingDeadManSwitch();
-      if (
-        messagesDeleted ||
-        topicSummariesCleared ||
-        confirmationsExpired ||
-        auditPayloadsCleared ||
-        eventDetailsCleared ||
-        accountsDeleted ||
-        ignoredResultChecks ||
-        fuzzyReviewsRebuilt ||
-        eventsDeleted ||
-        updatesDeleted
-      ) {
-        logger.info("maintenance completed", {
-          messagesDeleted,
-          topicSummariesCleared,
-          confirmationsExpired,
-          auditPayloadsCleared,
-          eventDetailsCleared,
-          accountsDeleted,
-          ignoredResultChecks,
-          fuzzyReviewsRebuilt,
-          eventsDeleted,
-          updatesDeleted,
-        });
-      }
-      loopHealth.beat("maintenance");
-    } catch (error) {
-      logger.error("maintenance failed", { error: safeError(error) });
-    } finally {
-      this.running = false;
+      });
     }
   }
+
   private async deleteTelegramUpdatesOlderThan(cutoff: Date): Promise<number> {
     return drainInBatches(CLEANUP_BATCH, async () => {
       const batch = this.database.db

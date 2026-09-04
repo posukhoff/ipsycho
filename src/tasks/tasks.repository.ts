@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, notExists, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { tsQueryFor } from "../core/search-query.js";
@@ -444,7 +445,7 @@ export class TasksRepository {
         }
       }
 
-      if (["done", "skipped", "cancelled", "elapsed"].includes(input.nextStatus)) {
+      if (isTerminalOccurrenceStatus(input.nextStatus)) {
         await tx
           .update(reminderDeliveries)
           .set({ status: "suppressed", suppressedReason: "no_longer_applicable" })

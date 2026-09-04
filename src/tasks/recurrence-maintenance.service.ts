@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from "@nestjs/common";
+import { PeriodicService } from "../runtime/periodic.service.js";
+import { Injectable } from "@nestjs/common";
 import { and, asc, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import { planReminders } from "../core/reminder-planning.js";
 import { buildRecurringOccurrences } from "../core/recurrence.js";
@@ -9,63 +10,46 @@ import { reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow
 import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
-import { loopHealth } from "../observability/loop-health.js";
 
 const REFILL_PAGE = 200;
 type RefillRow = { task: typeof tasks.$inferSelect; recipientUserId: string; settings: typeof userSettings.$inferSelect };
 const REFILL_INTERVAL_MS = 6 * 60 * 60_000;
 
 @Injectable()
-export class RecurrenceMaintenanceService implements OnApplicationBootstrap, OnApplicationShutdown {
-  private timer?: NodeJS.Timeout;
-  private running = false;
+export class RecurrenceMaintenanceService extends PeriodicService {
+  protected readonly loopName = "recurrence_refill";
+  protected readonly intervalMs = REFILL_INTERVAL_MS;
 
   constructor(
     private readonly database: DatabaseService,
     private readonly queue: ReminderQueueService,
-  ) {}
-
-  async onApplicationBootstrap(): Promise<void> {
-    loopHealth.register("recurrence_refill", REFILL_INTERVAL_MS);
-    await this.refill();
-    this.timer = setInterval(() => void this.refill().catch((error) => logger.error("recurrence refill tick failed", { error: safeError(error) })), REFILL_INTERVAL_MS);
-    this.timer.unref();
+  ) {
+    super();
   }
 
-  onApplicationShutdown(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
-  private async refill(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
-    try {
-      const now = new Date();
-      let afterId: string | null = null;
-      for (;;) {
-        const cursor: string | null = afterId;
-        const rows: RefillRow[] = await this.database.db
-          .select({ task: tasks, recipientUserId: workspaces.ownerUserId, settings: userSettings })
-          .from(tasks)
-          .innerJoin(workspaces, eq(workspaces.id, tasks.workspaceId))
-          .innerJoin(userSettings, eq(userSettings.userId, workspaces.ownerUserId))
-          .where(and(eq(tasks.status, "active"), isNotNull(tasks.recurrenceRule), cursor ? gt(tasks.id, cursor) : undefined))
-          .orderBy(asc(tasks.id))
-          .limit(REFILL_PAGE);
-        for (const row of rows) {
-          try {
-            await this.refillTask(row.task, row.recipientUserId, row.settings, now);
-          } catch (error) {
-            logger.error("recurrence refill failed", { taskId: row.task.id, error: safeError(error) });
-          }
+  protected async runTick(): Promise<void> {
+    const now = new Date();
+    let afterId: string | null = null;
+    for (;;) {
+      const cursor: string | null = afterId;
+      const rows: RefillRow[] = await this.database.db
+        .select({ task: tasks, recipientUserId: workspaces.ownerUserId, settings: userSettings })
+        .from(tasks)
+        .innerJoin(workspaces, eq(workspaces.id, tasks.workspaceId))
+        .innerJoin(userSettings, eq(userSettings.userId, workspaces.ownerUserId))
+        .where(and(eq(tasks.status, "active"), isNotNull(tasks.recurrenceRule), cursor ? gt(tasks.id, cursor) : undefined))
+        .orderBy(asc(tasks.id))
+        .limit(REFILL_PAGE);
+      for (const row of rows) {
+        try {
+          await this.refillTask(row.task, row.recipientUserId, row.settings, now);
+        } catch (error) {
+          logger.error("recurrence refill failed", { taskId: row.task.id, error: safeError(error) });
         }
-        const last = rows[rows.length - 1];
-        if (rows.length < REFILL_PAGE || !last) break;
-        afterId = last.task.id;
       }
-      loopHealth.beat("recurrence_refill");
-    } finally {
-      this.running = false;
+      const last = rows[rows.length - 1];
+      if (rows.length < REFILL_PAGE || !last) break;
+      afterId = last.task.id;
     }
   }
 

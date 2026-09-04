@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, type OnApplicationBootstrap, type OnApplicationShutdown } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { and, eq, inArray } from "drizzle-orm";
 import { localDateAndTimeToUtc, localDateAt, parseLocalDate, shiftLocalDate } from "../core/timezone.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -7,49 +7,38 @@ import { briefingDeliveries, userSettings, users, workspaceMembers, workspaces }
 import { BriefingQueueService } from "./briefing-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
-import { loopHealth } from "../observability/loop-health.js";
+import { PeriodicService } from "../runtime/periodic.service.js";
 
 const RECONCILE_MS = 15 * 60_000;
 
 @Injectable()
-export class BriefingSchedulingService implements OnApplicationBootstrap, OnApplicationShutdown {
-  private timer?: NodeJS.Timeout;
-  private running = false;
+export class BriefingSchedulingService extends PeriodicService {
+  protected readonly loopName = "briefing_scheduling";
+  protected readonly intervalMs = RECONCILE_MS;
 
   constructor(
     private readonly database: DatabaseService,
     private readonly queue: BriefingQueueService,
-  ) {}
-
-  async onApplicationBootstrap(): Promise<void> {
-    loopHealth.register("briefing_scheduling", RECONCILE_MS);
-    await this.reconcile();
-    this.timer = setInterval(() => void this.reconcile().catch((error) => logger.error("briefing scheduling reconciliation failed", { error: safeError(error) })), RECONCILE_MS);
-    this.timer.unref();
+  ) {
+    super();
   }
 
-  onApplicationShutdown(): void {
-    if (this.timer) clearInterval(this.timer);
+  protected runTick(): Promise<void> {
+    return this.reconcile();
   }
 
+  /** Also called directly when a user changes their digest settings. */
   async reconcile(now = new Date()): Promise<void> {
-    if (this.running) return;
-    this.running = true;
-    try {
-      const rows = await this.database.db
-        .select({ user: users, settings: userSettings, workspaceId: workspaces.id })
-        .from(users)
-        .innerJoin(userSettings, eq(userSettings.userId, users.id))
-        .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
-        .innerJoin(workspaces, and(eq(workspaces.id, workspaceMembers.workspaceId), eq(workspaces.ownerUserId, users.id), eq(workspaces.kind, "personal")))
-        .where(eq(users.status, "active"));
-      for (const row of rows) {
-        const today = localDateAt(now, row.settings.digestTimezone);
-        for (const date of [today, shiftLocalDate(today, 1)]) await this.materializeDate(row.workspaceId, row.user.id, row.settings, date, now);
-      }
-      loopHealth.beat("briefing_scheduling");
-    } finally {
-      this.running = false;
+    const rows = await this.database.db
+      .select({ user: users, settings: userSettings, workspaceId: workspaces.id })
+      .from(users)
+      .innerJoin(userSettings, eq(userSettings.userId, users.id))
+      .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
+      .innerJoin(workspaces, and(eq(workspaces.id, workspaceMembers.workspaceId), eq(workspaces.ownerUserId, users.id), eq(workspaces.kind, "personal")))
+      .where(eq(users.status, "active"));
+    for (const row of rows) {
+      const today = localDateAt(now, row.settings.digestTimezone);
+      for (const date of [today, shiftLocalDate(today, 1)]) await this.materializeDate(row.workspaceId, row.user.id, row.settings, date, now);
     }
   }
 

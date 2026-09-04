@@ -1,4 +1,4 @@
-import { compareLocalDates, localDateAndTimeToUtc, parseLocalDate, parseLocalTime, shiftLocalDate } from "./timezone.js";
+import { compareLocalDates, localDateAndTimeToUtc, localDateAt, parseLocalDate, parseLocalTime, shiftLocalDate } from "./timezone.js";
 
 export type LocalScheduleMode = "exact" | "window" | "date" | "deadline" | "fuzzy";
 
@@ -133,4 +133,30 @@ function assertTimezone(timezone: string): void {
   } catch {
     throw new Error("timezone is not a valid IANA timezone");
   }
+}
+
+/**
+ * Does this occurrence belong to the user's local day? Overdue work belongs to every day until it
+ * is closed. Today's screen and the morning digest asked this question with two identical copies
+ * of the same five conditions.
+ */
+export function occurrenceFallsOnLocalDate(
+  input: {
+    timeMode: string;
+    overdue: boolean;
+    timezone: string;
+    plannedLocalDate?: string | null;
+    dueLocalDate?: string | null;
+    plannedStartAt?: Date | null;
+    plannedEndAt?: Date | null;
+    dueAt?: Date | null;
+  },
+  localDate: string,
+): boolean {
+  if (input.overdue) return true;
+  if (input.plannedLocalDate === localDate || input.dueLocalDate === localDate) return true;
+  if (input.plannedStartAt && localDateAt(input.plannedStartAt, input.timezone) === localDate) return true;
+  if (input.dueAt && localDateAt(input.dueAt, input.timezone) === localDate) return true;
+  if (input.timeMode === "window" && input.plannedEndAt && localDateAt(input.plannedEndAt, input.timezone) === localDate) return true;
+  return false;
 }

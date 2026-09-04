@@ -1,4 +1,5 @@
 import type { MissPolicy, OccurrenceStatus, TaskKind, TimeMode } from "./types.js";
+import { TERMINAL_OCCURRENCE_STATUSES } from "./types.js";
 import { compareLocalDates, localDateAt } from "./timezone.js";
 
 export interface LifecycleInput {
@@ -25,7 +26,7 @@ export interface LifecycleDecision {
   markOverdue?: boolean;
 }
 
-const TERMINAL = new Set<OccurrenceStatus>(["done", "skipped", "cancelled", "elapsed"]);
+const TERMINAL = new Set<OccurrenceStatus>(TERMINAL_OCCURRENCE_STATUSES);
 
 export function evaluateOccurrenceLifecycle(input: LifecycleInput): LifecycleDecision {
   if (TERMINAL.has(input.status)) return {};

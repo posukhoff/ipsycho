@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { Injectable, type OnApplicationBootstrap } from "@nestjs/common";
 import { ResolvedActionSchema, type AiAction, type ResolvedAction, type ResolvedActionOf, type TaskTarget } from "../core/ai-contract.js";
 import { AI_ACTION_TYPES } from "../core/ai-contract.js";
@@ -185,7 +186,7 @@ export class ActionsService implements OnApplicationBootstrap {
         if (action.target.kind === "occurrence") {
           const context = await this.tasks.getOccurrenceContext(scope.workspaceId, action.target.occurrenceId);
           if (!context || context.occurrence.version !== action.target.occurrenceVersion) throw new InvalidAiActionError("target occurrence is missing or stale", "stale");
-          if (action.state !== "done" && ["done", "skipped", "cancelled", "elapsed"].includes(context.occurrence.status)) {
+          if (action.state !== "done" && isTerminalOccurrenceStatus(context.occurrence.status)) {
             throw new InvalidAiActionError("terminal occurrence cannot be changed", "terminal_occurrence");
           }
         }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { Injectable } from "@nestjs/common";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { seenFollowUpMinutes } from "../core/reminder-defaults.js";
@@ -544,7 +545,7 @@ export class ReminderSchedulingService {
 }
 
 function isTerminal(status: string): boolean {
-  return ["done", "skipped", "cancelled", "elapsed"].includes(status);
+  return isTerminalOccurrenceStatus(status);
 }
 
 function nextReferenceTime(now: Date, timezone: string, localTime: string): Date {
