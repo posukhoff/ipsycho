@@ -62,3 +62,55 @@ test("only a bare yes or no resolves a pending proposal", () => {
   assert.equal(bareConfirmationDecision("Отмени задачу про вакцинацию"), null);
   assert.equal(bareConfirmationDecision(""), null);
 });
+
+/**
+ * Every reference/domain code the resolver can raise must have its own copy: the whole point
+ * of dropping the second model call is that the deterministic answer is at least as useful,
+ * and an English rule text pasted into a Russian chat is what the old flow did.
+ */
+test("every resolver code the plan enumerates answers in the user's language, not in rule text", () => {
+  const codes = [
+    "ref_not_found", "ref_kind_mismatch", "fuzzy_reminder", "fuzzy_no_occurrence", "no_current_occurrence",
+    "task_not_active", "skip_one_time", "series_state_unsupported", "not_recurring", "duplicate_action",
+    "already_linked", "not_linked", "recurring_fuzzy", "stale", "time_past",
+  ];
+  for (const code of codes) {
+    const reply = renderValidationReply([issue({ code, message: `${code} rule text that must never be shown` })], "ru", 1);
+    assert.doesNotMatch(reply, /[A-Za-z]{4,}/u, `${code} leaks its rule text`);
+    assert.ok(reply.length > 20, `${code} has no copy`);
+    for (const locale of ["uk", "en"]) {
+      assert.ok(renderValidationReply([issue({ code, message: "" })], locale, 1).length > 20, `${code} has no ${locale} copy`);
+    }
+  }
+});
+
+test("a skipped one-time task and a series-only state are told apart", () => {
+  assert.match(renderValidationReply([issue({ code: "skip_one_time", message: "" })], "ru", 1), /нельзя пропустить/u);
+  assert.match(renderValidationReply([issue({ code: "series_state_unsupported", message: "" })], "ru", 1), /всей серии/u);
+  assert.match(renderValidationReply([issue({ code: "not_recurring", message: "" })], "ru", 1), /одноразовая задача/u);
+});
+
+test("a repeated action is reported as a repetition rather than applied twice in silence", () => {
+  const reply = renderValidationReply([issue({ code: "duplicate_action", message: "the same action is repeated in one message" })], "ru", 2);
+  assert.match(reply, /^Ничего не применил/u);
+  assert.match(reply, /повторяется дважды/u);
+});
+
+test("every resolver and conversion code has user-facing copy in all three languages", () => {
+  const codes = [
+    "time_past", "recurring_fuzzy", "stale", "already_linked", "not_linked", "ref_not_found", "ref_kind_mismatch",
+    "fuzzy_reminder", "fuzzy_no_occurrence", "no_current_occurrence", "task_not_active", "skip_one_time",
+    "series_state_unsupported", "not_recurring", "duplicate_action", "quiet_hours", "reason_required",
+    "date_only_offset", "terminal_occurrence", "habit_not_eligible", "settings_stale", "series_time_mode",
+    "timezone", "ref_required", "goal_title", "empty_patch", "memory_shape", "blank_field", "reminder_shape",
+    "recurrence_scope", "note_not_allowed", "settings_shape", "plan_empty", "task_definition", "schedule",
+    "recurrence", "checklist", "reminder_anchor",
+  ];
+  for (const code of codes) {
+    for (const language of ["ru", "uk", "en"]) {
+      const reply = renderValidationReply([issue({ code, message: "internal rule text that must not surface" })], language, 1);
+      assert.doesNotMatch(reply, /internal rule text/, `${code}/${language} leaked the rule text`);
+      assert.ok(reply.trim().length > 10, `${code}/${language} has no copy`);
+    }
+  }
+});

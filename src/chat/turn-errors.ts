@@ -120,6 +120,86 @@ const BY_CODE: Record<string, Copy> = {
     uk: "Не зберіг: налаштування змінилися після того, як я їх прочитав. Повтори команду.",
     en: "Not saved: the settings changed after I read them. Repeat the command.",
   },
+  timezone: {
+    ru: "Не сохранил: такого часового пояса нет. Назови город или пояс в виде «Europe/Kyiv».",
+    uk: "Не зберіг: такого часового поясу немає. Назви місто або пояс у вигляді «Europe/Kyiv».",
+    en: "Not saved: that timezone does not exist. Name a city or a zone like “Europe/Kyiv”.",
+  },
+  ref_required: {
+    ru: "Не понял, к чему это относится. Назови задачу или цель по названию.",
+    uk: "Не зрозумів, до чого це стосується. Назви завдання або ціль за назвою.",
+    en: "I could not tell what this refers to. Name the task or the goal.",
+  },
+  goal_title: {
+    ru: "Не создал цель: нужно её название одной фразой.",
+    uk: "Не створив ціль: потрібна її назва однією фразою.",
+    en: "Goal not created: it needs a title in one phrase.",
+  },
+  empty_patch: {
+    ru: "Ничего не менял: не понял, что именно нужно изменить.",
+    uk: "Нічого не змінював: не зрозумів, що саме треба змінити.",
+    en: "Nothing changed: I could not tell what to change.",
+  },
+  memory_shape: {
+    ru: "Не запомнил: не понял, что именно сохранить. Скажи одной фразой.",
+    uk: "Не запам’ятав: не зрозумів, що саме зберегти. Скажи однією фразою.",
+    en: "Not saved: I could not tell what to remember. Say it in one phrase.",
+  },
+  blank_field: {
+    ru: "Ничего не менял: одно из полей осталось пустым. Скажи, что туда записать, или что его убрать.",
+    uk: "Нічого не змінював: одне з полів лишилося порожнім. Скажи, що туди записати, або що прибрати.",
+    en: "Nothing changed: one of the fields came out empty. Say what to put there, or to drop it.",
+  },
+  reminder_shape: {
+    ru: "Не понял напоминание. Скажи время или «за сколько до».",
+    uk: "Не зрозумів нагадування. Скажи час або «за скільки до».",
+    en: "I did not understand the reminder. Give a time, or how long before.",
+  },
+  recurrence_scope: {
+    ru: "Расписание повтора меняется сразу для всей серии. Сказать «поменяй всю серию»?",
+    uk: "Розклад повтору змінюється одразу для всієї серії. Сказати «зміни всю серію»?",
+    en: "A repeat schedule changes for the whole series. Say to change the whole series?",
+  },
+  note_not_allowed: {
+    ru: "Ничего не менял: заметку можно записать только как препятствие к задаче.",
+    uk: "Нічого не змінював: нотатку можна записати лише як перешкоду до завдання.",
+    en: "Nothing changed: a note can only be recorded as a blocker on the task.",
+  },
+  settings_shape: {
+    ru: "Не сохранил настройку: не хватает значения. Скажи, что и на что менять.",
+    uk: "Не зберіг налаштування: бракує значення. Скажи, що і на що змінювати.",
+    en: "Setting not saved: a value is missing. Say what to change and to what.",
+  },
+  plan_empty: {
+    ru: "Не создал план: к цели не оказалось ни одной задачи.",
+    uk: "Не створив план: до цілі не виявилося жодного завдання.",
+    en: "Plan not created: the goal came with no tasks.",
+  },
+  task_definition: {
+    ru: "Не сохранил: время и вид задачи не сходятся. Скажи одной фразой, что и когда сделать.",
+    uk: "Не зберіг: час і вид завдання не збігаються. Скажи однією фразою, що і коли зробити.",
+    en: "Not saved: the time and the kind of task do not fit together. Say in one phrase what to do and when.",
+  },
+  schedule: {
+    ru: "Не сохранил: не понял время. Назови дату и час, день или срок.",
+    uk: "Не зберіг: не зрозумів час. Назви дату й годину, день або строк.",
+    en: "Not saved: I did not understand the time. Give a date and a time, a day, or a deadline.",
+  },
+  recurrence: {
+    ru: "Не сохранил повтор: такое расписание я выразить не могу. Скажи проще — например «каждый вторник в 19:00».",
+    uk: "Не зберіг повтор: такий розклад я виразити не можу. Скажи простіше — наприклад «щовівторка о 19:00».",
+    en: "Repeat not saved: I cannot express that schedule. Say it more simply, for example “every Tuesday at 19:00”.",
+  },
+  checklist: {
+    ru: "Не сохранил чеклист: пункты пустые или повторяются.",
+    uk: "Не зберіг чекліст: пункти порожні або повторюються.",
+    en: "Checklist not saved: items are empty or repeated.",
+  },
+  reminder_anchor: {
+    ru: "Не сохранил напоминание: у задачи нет даты, от которой его считать.",
+    uk: "Не зберіг нагадування: у завдання немає дати, від якої його рахувати.",
+    en: "Reminder not saved: the task has no date to count it from.",
+  },
   series_time_mode: {
     ru: "Не изменил серию: у неё другой вид времени (например, срок вместо встречи). Назови время того же вида.",
     uk: "Не змінив серію: у неї інший вид часу (наприклад, дедлайн замість зустрічі). Назви час того ж виду.",
