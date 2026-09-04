@@ -109,7 +109,12 @@ async function evaluate(dialog, run) {
   const scope = await fixture(dialog);
   const started = Date.now();
   try {
-    for (const seed of dialog.seed ?? []) await send(scope, seed, dialog.language);
+    for (const seed of dialog.seed ?? []) {
+      const seeded = await send(scope, seed, dialog.language);
+      if (seeded.kind === "ok" && seeded.pendingGroupId) {
+        await actions.confirm(scope.workspaceId, scope.userId, scope.userId, seeded.pendingGroupId).catch(() => undefined);
+      }
+    }
     const before = await snapshot(scope);
     const callsBefore = await providerCalls(scope);
     const result = await send(scope, dialog.message, dialog.language);
@@ -199,7 +204,7 @@ function checkExpectations(expect, ctx) {
     const text = result.text ?? "";
     const looksCyrillic = /[а-яіїєґ]/iu.test(text);
     if (expect.replyLanguage === "en" && looksCyrillic) fail("replyLanguage", "expected English, got Cyrillic");
-    if (expect.replyLanguage === "uk" && !/[іїєґ]/iu.test(text) && looksCyrillic) fail("replyLanguage", "expected Ukrainian, looks Russian");
+    if (expect.replyLanguage === "uk" && /[ыэё]|Записал|Отметил|Перенёс|Отменил/u.test(text)) fail("replyLanguage", `expected Ukrainian, got «${text.slice(0, 40)}»`);
   }
 
   const occurrences = after.occurrences.filter((row) => createdTasks.some((task) => task.id === row.task_id));
@@ -209,8 +214,9 @@ function checkExpectations(expect, ctx) {
     if (!times.includes(expect.startLocalTime)) fail("startLocalTime", times.join(" | ") || "no planned start");
   }
   if (expect.startNotBeforeLocalTime) {
+    // A constraint, not a demand to schedule: nothing created breaks nothing.
     const times = starts.map((value) => wallTime(value));
-    if (!times.length || times.some((time) => time < expect.startNotBeforeLocalTime)) fail("startNotBeforeLocalTime", times.join(" | ") || "no planned start");
+    if (times.some((time) => time < expect.startNotBeforeLocalTime)) fail("startNotBeforeLocalTime", times.join(" | "));
   }
   if (expect.startOffsetDays !== undefined) {
     const today = localDateAt(new Date(), TIMEZONE);

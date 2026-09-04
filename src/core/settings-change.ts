@@ -128,8 +128,10 @@ export function buildSettingsPatch(change: SettingsChange, current: { timezone: 
       if (!change.enabled) return patch;
       const weekdayStart = time(change.weekdayStart, "quiet hours weekday start");
       const weekdayEnd = time(change.weekdayEnd, "quiet hours weekday end");
-      const weekendStart = time(change.weekendStart, "quiet hours weekend start");
-      const weekendEnd = time(change.weekendEnd, "quiet hours weekend end");
+      // «Не пиши мне с 23:00 до 8 утра» names one range. Demanding a separate weekend range turned
+      // that into a refusal; the weekend simply follows the weekday range unless the user split them.
+      const weekendStart = time(change.weekendStart, "quiet hours weekend start") ?? weekdayStart;
+      const weekendEnd = time(change.weekendEnd, "quiet hours weekend end") ?? weekdayEnd;
       return {
         ...patch,
         ...(weekdayStart ? { weekdayQuietStart: weekdayStart } : {}),

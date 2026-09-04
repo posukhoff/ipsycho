@@ -2,7 +2,7 @@ import type OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import type { AppConfig } from "../config.js";
 import { createOpenAiCompatibleClient } from "./ai-client.js";
-import { AiTurnSchema } from "./ai-contracts.js";
+import { AiTurnWireSchema } from "./ai-contracts.js";
 import { structuredTurn, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
 const GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
@@ -29,7 +29,7 @@ export class GeminiProvider implements AiProvider {
           { role: "system", content: repairSuffix ? `${request.systemPrompt}\n\n${repairSuffix}` : request.systemPrompt },
           ...request.messages.map((message) => ({ role: message.role, content: message.content })),
         ],
-        response_format: zodResponseFormat(AiTurnSchema, "ipsycho_turn"),
+        response_format: zodResponseFormat(AiTurnWireSchema, "ipsycho_turn"),
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         ...(request.maxOutputTokens !== undefined ? { max_completion_tokens: request.maxOutputTokens } : {}),
       });

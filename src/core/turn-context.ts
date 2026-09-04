@@ -48,7 +48,7 @@ export interface ModelSettings {
   morningDigest: string;
   eveningDigest: string;
   weeklyReview: string;
-  quietHours: string;
+  quietHours: { enabled: boolean; weekdayStart: string; weekdayEnd: string; weekendStart: string; weekendEnd: string };
   snoozedUntil?: string;
   reminderDefaults: {
     eventOffsetsMinutes: number[];
@@ -309,7 +309,6 @@ const WEEKDAY_SHORT: Record<PresentationLocale, readonly string[]> = {
   uk: ["пн", "вт", "ср", "чт", "пт", "сб", "нд"],
   en: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
 };
-const WEEKEND_WORD: Record<PresentationLocale, string> = { ru: "выходные", uk: "вихідні", en: "weekends" };
 const MEMORY_MATCH_LIMIT = 5;
 
 export function composeTurnContext(input: TurnContextInput): ComposedTurnContext {
@@ -474,9 +473,15 @@ function modelSettings(settings: ContextSettingsRow, now: Date, locale: Presenta
     morningDigest: settings.morningDigestEnabled ? settings.morningReferenceTime : "off",
     eveningDigest: settings.eveningDigestEnabled ? settings.eveningReferenceTime : "off",
     weeklyReview: settings.weeklyReviewEnabled ? `${WEEKDAY_SHORT[locale][settings.weeklyReviewWeekday - 1] ?? WEEKDAY_SHORT[locale][6]} ${settings.weeklyReviewTime}` : "off",
-    quietHours: settings.quietHoursEnabled
-      ? `${settings.weekdayQuietStart}–${settings.weekdayQuietEnd}, ${WEEKEND_WORD[locale]} ${settings.weekendQuietStart}–${settings.weekendQuietEnd}`
-      : "off",
+    // Structured, not prose: the model is told to reuse unchanged values, and it can only do that
+    // with fields it can copy. As one localized string it kept sending back an incomplete change.
+    quietHours: {
+      enabled: settings.quietHoursEnabled,
+      weekdayStart: settings.weekdayQuietStart,
+      weekdayEnd: settings.weekdayQuietEnd,
+      weekendStart: settings.weekendQuietStart,
+      weekendEnd: settings.weekendQuietEnd,
+    },
     ...(settings.notificationsSnoozedUntil && settings.notificationsSnoozedUntil.getTime() > now.getTime()
       ? { snoozedUntil: formatLocalDateTime(settings.notificationsSnoozedUntil, settings.timezone, now) }
       : {}),

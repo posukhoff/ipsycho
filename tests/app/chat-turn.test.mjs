@@ -477,7 +477,7 @@ test("«ничего не сохраняй» drops the actions before they ever 
   const result = await send(harness, "Ничего не сохраняй, просто подумаем вслух: что мне делать с лендингом?");
 
   assert.equal(harness.calls.length, 1);
-  assert.match(harness.calls[0].correction ?? "", /actions=\[\]/u);
+  assert.match(harness.calls[0].correction ?? "", /every action array empty/u);
   assert.equal(harness.prepared.length, 0, "no action survives a no-persist turn");
   assert.equal(harness.handled.length, 0);
   assert.equal(result.appliedCount, 0);

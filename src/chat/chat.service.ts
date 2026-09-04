@@ -330,7 +330,7 @@ export class ChatService {
         domainContext: ctx.model,
         modelMode: ctx.modelMode,
         correction:
-          "This is an explicit conclusion-only control. Return actions=[], question=null. Do not propose or persist any new task, goal, memory, reminder, reschedule or cancellation. Give a best-effort conclusion from known context only.",
+          "This is an explicit conclusion-only control. Leave every action array empty, question=null. Do not propose or persist any new task, goal, memory, reminder, reschedule or cancellation. Give a best-effort conclusion from known context only.",
         now,
       });
       return finish(turn.reply.trim() || fallback);
@@ -424,7 +424,7 @@ export class ChatService {
       history: [{ role: "user", content: opening }],
       domainContext,
       modelMode: ctx.modelMode,
-      correction: `${reviewCorrection(input.kind)}${input.kind === "weekly" ? " This is the opening turn: return actions=[] and ask one planning question." : ""}`,
+      correction: `${reviewCorrection(input.kind)}${input.kind === "weekly" ? " This is the opening turn: leave every action array empty and ask one planning question." : ""}`,
     });
     if (modelTurn.kind === "unparseable") {
       await this.context.resolveTopic(input.workspaceId, input.userId, input.topicId, now).catch(() => undefined);
@@ -514,7 +514,7 @@ export class ChatService {
       const correction = review
         ? reviewCorrection(review, forceReviewConclusion)
         : control === "no_persist"
-          ? "The user explicitly said not to save anything from this turn. Return actions=[]; ordinary conversational reply is allowed."
+          ? "The user explicitly said not to save anything from this turn. Leave every action array empty; ordinary conversational reply is allowed."
           : undefined;
 
       const modelTurn = await this.runModelTurn({ scope, history, domainContext, modelMode: ctx.modelMode, ...(correction ? { correction } : {}) });

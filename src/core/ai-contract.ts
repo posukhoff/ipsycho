@@ -226,6 +226,52 @@ export const TopicDirectiveSchema = z
   })
   .strict();
 
+/**
+ * What the model actually fills. One array per action kind instead of one array of a nine-branch
+ * discriminated union: with the union, the model reliably *named* the right kind and then filled a
+ * different, smaller branch — «напомни …» came back as `set_reminder` on a task that did not exist,
+ * «закинь созвон …» as `set_task_state`. Measured with tests/eval/dialogs.json: the same model,
+ * prompt and message produce the right action every time once the choice of branch is gone.
+ *
+ * The server flattens this back into `AiTurn.actions`, so nothing downstream sees the difference.
+ */
+const KindArray = <T extends z.ZodTypeAny>(schema: T, max = 8) => z.array(schema).max(max);
+
+export const AiTurnWireSchema = z
+  .object({
+    reply: z.string().min(1).max(4000),
+    question: NullableText(1000),
+    createTasks: KindArray(CreateTaskActionSchema.omit({ type: true })),
+    updateTasks: KindArray(UpdateTaskActionSchema.omit({ type: true })),
+    setTaskStates: KindArray(SetTaskStateActionSchema.omit({ type: true })),
+    reschedules: KindArray(RescheduleActionSchema.omit({ type: true })),
+    setReminders: KindArray(SetReminderActionSchema.omit({ type: true })),
+    goalOps: KindArray(GoalActionSchema.omit({ type: true })),
+    plans: KindArray(PlanActionSchema.omit({ type: true }), 4),
+    memories: KindArray(MemoryActionSchema.omit({ type: true })),
+    settingsChanges: KindArray(SettingsActionSchema.omit({ type: true }), 4),
+    topic: TopicDirectiveSchema,
+  })
+  .strict();
+
+export type AiTurnWire = z.infer<typeof AiTurnWireSchema>;
+
+/** Wire → internal. Creations come first so that n1, n2 … always resolve to a task in the same package. */
+export function flattenTurn(wire: AiTurnWire): AiTurn {
+  const actions = [
+    ...wire.createTasks.map((body) => ({ ...body, type: "create_task" as const })),
+    ...wire.plans.map((body) => ({ ...body, type: "plan" as const })),
+    ...wire.goalOps.map((body) => ({ ...body, type: "goal" as const })),
+    ...wire.updateTasks.map((body) => ({ ...body, type: "update_task" as const })),
+    ...wire.setTaskStates.map((body) => ({ ...body, type: "set_task_state" as const })),
+    ...wire.reschedules.map((body) => ({ ...body, type: "reschedule" as const })),
+    ...wire.setReminders.map((body) => ({ ...body, type: "set_reminder" as const })),
+    ...wire.memories.map((body) => ({ ...body, type: "memory" as const })),
+    ...wire.settingsChanges.map((body) => ({ ...body, type: "settings" as const })),
+  ].slice(0, 8);
+  return { reply: wire.reply, question: wire.question, actions, topic: wire.topic };
+}
+
 export const AiTurnSchema = z
   .object({
     reply: z.string().min(1).max(4000),

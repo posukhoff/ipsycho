@@ -3,7 +3,7 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { ZodError } from "zod";
 import type { AppConfig } from "../config.js";
 import { createOpenAiCompatibleClient } from "./ai-client.js";
-import { AiTurnSchema } from "./ai-contracts.js";
+import { AiTurnWireSchema } from "./ai-contracts.js";
 import { structuredTurn, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
 export class OpenAiProvider implements AiProvider {
@@ -28,7 +28,7 @@ export class OpenAiProvider implements AiProvider {
           { role: "system", content: repairSuffix ? `${request.systemPrompt}\n\n${repairSuffix}` : request.systemPrompt },
           ...request.messages.map((message) => ({ role: message.role, content: message.content })),
         ],
-        text: { format: zodTextFormat(AiTurnSchema, "ipsycho_turn") },
+        text: { format: zodTextFormat(AiTurnWireSchema, "ipsycho_turn") },
         // Conversation content is not retained on the provider side: consent covers processing, not storage.
         store: false,
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),

@@ -1,5 +1,5 @@
 import type { ZodError } from "zod";
-import { AiTurnSchema, type AiTurn } from "./ai-contracts.js";
+import { AiTurnWireSchema, flattenTurn, type AiTurn } from "./ai-contracts.js";
 import { logger } from "../observability/logger.js";
 
 export interface AiMessage {
@@ -104,13 +104,13 @@ export async function structuredTurn(providerName: string, attempt: (repairSuffi
       issues = ["(root): invalid_json"];
       continue;
     }
-    const parsed = AiTurnSchema.safeParse(json);
+    const parsed = AiTurnWireSchema.safeParse(json);
     if (!parsed.success) {
       issues = describeStructuredIssues(parsed.error);
       continue;
     }
     return {
-      turn: parsed.data,
+      turn: flattenTurn(parsed.data),
       attempts,
       ...(response.requestId ? { requestId: response.requestId } : {}),
       ...(inputTokens ? { inputTokens } : {}),

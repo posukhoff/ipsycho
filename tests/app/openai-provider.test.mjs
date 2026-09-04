@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
-import { AiTurnSchema } from "../../dist/ai/ai-contracts.js";
+import { AiTurnSchema, AiTurnWireSchema } from "../../dist/ai/ai-contracts.js";
 import { AiStructuredOutputError, describeStructuredIssues, structuredRepairSuffix } from "../../dist/ai/ai-provider.js";
 import { isStructuredOutputValidationError } from "../../dist/ai/openai.provider.js";
 
@@ -19,7 +19,7 @@ test("OpenAI structured-output schema errors are eligible for one repair attempt
 
 test("the model contract is expressible as an OpenAI strict text format", () => {
   // zodTextFormat rejects optional keys and defaults: every field must be required (nullable).
-  const format = zodTextFormat(AiTurnSchema, "ipsycho_turn");
+  const format = zodTextFormat(AiTurnWireSchema, "ipsycho_turn");
   assert.equal(format.type, "json_schema");
   assert.equal(format.name, "ipsycho_turn");
   assert.equal(format.strict, true);
@@ -67,7 +67,21 @@ test("every provider client carries a bounded request timeout instead of the SDK
 test("a repaired call counts both requests and their cached tokens, and never stores content", async () => {
   const { OpenAiProvider } = await import("../../dist/ai/openai.provider.js");
   const requests = [];
-  const validTurn = JSON.stringify({ reply: "Записал.", question: null, actions: [], topic: { mode: "none", title: null, summary: null } });
+  // The wire shape the model fills: one array per action kind, flattened by the provider.
+  const validTurn = JSON.stringify({
+    reply: "Записал.",
+    question: null,
+    createTasks: [],
+    updateTasks: [],
+    setTaskStates: [],
+    reschedules: [],
+    setReminders: [],
+    goalOps: [],
+    plans: [],
+    memories: [],
+    settingsChanges: [],
+    topic: { mode: "none", title: null, summary: null },
+  });
   const responses = [
     { id: "resp-1", output: [], output_text: "{ not json", usage: { input_tokens: 100, output_tokens: 5, input_tokens_details: { cached_tokens: 60 } } },
     { id: "resp-2", output: [], output_text: validTurn, usage: { input_tokens: 110, output_tokens: 20, input_tokens_details: { cached_tokens: 60 } } },

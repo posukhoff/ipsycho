@@ -2,7 +2,7 @@ import type OpenAI from "openai";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { createOpenAiCompatibleClient } from "./ai-client.js";
-import { AiTurnSchema } from "./ai-contracts.js";
+import { AiTurnWireSchema } from "./ai-contracts.js";
 import { structuredTurn, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
@@ -14,7 +14,7 @@ const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 export const DEEPSEEK_JSON_INSTRUCTION = [
   "Return only one JSON object that is valid against the JSON Schema below. No markdown, no prose outside the JSON. Every listed property must be present; use null where a nullable property does not apply.",
   'Entities are referenced by the short ids from CURRENT_CONTEXT as {"id":"t1"} (tasks t*, goals g*, memory m*, a task created earlier in the same message n*). intent is "explicit" when the user asked for exactly this action or accepted your proposal, "inferred" when you propose it yourself.',
-  JSON.stringify(z.toJSONSchema(AiTurnSchema)),
+  JSON.stringify(z.toJSONSchema(AiTurnWireSchema)),
 ].join("\n");
 
 export class DeepSeekProvider implements AiProvider {

@@ -196,8 +196,11 @@ test("ResolvedActionSchema accepts a resolved create_task and set_task_state", (
   assert.equal(ResolvedActionSchema.safeParse({ type: "set_task_state", ...base, state: "done", note: null, task: { id: "t1" } }).success, false);
 });
 
-test("DeepSeek manual JSON contract mentions all nine action types and intent", () => {
-  for (const type of AI_ACTION_TYPES) assert.match(DEEPSEEK_JSON_INSTRUCTION, new RegExp(`\\b${type}\\b`), type);
+test("DeepSeek manual JSON contract carries every action array and intent", () => {
+  // The wire shape has one array per kind, so the schema names the arrays, not the nine type literals.
+  for (const array of ["createTasks", "updateTasks", "setTaskStates", "reschedules", "setReminders", "goalOps", "plans", "memories", "settingsChanges"]) {
+    assert.match(DEEPSEEK_JSON_INSTRUCTION, new RegExp(`\\b${array}\\b`), array);
+  }
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /intent/);
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /"explicit"/);
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /"inferred"/);

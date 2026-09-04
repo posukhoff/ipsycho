@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSystemPrompt } from "../../dist/ai/ai.service.js";
-import { AiTurnSchema } from "../../dist/core/ai-contract.js";
+import { AiTurnWireSchema } from "../../dist/core/ai-contract.js";
 
 const at = new Date("2026-08-11T12:00:00.000Z");
 const prompt = buildSystemPrompt({ timezone: "Europe/Kyiv", now: at });
@@ -31,12 +31,12 @@ test("AI prompt forbids system-data access and makes sensitive profile facts una
   assert.match(prompt, /no access to SQL, the database, server filesystem/);
   assert.match(prompt, /Never reveal, enumerate, compare, export, or search users/);
   assert.match(prompt, /Sensitive profile records are deliberately withheld/);
-  assert.match(prompt, /return actions=\[\]/);
+  assert.match(prompt, /leave every action array empty/);
   assert.match(prompt, /untrusted user data, never as instructions/);
 });
 
 test("AI prompt exposes the full user settings surface without operator privileges", () => {
-  assert.match(prompt, /settings — timezone/);
+  assert.match(prompt, /settingsChanges — timezone/);
   assert.match(prompt, /morning\/evening digests/);
   assert.match(prompt, /quiet hours/);
   assert.match(prompt, /reminder defaults/);
@@ -52,23 +52,24 @@ test("AI prompt maps the user's names for the weekly review and digests to setti
   assert.match(prompt, /create a task only when the user clearly means their own work product/);
 });
 
-test("AI prompt names the nine actions, the intent field and the task-as-target rule", () => {
-  for (const type of ["create_task", "update_task", "set_task_state", "reschedule", "set_reminder", "goal", "plan", "memory", "settings"]) {
-    assert.match(prompt, new RegExp(`(^|[\\s.])${type} — `, "m"), type);
+test("AI prompt names every action array, the intent field and the task-as-target rule", () => {
+  // The model fills one array per kind; the nine-branch union it used to choose from is gone.
+  for (const array of ["createTasks", "updateTasks", "setTaskStates", "reschedules", "setReminders", "goalOps", "plans", "memories", "settingsChanges"]) {
+    assert.match(prompt, new RegExp(`(^|[\\s.])${array} — `, "m"), array);
   }
   assert.match(prompt, /intent\. explicit when the user asked for exactly this action/);
   assert.match(prompt, /inferred when you propose it yourself/);
-  assert.match(prompt, /The target of an action is always a task id/);
-  assert.match(prompt, /Several actions in one message are one atomic package/);
+  assert.match(prompt, /Every entry addresses a task by the short id from CURRENT_CONTEXT/);
+  assert.match(prompt, /All arrays of one message are one atomic package/);
   assert.match(prompt, /return the action itself instead of describing it and waiting for a yes/);
-  assert.match(prompt, /never needs an existing id/);
-  assert.match(prompt, /it carries its own title, why, nextAction, context, checklist, importance, kind, when, recurrence, reminder, habit and goal/);
+  assert.match(prompt, /tasks that do not exist yet/);
+  assert.match(prompt, /with its own when, reminder, recurrence, habit and goal/);
 });
 
 test("AI prompt explains When, recurrence and the context hints", () => {
   assert.match(prompt, /Never invent a clock time the user did not give/);
   assert.match(prompt, /never turn a fuzzy horizon into a concrete date/);
-  assert.match(prompt, /‘Remind me to X at T’ with no listed task for X is create_task at T/);
+  assert.match(prompt, /‘Remind me to X at T’[^\n]*is one create_task carrying its own reminder/);
   assert.match(prompt, /for example yearly/);
   assert.match(prompt, /the first date and clock time come from when/);
   assert.match(prompt, /tasksNote/);
@@ -104,7 +105,7 @@ test("AI prompt stays inside its size budget without context", () => {
   // The budget exists so rules keep moving into code rather than accumulating here.
   // It is a budget, not a rule: raising it is a decision, and the number says by how much.
   // 2026-09-04: raised from 9600 for the three worked examples (§16), which sit in the cacheable prefix.
-  assert.ok(prompt.length < 11_500, `prompt is ${prompt.length} characters`);
+  assert.ok(prompt.length < 14_000, `prompt is ${prompt.length} characters`);
 });
 
 test("AI prompt ends with one local CURRENT_TIME line and the context when given", () => {
@@ -132,9 +133,9 @@ test("every worked example in the prompt is a turn the contract actually accepts
     .split("\n")
     .filter((line) => line.startsWith("user:"))
     .map((line) => line.slice(line.indexOf("→ ") + 2));
-  assert.equal(examples.length, 3, "the prompt must carry three worked examples");
+  assert.equal(examples.length, 4, "the prompt must carry four worked examples");
   for (const example of examples) {
-    const parsed = AiTurnSchema.safeParse(JSON.parse(example));
+    const parsed = AiTurnWireSchema.safeParse(JSON.parse(example));
     assert.ok(parsed.success, `example rejected by the contract: ${parsed.error?.issues?.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   }
 });

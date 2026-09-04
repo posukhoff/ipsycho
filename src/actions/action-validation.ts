@@ -191,8 +191,10 @@ async function validateSettingsAction(action: ResolvedActionOf<"settings">, user
   }
   if (action.operation === "quiet_hours") {
     if (action.enabled === null) throw new InvalidAiActionError("quiet hours enabled state is required", "settings_shape");
-    const times = [action.weekdayStart, action.weekdayEnd, action.weekendStart, action.weekendEnd];
-    if (action.enabled && times.some((value) => value === null)) throw new InvalidAiActionError("enabled quiet hours require weekday and weekend ranges", "settings_shape");
+    // One range is enough: the weekend follows the weekday range unless the user splits them.
+    if (action.enabled && (action.weekdayStart === null || action.weekdayEnd === null)) {
+      throw new InvalidAiActionError("enabled quiet hours require a start and an end", "settings_shape");
+    }
     return;
   }
   if (action.operation === "snooze") {
