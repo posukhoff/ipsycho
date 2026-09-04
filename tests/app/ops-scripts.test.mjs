@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-for (const script of ["scripts/backup-compose.sh", "scripts/restore-compose.sh", "scripts/deploy-remote.sh", "scripts/dev.sh"]) {
+for (const script of ["scripts/backup-compose.sh", "scripts/restore-compose.sh", "scripts/deploy-remote.sh", "scripts/dev.sh", "scripts/backup-roundtrip.sh"]) {
   test(`${script} has valid bash syntax`, () => {
     execFileSync("bash", ["-n", script], { stdio: "pipe" });
   });
@@ -32,4 +32,12 @@ test("the remote deploy only succeeds once /ready reports the deployed commit, a
   assert.match(source, /wait_ready "\$DEPLOY_SHA"/);
   assert.match(source, /git checkout --detach "\$PREVIOUS_SHA"/);
   assert.doesNotMatch(source, /image prune/);
+});
+
+test("the round-trip drill restores into a scratch database and compares row counts", () => {
+  const source = readFileSync("scripts/backup-roundtrip.sh", "utf8");
+  assert.match(source, /create database \$SCRATCH_DB/);
+  assert.match(source, /drop database if exists \$SCRATCH_DB/);
+  assert.match(source, /row counts differ after restore/);
+  assert.doesNotMatch(source, /drop database if exists "?\$\{?DATABASE_URL/);
 });

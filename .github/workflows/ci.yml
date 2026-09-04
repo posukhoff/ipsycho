@@ -73,3 +73,10 @@ jobs:
 
       - run: npm ci
       - run: npm run test:e2e
+
+      # A backup that has never been restored is not a backup: dump, encrypt, decrypt, restore,
+      # compare row counts per table.
+      - name: Backup round trip
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: ./scripts/backup-roundtrip.sh

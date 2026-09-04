@@ -126,6 +126,11 @@ BACKUP_KEY_FILE=/opt/ipsycho-secrets/backup.key \
 ./scripts/restore-compose.sh backups/daily/ipsycho-YYYY-MM-DDTHHMMSSZ.dump.enc
 ```
 
+CI additionally runs `scripts/backup-roundtrip.sh` against the throwaway e2e
+database on every push: dump, encrypt, decrypt, restore into a scratch database
+and compare the row count of every table, so a backup format that cannot be
+restored fails the build rather than a real incident.
+
 `restore-compose.sh` starts a disposable PostgreSQL container, restores the
 dump, verifies that public tables exist, and removes the container. It never
 connects to the production Compose database. A real disaster recovery into the

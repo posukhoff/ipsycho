@@ -3,5 +3,11 @@
   "src": ["dist"],
   "exclude": ["dist/**/*.module.js", "dist/main.js", "dist/cli.js", "dist/database/migrate.js", "dist/database/schema.js"],
   "reporter": ["text-summary", "lcov"],
-  "report-dir": "coverage"
+  "report-dir": "coverage",
+  "//": "Ratchet: raise these as coverage grows, never lower them to make a run pass.",
+  "check-coverage": true,
+  "lines": 63,
+  "statements": 63,
+  "branches": 72,
+  "functions": 53
 }
