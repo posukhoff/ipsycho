@@ -21,4 +21,5 @@ fi
 
 DATABASE_URL="$TEST_DATABASE_URL" npm run migrate
 npm run build
-TEST_DATABASE_URL="$TEST_DATABASE_URL" node --test tests/e2e/*.test.mjs
+# Every e2e file truncates the shared database, so files must not run concurrently.
+TEST_DATABASE_URL="$TEST_DATABASE_URL" node --test --test-concurrency=1 tests/e2e/*.test.mjs

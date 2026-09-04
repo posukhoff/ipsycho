@@ -41,7 +41,7 @@ Buttons and commands remain deterministic shortcuts and recovery paths. The agen
 - Logs contain identifiers, counters and sanitized error identity, not message bodies or raw provider payloads.
 - A PostgreSQL advisory lock enforces the supported single-app-process architecture and serializes migrations.
 
-Telegram delivery is an external side effect: a state change can commit even if the final acknowledgement is not delivered, and an ambiguous network failure can cause a resend. Closing that gap completely requires a durable Telegram inbox/outbox design.
+Telegram delivery is an external side effect. For reminders and digests the outcome of a failed send is classified before any retry: a 429 waits for Telegram's `retry_after` without spending an attempt, a permanent rejection (blocked bot, unknown chat) marks the delivery `failed`, a connection that never opened is retried, and a timeout after the request left the process is recorded as `ambiguous` and never resent automatically. Chat replies are still sent without that bookkeeping, so an ambiguous failure there can still produce a resend.
 
 ## Local development
 

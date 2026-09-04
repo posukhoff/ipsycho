@@ -1,4 +1,4 @@
-export type BriefingDeliveryStatus = "pending" | "processing" | "sent" | "failed" | "suppressed";
+export type BriefingDeliveryStatus = "pending" | "processing" | "sent" | "ambiguous" | "failed" | "suppressed";
 export type ReminderBundleDecision = "none" | "wait" | "suppress";
 
 export function nextCriticalEscalationAt(sentAt: Date, intervalMinutes: number): Date {
@@ -18,7 +18,8 @@ export function reminderBriefingBundleDecision(input: {
 }): ReminderBundleDecision {
   const tolerance = input.toleranceMs ?? 60_000;
   if (Math.abs(input.reminderScheduledFor.getTime() - input.briefingScheduledFor.getTime()) > tolerance) return "none";
-  if (input.briefingStatus === "sent") return "suppress";
+  // An ambiguous digest may have reached the user; a separate reminder for the same slot risks a duplicate contact.
+  if (input.briefingStatus === "sent" || input.briefingStatus === "ambiguous") return "suppress";
   if (!['pending', 'processing'].includes(input.briefingStatus)) return "none";
   const maxWait = input.maxWaitMs ?? 5 * 60_000;
   return input.now.getTime() - input.briefingScheduledFor.getTime() <= maxWait ? "wait" : "none";

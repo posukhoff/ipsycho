@@ -1,19 +1,23 @@
-import { Inject, Injectable, OnApplicationBootstrap, OnApplicationShutdown } from "@nestjs/common";
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
-import { PgBoss } from "pg-boss";
-import { APP_CONFIG, type AppConfig } from "../config.js";
+import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from "@nestjs/common";
+import { and, asc, eq, gt, gte, inArray, lte, or } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
+import { JobQueueService } from "../queue/job-queue.service.js";
 import { briefingDeliveries, reminderDeliveries, reminderRules, taskChecklistItems, taskEvents, taskOccurrences, tasks, users, userSettings, workspaceMembers } from "../database/schema.js";
 import { TelegramService } from "../telegram/telegram.service.js";
+import { classifyTelegramSendError } from "../telegram/telegram-send-outcome.js";
 import { reminderCardText } from "../telegram/telegram-ui.js";
 import { occurrenceProjectionFromRow, reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { applyNotificationPolicy } from "../core/reminder-planning.js";
 import { nextCriticalEscalationAt, reminderBriefingBundleDecision } from "../core/reminder-escalation.js";
 import { safeError } from "../observability/safe-error.js";
 
-const QUEUE = "reminder-delivery";
+export const REMINDER_QUEUE = "reminder-delivery";
 const MAX_DELIVERY_ATTEMPTS = 3;
 const RECONCILE_INTERVAL_MS = 60_000;
+/** Boot enqueues everything overdue plus this much of the future; reconciliation covers the rest. */
+const BOOT_HORIZON_MS = 24 * 60 * 60_000;
+const RECONCILE_HORIZON_MS = 2 * 60_000;
+const ENQUEUE_BATCH = 1000;
 
 type ReminderDeliveryRow = {
   delivery: typeof reminderDeliveries.$inferSelect;
@@ -27,65 +31,76 @@ type ReminderDeliveryRow = {
 
 @Injectable()
 export class ReminderQueueService implements OnApplicationBootstrap, OnApplicationShutdown {
-  private readonly boss: PgBoss;
   private reconcileTimer?: NodeJS.Timeout;
+  lastTickAt: Date | null = null;
 
   constructor(
-    @Inject(APP_CONFIG) config: AppConfig,
     private readonly database: DatabaseService,
     private readonly telegram: TelegramService,
-  ) {
-    this.boss = new PgBoss(config.databaseUrl);
-    this.boss.on("error", (error) => console.error("pg-boss queue error", { queue: QUEUE, error: safeError(error) }));
-  }
+    private readonly queue: JobQueueService,
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.boss.start();
-    await this.boss.createQueue(QUEUE);
-    await this.boss.work<{ deliveryId: string }>(QUEUE, async ([job]) => {
-      if (job) await this.deliver(job.data.deliveryId);
-    });
-    // Only boot recovery may reset processing rows. Periodic reconciliation never touches
-    // in-flight work; it only repairs pending rows that have no usable queue job.
+    await this.queue.ensureQueue(REMINDER_QUEUE, { retryLimit: MAX_DELIVERY_ATTEMPTS - 1, retryDelaySeconds: 30 });
+    // Boot recovery runs before the worker starts. Rows left in `processing` by a previous
+    // process are reset first; if the worker were already consuming, it could claim a row
+    // between the reset and its own post-send update and the row would be sent twice.
     await this.database.db.update(reminderDeliveries)
       .set({ status: "pending" })
       .where(eq(reminderDeliveries.status, "processing"));
-    await this.enqueuePending();
-    this.reconcileTimer = setInterval(() => void this.enqueuePending(new Date(Date.now() + 2 * 60_000)).catch((error) => console.error("reminder queue reconciliation failed", safeError(error))), RECONCILE_INTERVAL_MS);
+    await this.enqueuePending(new Date(Date.now() + BOOT_HORIZON_MS));
+    await this.queue.work<{ deliveryId: string }>(REMINDER_QUEUE, (data) => this.deliver(data.deliveryId));
+    // Periodic reconciliation never touches in-flight work; it only repairs pending rows
+    // whose queue job was lost (a failed enqueue, an expired job).
+    this.reconcileTimer = setInterval(() => void this.reconcile().catch((error) => console.error("reminder queue reconciliation failed", safeError(error))), RECONCILE_INTERVAL_MS);
     this.reconcileTimer.unref();
   }
 
-  async onApplicationShutdown(): Promise<void> {
+  onApplicationShutdown(): void {
     if (this.reconcileTimer) clearInterval(this.reconcileTimer);
-    await this.boss.stop();
+  }
+
+  async reconcile(now = new Date()): Promise<void> {
+    await this.enqueuePending(new Date(now.getTime() + RECONCILE_HORIZON_MS));
+    this.lastTickAt = now;
   }
 
   async enqueue(deliveryId: string, scheduledFor: Date): Promise<void> {
     const startAfter = scheduledFor > new Date() ? scheduledFor : new Date();
-    await this.boss.send(QUEUE, { deliveryId }, {
+    await this.queue.send(REMINDER_QUEUE, { deliveryId }, {
       startAfter,
       singletonKey: `${deliveryId}:${scheduledFor.toISOString()}`,
-      retryLimit: MAX_DELIVERY_ATTEMPTS - 1,
-      retryDelay: 30,
-      retryBackoff: true,
     });
   }
 
-  private async enqueuePending(horizon?: Date): Promise<void> {
-    const predicate = horizon
-      ? and(eq(reminderDeliveries.status, "pending"), lte(reminderDeliveries.scheduledFor, horizon))
-      : eq(reminderDeliveries.status, "pending");
-    const pending = await this.database.db.select({
-      id: reminderDeliveries.id,
-      scheduledFor: reminderDeliveries.scheduledFor,
-    }).from(reminderDeliveries).where(predicate).limit(1000);
-
-    for (const delivery of pending) {
-      try {
-        await this.enqueue(delivery.id, delivery.scheduledFor);
-      } catch (error) {
-        console.error("failed to reconcile reminder", { deliveryId: delivery.id, error: safeError(error) });
+  /** Walks every pending delivery due before `horizon` in (scheduled_for, id) order; no row is skipped past the batch size. */
+  private async enqueuePending(horizon: Date): Promise<void> {
+    let after: { scheduledFor: Date; id: string } | null = null;
+    for (;;) {
+      const cursor: { scheduledFor: Date; id: string } | null = after;
+      const keyset = cursor
+        ? or(
+          gt(reminderDeliveries.scheduledFor, cursor.scheduledFor),
+          and(eq(reminderDeliveries.scheduledFor, cursor.scheduledFor), gt(reminderDeliveries.id, cursor.id)),
+        )
+        : undefined;
+      const pending: Array<{ id: string; scheduledFor: Date }> = await this.database.db.select({
+        id: reminderDeliveries.id,
+        scheduledFor: reminderDeliveries.scheduledFor,
+      }).from(reminderDeliveries)
+        .where(and(eq(reminderDeliveries.status, "pending"), lte(reminderDeliveries.scheduledFor, horizon), keyset))
+        .orderBy(asc(reminderDeliveries.scheduledFor), asc(reminderDeliveries.id))
+        .limit(ENQUEUE_BATCH);
+      for (const delivery of pending) {
+        try {
+          await this.enqueue(delivery.id, delivery.scheduledFor);
+        } catch (error) {
+          console.error("failed to reconcile reminder", { deliveryId: delivery.id, error: safeError(error) });
+        }
       }
+      const last = pending[pending.length - 1];
+      if (pending.length < ENQUEUE_BATCH || !last) return;
+      after = last;
     }
   }
 
@@ -122,7 +137,13 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       .where(eq(reminderDeliveries.id, deliveryId))
       .limit(1);
     const row = rows[0];
-    if (!row || row.delivery.status !== "pending") return;
+    if (!row) {
+      // The delivery lost its user, task or rule (or never matched the join). Left as pending it
+      // would be re-enqueued on every reconciliation forever.
+      await this.suppress(deliveryId, "orphaned");
+      return;
+    }
+    if (row.delivery.status !== "pending") return;
 
     if (row.userStatus !== "active") {
       await this.suppress(deliveryId, "access");
@@ -218,12 +239,40 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       }
       await this.scheduleNextCriticalEscalation(row, sentAt);
     } catch (error) {
-      // A concurrent reschedule/cancel may deliberately move a processing delivery to
-      // cancelled while the external send is in flight. Never revive that stale delivery.
-      await this.database.db.update(reminderDeliveries)
-        .set({ status: nextAttempt >= MAX_DELIVERY_ATTEMPTS ? "failed" : "pending" })
-        .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "processing")));
-      throw error;
+      await this.recordSendFailure(deliveryId, row.delivery.attempts, nextAttempt, error);
+    }
+  }
+
+  /**
+   * Telegram delivery is a non-transactional side effect. Only a failure that provably never
+   * reached Telegram is retried; a timeout after the request left the process may already have
+   * produced a message, so it is recorded as ambiguous and never resent automatically.
+   * A concurrent reschedule/cancel may move a processing delivery to cancelled while the send is
+   * in flight; every update below is guarded by `status = 'processing'` so it is never revived.
+   */
+  private async recordSendFailure(deliveryId: string, previousAttempts: number, nextAttempt: number, error: unknown): Promise<void> {
+    const processing = and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "processing"));
+    const outcome = classifyTelegramSendError(error);
+    switch (outcome.kind) {
+      case "rate_limited": {
+        const retryAt = new Date(Date.now() + outcome.retryAfterSeconds * 1000);
+        await this.database.db.update(reminderDeliveries).set({ status: "pending", attempts: previousAttempts, scheduledFor: retryAt }).where(processing);
+        await this.enqueue(deliveryId, retryAt);
+        return;
+      }
+      case "rejected":
+        console.warn("reminder rejected by Telegram", { deliveryId, errorCode: outcome.errorCode });
+        await this.database.db.update(reminderDeliveries).set({ status: "failed" }).where(processing);
+        return;
+      case "ambiguous":
+        console.warn("reminder send outcome ambiguous", { deliveryId, error: safeError(error) });
+        await this.database.db.update(reminderDeliveries).set({ status: "ambiguous", sentAt: new Date() }).where(processing);
+        return;
+      default:
+        await this.database.db.update(reminderDeliveries)
+          .set({ status: nextAttempt >= MAX_DELIVERY_ATTEMPTS ? "failed" : "pending" })
+          .where(processing);
+        throw error;
     }
   }
 
@@ -239,13 +288,13 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       eq(briefingDeliveries.recipientUserId, row.delivery.recipientUserId),
       gte(briefingDeliveries.scheduledFor, lower),
       lte(briefingDeliveries.scheduledFor, upper),
-      inArray(briefingDeliveries.status, ["pending", "processing", "sent"]),
+      inArray(briefingDeliveries.status, ["pending", "processing", "sent", "ambiguous"]),
     ));
     let wait = false;
     for (const candidate of candidates) {
       const decision = reminderBriefingBundleDecision({
         reminderScheduledFor: row.delivery.scheduledFor, briefingScheduledFor: candidate.scheduledFor,
-        briefingStatus: candidate.status as "pending" | "processing" | "sent", now,
+        briefingStatus: candidate.status as "pending" | "processing" | "sent" | "ambiguous", now,
       });
       if (decision === "suppress") return "suppress";
       if (decision === "wait") wait = true;
@@ -268,7 +317,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
     });
   }
 
-  private async suppress(deliveryId: string, reason: "access" | "quiet_stale" | "snooze_stale" | "no_longer_applicable" | "superseded"): Promise<void> {
+  private async suppress(deliveryId: string, reason: "access" | "quiet_stale" | "snooze_stale" | "no_longer_applicable" | "superseded" | "orphaned"): Promise<void> {
     await this.database.db.update(reminderDeliveries)
       .set({ status: "suppressed", suppressedReason: reason })
       .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "pending")));
