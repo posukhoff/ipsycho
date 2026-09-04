@@ -9,16 +9,16 @@
   "scripts": {
     "predev": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput & node --watch dist/main.js",
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "migrate": "tsx src/database/migrate.ts",
     "admin": "tsx src/cli.ts",
     "test:core": "rm -rf .core-dist && tsc -p tsconfig.core.json && node --test tests/core/*.test.mjs",
-    "test:app": "node --test tests/app/*.test.mjs",
+    "test:app": "npm run build && node --test tests/app/*.test.mjs",
     "test:e2e": "sh scripts/test-e2e.sh",
     "qa:agent": "node scripts/qa-agent-flow.mjs",
-    "check": "npm run typecheck && npm run build && npm run test:core && npm run test:app"
+    "check": "npm run typecheck && npm run test:core && npm run test:app"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.29",
@@ -26,18 +26,18 @@
     "@nestjs/platform-express": "^11.1.29",
     "dotenv": "16.4.0",
     "drizzle-orm": "^0.45.2",
-    "grammy": "1.45.1",
-    "openai": "7.4.0",
-    "pg": "8.22.0",
-    "pg-boss": "12.26.4",
+    "grammy": "1.46.0",
+    "openai": "7.10.0",
+    "pg": "8.23.0",
+    "pg-boss": "12.30.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.1",
-    "zod": "4.0.0"
+    "zod": "4.5.4"
   },
   "devDependencies": {
-    "@types/node": "22.0.0",
-    "@types/pg": "8.11.0",
-    "tsx": "4.20.0",
+    "@types/node": "^24.13.3",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.13",
     "typescript": "5.8.3"
   }
 }

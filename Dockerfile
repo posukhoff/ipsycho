@@ -16,7 +16,6 @@ COPY package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev --no-audit --no-fund; else npm install --omit=dev --no-audit --no-fund; fi
 COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
-COPY scripts/qa-complex-planning.mjs ./scripts/qa-complex-planning.mjs
 # Runtime has no reason to run as root; migration/app only need network and read access.
 USER node
 CMD ["sh", "-c", "node dist/database/migrate.js && node dist/main.js"]
