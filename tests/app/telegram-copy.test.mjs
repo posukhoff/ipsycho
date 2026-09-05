@@ -75,7 +75,7 @@ test("English is a first-class locale and primary overview screens do not fall b
     ),
     tasksOverviewText(groupTaskRows([{ task, occurrence }], "2026-08-12"), { scope: "week", locale: "en" }),
     todayText(groupTaskRows([{ task, occurrence }], "2026-08-12"), "2026-08-12", { locale: "en", staleCount: 2 }),
-    goalsOverviewText([{ goal: { title: "Health", status: "active", why: "Feel better", targetLocalDate: null }, tasks: [] }], "en"),
+    goalsOverviewText([{ goal: { id: "g1", title: "Health", status: "active", why: "Feel better", targetLocalDate: null }, tasks: [] }], { scope: "active", locale: "en" }),
   ];
   for (const screen of screens) assert.doesNotMatch(screen, /[А-Яа-яЁёІіЇїЄє]/);
 });

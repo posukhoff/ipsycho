@@ -12,6 +12,7 @@ import { t } from "../copy/index.js";
 import { deterministicCopy } from "../copy/onboarding.js";
 import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
 import type { TaskScope } from "../../core/task-list-view.js";
+import type { GoalScope } from "../telegram-ui.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { telegramLocale } from "../telegram-locale.js";
 import { deployedBuildLine } from "../telegram-ui.js";
@@ -26,6 +27,9 @@ const NAV_CALLBACK = /^nav:(today|tasks|reminders|settings|goals)$/;
 const TASK_SCOPE_CALLBACK = /^tsk:(overdue|today|week|month|all|nodate):(\d{1,3})$/;
 const TODAY_PAGE_CALLBACK = /^tdy:(\d{1,3})$/;
 const GROUP_CALLBACK = /^grp:(t|d):([0-9a-f-]{36})$/;
+const GOALS_SCOPE_CALLBACK = /^gl:(active|paused|completed):(\d{1,3})$/;
+const GOAL_CALLBACK = /^goal:([0-9a-f-]{36})$/;
+const REMINDERS_PAGE_CALLBACK = /^rem:p:(\d{1,3})$/;
 const HISTORY_CLEAR_CALLBACK = "history:clear";
 const PROFILE_OPEN_CALLBACK = "profile:open";
 const BACKUP_RETENTION = { daily: 7, weekly: 4 };
@@ -72,6 +76,9 @@ export class SystemCommandsService {
     bot.callbackQuery(TASK_SCOPE_CALLBACK, (ctx) => this.tasksPage(ctx));
     bot.callbackQuery(TODAY_PAGE_CALLBACK, (ctx) => this.todayPage(ctx));
     bot.callbackQuery(GROUP_CALLBACK, (ctx) => this.openGroup(ctx));
+    bot.callbackQuery(GOALS_SCOPE_CALLBACK, (ctx) => this.goalsPage(ctx));
+    bot.callbackQuery(GOAL_CALLBACK, (ctx) => this.openGoal(ctx));
+    bot.callbackQuery(REMINDERS_PAGE_CALLBACK, (ctx) => this.remindersPage(ctx));
     bot.callbackQuery(HISTORY_CLEAR_CALLBACK, (ctx) => this.clearHistory(ctx));
     bot.callbackQuery(PROFILE_OPEN_CALLBACK, async (ctx) => {
       await ctx.answerCallbackQuery();
@@ -291,6 +298,32 @@ export class SystemCommandsService {
     if (shown) return void (await ctx.answerCallbackQuery());
     await ctx.answerCallbackQuery({ text: t(locale, "list_changed_toast") });
     await (source === "today" ? this.screens.today(ctx, true) : this.screens.tasks_(ctx, true));
+  }
+
+  private async goalsPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const match = GOALS_SCOPE_CALLBACK.exec(ctx.callbackQuery.data);
+    if (!match?.[1] || match[2] === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    await ctx.answerCallbackQuery();
+    await this.screens.goals(ctx, true, match[1] as GoalScope, Number(match[2]));
+  }
+
+  private async openGoal(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const goalId = GOAL_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
+    if (!goalId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    const shown = await this.screens.goal(ctx, goalId);
+    if (shown) return void (await ctx.answerCallbackQuery());
+    await ctx.answerCallbackQuery({ text: t(locale, "list_changed_toast") });
+    await this.screens.goals(ctx, true);
+  }
+
+  private async remindersPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const page = REMINDERS_PAGE_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
+    if (page === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    await ctx.answerCallbackQuery();
+    await this.screens.reminders_(ctx, true, Number(page));
   }
 
   private async clearHistory(ctx: CallbackQueryContext<AppContext>): Promise<void> {

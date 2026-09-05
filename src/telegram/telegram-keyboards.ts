@@ -174,6 +174,9 @@ export function settingsKeyboard(
       .row();
   }
   keyboard
+    .text(t(locale, "settings_timezone_button"), "prefs:tz:open")
+    .text(t(locale, "settings_language_button"), "prefs:lang:open")
+    .row()
     .text(t(locale, "prefs_snooze_morning"), "prefs:snooze:morning")
     .text(t(locale, "prefs_weekly_start"), "review:weekly:start")
     .row()
@@ -250,12 +253,67 @@ export function appendFooter(keyboard: InlineKeyboard, locale: TelegramLocale): 
 /** Each upcoming reminder is a button that cancels it; the footer leads back to the main screens. */
 
 /** Each upcoming reminder is a button that cancels it; the footer leads back to the main screens. */
-export function remindersKeyboard(rows: ReadonlyArray<{ deliveryId: string; title: string; when: string }>, locale: TelegramLocale = "ru"): InlineKeyboard {
+export function remindersKeyboard(
+  rows: ReadonlyArray<{ deliveryId: string; title: string; when: string }>,
+  locale: TelegramLocale = "ru",
+  paging: { page?: number; pages?: number; rest?: number } = {},
+): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const row of rows) {
     const title = row.title.length > 24 ? `${row.title.slice(0, 23)}…` : row.title;
     keyboard.text(t(locale, "reminder_cancel_button", { title, when: row.when }), `rem:cancel:${row.deliveryId}`).row();
   }
+  const page = paging.page ?? 0;
+  const pages = paging.pages ?? 1;
+  if (pages > 1) {
+    if (page > 0) keyboard.text(t(locale, "page_prev_button"), `rem:p:${page - 1}`);
+    if (page < pages - 1) keyboard.text(t(locale, "page_next_button", { count: paging.rest ?? 0 }), `rem:p:${page + 1}`);
+    keyboard.row();
+  }
+  return appendFooter(keyboard, locale);
+}
+
+/** Which slice of the goal list is on screen; the rest is one tap away. */
+export function goalsScopeKeyboard(scope: GoalScope, locale: TelegramLocale = "ru"): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(mark(scope === "active", t(locale, "goals_scope_active_button")), "gl:active:0")
+    .text(mark(scope === "paused", t(locale, "goals_scope_paused_button")), "gl:paused:0")
+    .text(mark(scope === "completed", t(locale, "goals_scope_completed_button")), "gl:completed:0")
+    .row();
+}
+
+export type GoalScope = "active" | "paused" | "completed";
+
+/** Each goal opens its own screen instead of printing its tasks into the list. */
+export function goalListKeyboard(
+  goals: ReadonlyArray<{ id: string; title: string }>,
+  locale: TelegramLocale = "ru",
+  paging: { offset?: number; page?: number; pages?: number; rest?: number; scope?: GoalScope } = {},
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const offset = paging.offset ?? 0;
+  for (const [index, goal] of goals.entries()) {
+    const title = goal.title.length > 30 ? `${goal.title.slice(0, 29)}…` : goal.title;
+    keyboard.text(`${offset + index + 1}. ${title}`, `goal:${goal.id}`).row();
+  }
+  const page = paging.page ?? 0;
+  const pages = paging.pages ?? 1;
+  if (pages > 1) {
+    const scope = paging.scope ?? "active";
+    if (page > 0) keyboard.text(t(locale, "page_prev_button"), `gl:${scope}:${page - 1}`);
+    if (page < pages - 1) keyboard.text(t(locale, "page_next_button", { count: paging.rest ?? 0 }), `gl:${scope}:${page + 1}`);
+    keyboard.row();
+  }
+  return keyboard;
+}
+
+export function goalDetailKeyboard(tasks: ReadonlyArray<{ id: string; title: string }>, locale: TelegramLocale = "ru"): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const task of tasks.slice(0, 8)) {
+    const title = task.title.length > 30 ? `${task.title.slice(0, 29)}…` : task.title;
+    keyboard.text(title, `view:task:${task.id}`).row();
+  }
+  keyboard.text(t(locale, "back_button"), "gl:active:0").row();
   return appendFooter(keyboard, locale);
 }
 
@@ -265,6 +323,18 @@ export function screenFooterKeyboard(locale: TelegramLocale = "ru"): InlineKeybo
 
 export function taskDetailKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, locale: TelegramLocale = "ru"): InlineKeyboard {
   return taskKeyboard(occurrenceId, status, locale).row().text(t(locale, "to_tasks_button"), "nav:tasks");
+}
+
+/** The three languages plus "follow Telegram", so the value is a tap and not a command. */
+export function languageKeyboard(locale: TelegramLocale = "ru"): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Русский", "prefs:lang:ru")
+    .text("Українська", "prefs:lang:uk")
+    .text("English", "prefs:lang:en")
+    .row()
+    .text(t(locale, "settings_language_auto_button"), "prefs:lang:auto")
+    .row()
+    .text(t(locale, "back_button"), "nav:settings");
 }
 
 export function fuzzyTaskDetailKeyboard(locale: TelegramLocale = "ru"): InlineKeyboard {

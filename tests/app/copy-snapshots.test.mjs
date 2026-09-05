@@ -2,7 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { deterministicCopy, guideText, helpText } from "../../dist/telegram/telegram-handlers.service.js";
-import { goalsOverviewText, reminderCardText, settingsText, taskCardText, taskGroupText, tasksOverviewText, terminalTaskText, todayText } from "../../dist/telegram/telegram-ui.js";
+import {
+  goalDetailText,
+  goalsOverviewText,
+  reminderCardText,
+  remindersText,
+  settingsText,
+  taskCardText,
+  taskGroupText,
+  tasksOverviewText,
+  terminalTaskText,
+  todayText,
+} from "../../dist/telegram/telegram-ui.js";
 import { groupTaskRows } from "../../dist/core/task-list-view.js";
 import { renderAppliedReport } from "../../dist/core/applied-report.js";
 
@@ -81,6 +92,18 @@ const repeatedRows = ["2026-09-06", "2026-09-09", "2026-09-11"].map((date, index
   occurrence: { id: `00000000-0000-0000-0000-00000000000${index}`, status: "open", timezone: TIMEZONE, plannedStartAt: new Date(`${date}T09:00:00Z`), overdue: false },
 }));
 
+const GOAL = {
+  goal: { id: "g1", title: "Запустить первую платную группу", status: "active", why: "Проверить спрос", targetLocalDate: "2026-12-01" },
+  tasks: [{ id: "t1", title: "Позвонить клиенту", nextAction: "Подготовить список", context: null, dueLocalDate: "2026-09-05" }],
+};
+// Two reminders for one task in a day collapse into one line; the next day gets its own heading.
+const REMINDERS = [
+  { delivery: { id: "d1", scheduledFor: new Date("2026-09-04T06:00:00Z") }, task: { title: "Позвонить клиенту", timezone: TIMEZONE } },
+  { delivery: { id: "d2", scheduledFor: new Date("2026-09-04T15:00:00Z") }, task: { title: "Позвонить клиенту", timezone: TIMEZONE } },
+  { delivery: { id: "d3", scheduledFor: new Date("2026-09-05T06:00:00Z") }, task: { title: "Полить цветы", timezone: TIMEZONE } },
+  { delivery: { id: "d4", scheduledFor: new Date("2026-09-09T06:00:00Z") }, task: { title: "Полить цветы", timezone: TIMEZONE } },
+];
+
 function render(locale) {
   const copy = deterministicCopy(locale);
   const sections = [
@@ -92,18 +115,9 @@ function render(locale) {
     ["today", todayText(groupTaskRows([listRow], LOCAL_DATE), LOCAL_DATE, { locale, completedCount: 2, staleCount: 3, now: NOW })],
     ["tasks", tasksOverviewText(groupTaskRows([listRow, ...repeatedRows], LOCAL_DATE), { scope: "week", locale, now: NOW })],
     ["task group", taskGroupText(groupTaskRows(repeatedRows, LOCAL_DATE)[0], locale, NOW)],
-    [
-      "goals",
-      goalsOverviewText(
-        [
-          {
-            goal: { title: "Запустить первую платную группу", status: "active", why: "Проверить спрос", targetLocalDate: "2026-12-01" },
-            tasks: [{ title: "Позвонить клиенту", nextAction: "Подготовить список", context: null, dueLocalDate: "2026-09-05" }],
-          },
-        ],
-        locale,
-      ),
-    ],
+    ["goals", goalsOverviewText([GOAL], { scope: "active", locale })],
+    ["goal", goalDetailText(GOAL, locale)],
+    ["reminders", remindersText(REMINDERS, { locale, timezone: TIMEZONE, now: NOW })],
     ["task card", taskCardText(task, occurrence, NOW, locale)],
     ["reminder card", reminderCardText({ task, occurrence, purpose: "user_reminder", now: NOW, locale })],
     ["terminal card", terminalTaskText(task, "done", NOW, locale)],

@@ -10,8 +10,18 @@ const TOPIC_RETENTION_MS = 90 * 24 * 60 * 60_000;
 export class ContextService {
   constructor(private readonly repository: ContextRepository) {}
 
-  goalsOverview(workspaceId: string) {
-    return this.repository.listGoalsWithTasks(workspaceId);
+  /**
+   * Goals for one filter. The repository already returns active, paused and completed together,
+   * so the filter is applied here rather than as a third query shape.
+   */
+  async goalsOverview(workspaceId: string, status?: "active" | "paused" | "completed") {
+    const rows = await this.repository.listGoalsWithTasks(workspaceId);
+    return status ? rows.filter((row) => row.goal.status === status) : rows;
+  }
+
+  async findGoalOverview(workspaceId: string, goalId: string) {
+    const rows = await this.repository.listGoalsWithTasks(workspaceId);
+    return rows.find((row) => row.goal.id === goalId) ?? null;
   }
 
   findActiveTopic(workspaceId: string, userId: string) {

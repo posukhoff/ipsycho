@@ -14,8 +14,14 @@ import {
   appendFooter,
   fuzzyTaskCardText,
   fuzzyTaskDetailKeyboard,
+  goalDetailKeyboard,
+  goalDetailText,
+  goalListKeyboard,
   goalsOverviewText,
+  goalsScopeKeyboard,
+  languageKeyboard,
   remindersKeyboard,
+  remindersText,
   screenFooterKeyboard,
   settingsKeyboard,
   settingsText,
@@ -29,6 +35,7 @@ import {
   taskScopeKeyboard,
   tasksOverviewText,
   todayText,
+  type GoalScope,
   type GroupSource,
 } from "../telegram-ui.js";
 
@@ -90,19 +97,23 @@ export class ScreensService {
     return true;
   }
 
-  async reminders_(ctx: AppContext, edit = false): Promise<void> {
-    const { access, locale } = activeState(ctx);
-    const rows = await this.reminders.listUpcoming({ workspaceId: access.workspaceId, userId: access.user.id, limit: 8 });
+  async reminders_(ctx: AppContext, edit = false, page = 0): Promise<void> {
+    const { access, settings, locale } = activeState(ctx);
+    const rows = await this.reminders.listUpcoming({ workspaceId: access.workspaceId, userId: access.user.id, limit: 40 });
     if (!rows.length) return this.present(ctx, t(locale, "reminders_none"), screenFooterKeyboard(locale), edit);
     const now = new Date();
-    const lines = [t(locale, "reminders_title"), ""];
-    const buttons = rows.map(({ delivery, task }, index) => {
-      const when = formatLocalDateTime(delivery.scheduledFor, task.timezone, now);
-      lines.push(`${index + 1}. ${task.title} · ${when}`);
-      return { deliveryId: delivery.id, title: `${index + 1}. ${task.title}`, when };
-    });
-    lines.push("", t(locale, "reminders_hint"));
-    await this.present(ctx, lines.join("\n"), remindersKeyboard(buttons, locale), edit);
+    const view = paginate(rows, page, PAGE_SIZE);
+    const buttons = view.items.map(({ delivery, task }) => ({
+      deliveryId: delivery.id,
+      title: task.title,
+      when: formatLocalDateTime(delivery.scheduledFor, task.timezone, now),
+    }));
+    await this.present(
+      ctx,
+      remindersText(view.items, { locale, timezone: settings.timezone, now }),
+      remindersKeyboard(buttons, locale, { page: view.page, pages: view.pages, rest: view.rest }),
+      edit,
+    );
   }
 
   async today(ctx: AppContext, edit = false, page = 0): Promise<void> {
@@ -131,10 +142,33 @@ export class ScreensService {
     );
   }
 
-  async goals(ctx: AppContext, edit = false): Promise<void> {
+  async goals(ctx: AppContext, edit = false, scope: GoalScope = "active", page = 0): Promise<void> {
     const { access, locale } = activeState(ctx);
-    const items = await this.context.goalsOverview(access.workspaceId);
-    await this.present(ctx, goalsOverviewText(items, locale), screenFooterKeyboard(locale), edit);
+    const items = await this.context.goalsOverview(access.workspaceId, scope);
+    const view = paginate(items, page, PAGE_SIZE);
+    const keyboard = goalListKeyboard(
+      view.items.map(({ goal }) => goal),
+      locale,
+      { offset: view.page * PAGE_SIZE, page: view.page, pages: view.pages, rest: view.rest, scope },
+    );
+    for (const row of goalsScopeKeyboard(scope, locale).inline_keyboard) keyboard.row(...row);
+    await this.present(ctx, goalsOverviewText(view.items, { scope, total: items.length, offset: view.page * PAGE_SIZE, locale }), appendFooter(keyboard, locale), edit);
+  }
+
+  /** One goal with its tasks; the list itself only says how many there are. */
+  async goal(ctx: AppContext, goalId: string): Promise<boolean> {
+    const { access, locale } = activeState(ctx);
+    const row = await this.context.findGoalOverview(access.workspaceId, goalId);
+    if (!row) return false;
+    const taskButtons = row.tasks.map((task) => ({ id: task.id, title: task.title }));
+    await this.present(ctx, goalDetailText(row, locale), goalDetailKeyboard(taskButtons, locale), true);
+    return true;
+  }
+
+  /** The interface language as four buttons; the same journaled change the /language command makes. */
+  async languageChoice(ctx: AppContext): Promise<void> {
+    const { locale } = activeState(ctx);
+    await this.present(ctx, t(locale, "settings_language_prompt"), languageKeyboard(locale), true);
   }
 
   async settings_(ctx: AppContext, edit = false): Promise<void> {
@@ -162,10 +196,19 @@ export class ScreensService {
     return true;
   }
 
+  /**
+   * A task button carries the task, not an occurrence: goals and the no-date filter both lead
+   * here. A dated task has a live occurrence to show, so it opens the same card its list line does.
+   */
   async showFuzzyTask(ctx: AppContext, taskId: string): Promise<boolean> {
     const { access, locale } = activeState(ctx);
     const task = await this.tasks.getTask(access.workspaceId, taskId);
-    if (!task || task.status !== "active" || task.timeMode !== "fuzzy") return false;
+    if (!task || task.status !== "active") return false;
+    if (task.timeMode !== "fuzzy") {
+      const current = await this.tasks.findCurrentOccurrences(access.workspaceId, [taskId]);
+      const occurrence = current.get(taskId);
+      return occurrence ? this.showOccurrence(ctx, occurrence.id) : false;
+    }
     const extras = await this.tasks.getTaskCardExtras(access.workspaceId, task.id).catch(() => ({ checklist: [], goalTitle: null }));
     await ctx.editMessageText(fuzzyTaskCardText({ ...task, ...extras }, new Date(), locale), { reply_markup: fuzzyTaskDetailKeyboard(locale) }).catch(() => undefined);
     return true;

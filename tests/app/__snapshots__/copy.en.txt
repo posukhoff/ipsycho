@@ -43,11 +43,16 @@ undefined
 ### settings
 ⚙️ Settings
 
+Time and language
 🌍 Timezone: Europe/Kyiv
 🗣 Interface language: automatic (Telegram)
+
+Briefings
 ☀️ Morning briefing: 08:30
 🌙 Evening briefing: off
 📅 Weekly review: Sun 18:00
+
+Quiet hours and data
 🔕 Quiet hours: 22:00–08:00 (weekdays), 23:00–09:00 (weekends)
 💬 AI history: 42 messages
 
@@ -82,13 +87,34 @@ To change, complete, or reschedule a task, just write it in a message.
 To change, complete, or reschedule a task, just write it in a message.
 
 ### goals
-🎯 Goals
+🎯 Goals · active (1)
 
-1. Запустить первую платную группу · by 2026-12-01
-   Why: Проверить спрос
-   • Позвонить клиенту — Подготовить список
+1. Запустить первую платную группу · by 01.12
+   1 task
 
 To edit a goal or link a task, just write it in a message.
+
+### goal
+🎯 Запустить первую платную группу · by 01.12
+Why: Проверить спрос
+
+• Позвонить клиенту — Подготовить список
+
+To edit a goal or link a task, just write it in a message.
+
+### reminders
+🔔 Upcoming reminders
+
+Today
+• Позвонить клиенту · 09:00, 18:00
+
+Tomorrow
+• Полить цветы · 09:00
+
+Wed 09.09
+• Полить цветы · 09:00
+
+Tap a reminder to cancel it. To move one, just write a message.
 
 ### task card
 🟡 Позвонить клиенту

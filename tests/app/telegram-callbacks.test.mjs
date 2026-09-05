@@ -5,6 +5,10 @@ import { InlineKeyboard } from "grammy";
 import { TaskCallbacksService } from "../../dist/telegram/handlers/task-callbacks.service.js";
 import {
   fuzzyTaskDetailKeyboard,
+  goalDetailKeyboard,
+  goalListKeyboard,
+  goalsScopeKeyboard,
+  languageKeyboard,
   quickRescheduleKeyboard,
   quickRescheduleReasonKeyboard,
   remindersKeyboard,
@@ -25,6 +29,7 @@ const OCCURRENCE_ID = randomUUID();
 const SECOND_OCCURRENCE_ID = randomUUID();
 const TASK_ID = randomUUID();
 const GROUP_ID = randomUUID();
+const GOAL_UUID = randomUUID();
 
 const listRow = (title, occurrenceId) => ({
   task: { id: TASK_ID, title, importance: "normal", timezone: "Europe/Kyiv" },
@@ -58,6 +63,11 @@ const ROUTES = [
   /^onb:(tz|digests|quiet|weekly):([A-Za-z_/+-]+|on|off|default|other)$/,
   /^tzapply:(all|future|keep)$/,
   /^prefs:(morning|evening|weekly|quiet|snooze):(toggle|morning)$/,
+  /^prefs:lang:(open|auto|ru|uk|en)$/,
+  /^prefs:tz:open$/,
+  /^gl:(active|paused|completed):\d{1,3}$/,
+  /^goal:[0-9a-f-]{36}$/,
+  /^rem:p:\d{1,3}$/,
   /^account:delete:confirm$/,
   /^ai:(consent|decline)$/,
   /^guide:[a-z_]+$/,
@@ -92,6 +102,11 @@ const KEYBOARDS = {
   todayListKeyboard: taskListKeyboard([MULTI_GROUP], "ru", { source: "today", page: 1, pages: 2, rest: 0, pageCallback: (page) => `tdy:${page}` }),
   taskScopeKeyboard: taskScopeKeyboard("week", { overdue: 3, today: 4, week: 9, month: 12, all: 20, nodate: 2 }, "ru"),
   taskGroupKeyboard: taskGroupKeyboard(MULTI_GROUP, "tasks", "ru"),
+  goalsScopeKeyboard: goalsScopeKeyboard("active", "ru"),
+  goalListKeyboard: goalListKeyboard([{ id: GOAL_UUID, title: "Запустить первую платную группу" }], "ru", { page: 0, pages: 2, rest: 4, scope: "paused" }),
+  goalDetailKeyboard: goalDetailKeyboard([{ id: TASK_ID, title: "Позвонить клиенту" }], "ru"),
+  languageKeyboard: languageKeyboard("ru"),
+  remindersPagedKeyboard: remindersKeyboard([{ deliveryId: OCCURRENCE_ID, title: "Позвонить", when: "сегодня 10:00" }], "ru", { page: 1, pages: 3, rest: 8 }),
 };
 
 test("every generated callback payload fits Telegram's 64-byte limit and is routed by a registered handler", () => {

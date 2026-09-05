@@ -5,7 +5,8 @@ import { buildOneTimeOccurrence, buildRecurringOccurrences, type OccurrenceProje
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
 import { localDateAt } from "../core/timezone.js";
-import { filterByScope, groupTaskRows, isStaleRow, rowLocalDate, scopeCounts, type TaskGroup, type TaskScope } from "../core/task-list-view.js";
+import { occurrenceFallsOnLocalDate } from "../core/local-schedule.js";
+import { filterByScope, groupTaskRows, isStaleRow, scopeCounts, type TaskGroup, type TaskScope } from "../core/task-list-view.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import type { TaskDefinition } from "../core/types.js";
 import type { reminderDeliveries, taskChecklistItems, taskOccurrences, taskRecurrenceExclusions, tasks } from "../database/schema.js";
@@ -272,9 +273,12 @@ export class TasksService {
       this.repository.listActionableForTelegram(workspaceId),
       this.repository.listFuzzyReviewsForLocalDate(workspaceId, localDate, 20),
     ]);
-    const today = actionable.filter((row) => rowLocalDate(row) === localDate);
+    // `overdue: false` asks the plain question "does this occurrence cover the day": the flag itself
+    // answers yes for every day, which is what used to keep three-week-old work on the Today screen.
+    const coversToday = (row: (typeof actionable)[number]) => occurrenceFallsOnLocalDate({ ...row.occurrence, overdue: false, timeMode: row.task.timeMode }, localDate);
+    const today = actionable.filter(coversToday);
     const reviews = fuzzy.map((task) => ({ task, occurrence: null }));
-    const stale = actionable.filter((row) => isStaleRow(row, localDate));
+    const stale = actionable.filter((row) => isStaleRow(row, localDate) && !coversToday(row));
     return {
       groups: groupTaskRows([...today, ...reviews], localDate),
       staleCount: groupTaskRows(stale, localDate).length,

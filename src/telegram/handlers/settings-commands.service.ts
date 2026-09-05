@@ -20,6 +20,8 @@ import { logger } from "../../observability/logger.js";
 
 const TIMEZONE_APPLY_CALLBACK = /^tzapply:(digests|quiet|both|keep)$/;
 const PREFS_CALLBACK = /^prefs:(morning|evening|weekly|quiet|snooze):(toggle|morning)$/;
+const LANGUAGE_CALLBACK = /^prefs:lang:(open|auto|ru|uk|en)$/;
+const TIMEZONE_OPEN_CALLBACK = "prefs:tz:open";
 
 /** Deterministic settings commands: they never go through the model and always answer in the user's language. */
 @Injectable()
@@ -110,6 +112,12 @@ export class SettingsCommandsService {
     bot.command("reminder_defaults", (ctx) => this.reminderDefaults(ctx));
     bot.callbackQuery(TIMEZONE_APPLY_CALLBACK, (ctx) => this.applyTimezone(ctx));
     bot.callbackQuery(PREFS_CALLBACK, (ctx) => this.prefs(ctx));
+    bot.callbackQuery(LANGUAGE_CALLBACK, (ctx) => this.languageButton(ctx));
+    bot.callbackQuery(TIMEZONE_OPEN_CALLBACK, async (ctx) => {
+      const { locale } = activeState(ctx);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(t(locale, "timezone_usage"));
+    });
   }
 
   private async timezone(ctx: CommandContext<AppContext>): Promise<void> {
@@ -293,6 +301,17 @@ export class SettingsCommandsService {
     if (target !== "keep") await this.settings.applyProfileTimezone(access.user.id, target);
     await ctx.answerCallbackQuery({ text: t(locale, target === "keep" ? "saved_toast" : "tz_applied_toast") });
     await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+  }
+
+  /** The language button makes the same journaled change /language makes, so Undo still works. */
+  private async languageButton(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const choice = LANGUAGE_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
+    if (!choice) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    await ctx.answerCallbackQuery();
+    if (choice === "open") return this.screens.languageChoice(ctx);
+    if (!(await this.applySettings(ctx, "language", { language: choice === "auto" ? null : choice }, choice === "auto" ? "language_auto" : null))) return;
+    await this.screens.settings_(ctx);
   }
 
   private async prefs(ctx: CallbackQueryContext<AppContext>): Promise<void> {
