@@ -91,6 +91,14 @@ export const UpdateTaskPatchSchema = z
     checklist: ChecklistSchema.nullable(),
     importance: z.enum(["normal", "required", "critical"]).nullable(),
     habit: z.union([HabitSchema, z.object({ enabled: z.literal(false) }).strict()]).nullable(),
+    /**
+     * Fields to empty. `null` in the fields above means "leave it alone", so without this there is
+     * no way to take back a step or a checklist the user did not want.
+     */
+    clear: z
+      .array(z.enum(["why", "nextAction", "context", "checklist"]))
+      .max(4)
+      .nullable(),
   })
   .strict();
 

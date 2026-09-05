@@ -142,6 +142,42 @@ test("reschedule shows before → after with the new reminder and reason", () =>
   assert.equal(report, "📅 Перенесено «Созвон»: 23.08, 18:00 → 24.08, 10:00 (Europe/Kyiv)\n🔔 09:30\nПричина: клиент попросил");
 });
 
+test("a task made concrete reports its first step and its steps", () => {
+  const report = renderAppliedReport(
+    [
+      {
+        kind: "task_created",
+        title: "Разобраться с налогами",
+        timezone: "Europe/Kyiv",
+        schedule: null,
+        reminderAt: null,
+        nextAction: "Скачать выписки из банка за год",
+        checklist: ["Скачать выписки из банка за год", "Собрать чеки по расходам", "Заполнить декларацию"],
+      },
+    ],
+    now,
+  );
+  assert.match(report, /➡️ Следующий шаг: Скачать выписки из банка за год/);
+  assert.match(report, /☑️ Чеклист 0\/3/);
+  assert.match(report, /◻️ Собрать чеки по расходам/);
+});
+
+test("a step that only restates the title is not reported", () => {
+  const report = renderAppliedReport(
+    [{ kind: "task_created", title: "Позвонить в клинику", timezone: "Europe/Kyiv", schedule: null, reminderAt: null, nextAction: "Позвонить в клинику" }],
+    now,
+  );
+  assert.doesNotMatch(report, /Следующий шаг/);
+});
+
+test("several created tasks stay one line each, so a package does not turn into a wall of steps", () => {
+  const task = (title) => ({ kind: "task_created", title, timezone: "Europe/Kyiv", schedule: null, reminderAt: null, nextAction: "Первый шаг", checklist: ["Шаг"] });
+  const report = renderAppliedReport([task("Налоги"), task("Машина")], now);
+  assert.doesNotMatch(report, /Следующий шаг/);
+  assert.match(report, /«Налоги»/);
+  assert.match(report, /«Машина»/);
+});
+
 test("reminder, occurrence, series, goal, memory and settings outcomes are all explicit", () => {
   const report = renderAppliedReport(
     [

@@ -600,7 +600,12 @@ function snoozeUntilFromAction(action: ResolvedActionOf<"settings">, timezone: s
 function updateTaskPatchForRepository(action: ResolvedActionOf<"update_task">) {
   const patch = action.patch;
   const habit = patch.habit;
+  const cleared = new Set(patch.clear ?? []);
   return {
+    ...(cleared.has("why") ? { why: null } : {}),
+    ...(cleared.has("nextAction") ? { nextAction: null } : {}),
+    ...(cleared.has("context") ? { context: null } : {}),
+    ...(cleared.has("checklist") ? { checklist: [] } : {}),
     ...(patch.title !== null ? { title: patch.title.trim() } : {}),
     ...(patch.why !== null ? { why: patch.why.trim() } : {}),
     ...(patch.nextAction !== null ? { nextAction: patch.nextAction.trim() } : {}),

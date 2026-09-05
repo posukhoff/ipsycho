@@ -247,7 +247,8 @@ export function isNoOpUpdatePatch(patch: UpdateTaskPatch): boolean {
     patch.context === null &&
     patch.importance === null &&
     patch.checklist === null &&
-    patch.habit === null
+    patch.habit === null &&
+    !patch.clear?.length
   );
 }
 

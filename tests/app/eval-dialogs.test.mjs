@@ -34,6 +34,8 @@ const EXPECT_KEYS = new Set([
   "startWithinHours",
   "durationMinutes",
   "weekday",
+  "nextActionSet",
+  "checklistItems",
 ]);
 
 test("every eval case has a unique id, a message and only known expectation keys", () => {

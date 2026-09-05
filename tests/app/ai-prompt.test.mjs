@@ -35,15 +35,15 @@ test("AI prompt forbids system-data access and makes sensitive profile facts una
 
 test("AI prompt exposes the full user settings surface without operator privileges", () => {
   assert.match(prompt, /settingsChanges — timezone/);
-  assert.match(prompt, /morning\/evening digests/);
+  assert.match(prompt, /the morning card, the weekly card/);
   assert.match(prompt, /quiet hours/);
   assert.match(prompt, /reminder defaults/);
   assert.match(prompt, /do not claim to change operator configuration/);
 });
 
-test("AI prompt maps the user's names for the weekly review and digests to settings, not to tasks", () => {
+test("AI prompt maps the user's names for the week and morning cards to settings, not to tasks", () => {
   // Production 2026-08-22: «поставить еженедельный отчёт на вечер пятницы» became a recurring task «Еженедельный отчёт».
-  assert.match(prompt, /‘еженедельный\/недельный отчёт’, ‘обзор\/итоги недели’, ‘weekly review\/report’/);
+  assert.match(prompt, /‘план недели’, ‘итоги недели’, ‘weekly review\/report’/);
   assert.match(prompt, /‘сводка’, ‘дайджест’/);
   assert.match(prompt, /weekly_review with weekday 1=Monday…7=Sunday and time/);
   assert.match(prompt, /never tasks/);
@@ -81,11 +81,19 @@ test("AI prompt explains When, recurrence and the context hints", () => {
   assert.match(prompt, /Anything not listed does not exist/);
 });
 
+test("AI prompt turns an abstract task into concrete steps and leaves a concrete one alone", () => {
+  assert.match(prompt, /when a title names an outcome rather than an act/);
+  assert.match(prompt, /разобраться с налогами/);
+  assert.match(prompt, /three to five acts that share the task's time/);
+  assert.match(prompt, /both stay null: there is nothing to decide/);
+  assert.match(prompt, /Never split an abstract task into several tasks/);
+  assert.match(prompt, /clear \['nextAction','checklist'\]/);
+});
+
 test("AI prompt makes every stored task field earn its line and keeps the reply from echoing the report", () => {
   assert.match(prompt, /each must add what the others do not/);
   assert.match(prompt, /why: only a reason the user actually gave/);
   assert.match(prompt, /null for a single-step task such as a call, purchase, meeting/);
-  assert.match(prompt, /null when a checklist exists/);
   assert.match(prompt, /never a planning or app chore/);
   assert.match(prompt, /appends its own verified summary/);
   assert.match(prompt, /Do not restate those facts/);

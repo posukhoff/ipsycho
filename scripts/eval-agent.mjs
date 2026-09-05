@@ -201,6 +201,14 @@ function checkExpectations(expect, ctx) {
   if (expect.tasksCancelled !== undefined && after.cancelledTasks - before.cancelledTasks !== expect.tasksCancelled) {
     fail("tasksCancelled", `${after.cancelledTasks - before.cancelledTasks} ≠ ${expect.tasksCancelled}`);
   }
+  if (expect.nextActionSet !== undefined) {
+    const withStep = createdTasks.filter((task) => (task.next_action ?? "").trim()).length;
+    if (withStep > 0 !== expect.nextActionSet) fail("nextActionSet", `${withStep} tasks carry a next step`);
+  }
+  if (expect.checklistItems !== undefined) {
+    const added = after.checklistItems - before.checklistItems;
+    if (added !== expect.checklistItems) fail("checklistItems", `${added} ≠ ${expect.checklistItems}`);
+  }
   if (expect.habitTasks !== undefined && createdTasks.filter((task) => task.habit_mode).length !== expect.habitTasks) {
     fail("habitTasks", `${createdTasks.filter((task) => task.habit_mode).length} ≠ ${expect.habitTasks}`);
   }
@@ -338,12 +346,14 @@ async function sendOnce(scope, text, language) {
 
 async function snapshot(scope) {
   const [tasksRows, occurrences, counters, settingsRow] = await Promise.all([
-    database.pool.query("select id, title, status, habit_mode, recurrence_rule, recurrence_end_local_date, planned_local_date, planned_start_at from tasks where workspace_id=$1", [
-      scope.workspaceId,
-    ]),
+    database.pool.query(
+      "select id, title, status, habit_mode, next_action, recurrence_rule, recurrence_end_local_date, planned_local_date, planned_start_at from tasks where workspace_id=$1",
+      [scope.workspaceId],
+    ),
     database.pool.query("select task_id, status, planned_start_at, planned_end_at, planned_local_date, due_at from task_occurrences where workspace_id=$1", [scope.workspaceId]),
     database.pool.query(
       `select
+         (select count(*) from task_checklist_items where workspace_id=$1)::int as checklist_items,
          (select count(*) from memory_items where workspace_id=$1)::int as memory,
          (select count(*) from task_goals where workspace_id=$1)::int as goal_links,
          (select count(*) from reminder_deliveries where workspace_id=$1)::int as reminders,
@@ -360,6 +370,7 @@ async function snapshot(scope) {
     tasks: tasksRows.rows,
     occurrences: occurrences.rows,
     memory: row.memory,
+    checklistItems: row.checklist_items,
     goalLinks: row.goal_links,
     reminders: row.reminders,
     exclusions: row.exclusions,

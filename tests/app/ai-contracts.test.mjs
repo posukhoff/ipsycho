@@ -35,7 +35,7 @@ const actions = {
     type: "update_task",
     intent: "explicit",
     task: { id: "t1" },
-    patch: { title: "Новое имя", why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null },
+    patch: { title: "Новое имя", why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null, clear: null },
   },
   set_task_state: { type: "set_task_state", intent: "explicit", task: { id: "t2" }, state: "done", scope: null },
   reschedule: {

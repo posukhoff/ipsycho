@@ -193,12 +193,16 @@
       }
     },
     {
-      "id": "ambiguous-needs-question",
-      "source": "audit P2",
+      "id": "abstract-task-becomes-concrete",
+      "source": "product 2026-09-05",
       "language": "ru",
-      "message": "Надо бы разобраться с налогами",
+      "message": "Надо бы разобраться с налогами до конца сентября.",
       "expect": {
-        "applied": 0
+        "settles": true,
+        "tasksCreated": 1,
+        "nextActionSet": true,
+        "checklistItems": 3,
+        "maxProviderCalls": 1
       }
     },
     {
@@ -290,6 +294,45 @@
         "message": "да",
         "expect": {
           "activeTasks": 1
+        }
+      }
+    },
+    {
+      "id": "concrete-task-untouched",
+      "source": "product 2026-09-05",
+      "language": "ru",
+      "message": "Завтра в 10:30 позвонить в клинику по поводу анализов.",
+      "expect": {
+        "settles": true,
+        "tasksCreated": 1,
+        "nextActionSet": false,
+        "checklistItems": 0
+      }
+    },
+    {
+      "id": "abstract-task-not-fragmented",
+      "source": "product 2026-09-05",
+      "language": "ru",
+      "message": "К выходным привести в порядок машину.",
+      "expect": {
+        "settles": true,
+        "tasksCreated": 1
+      }
+    },
+    {
+      "id": "no-splitting-requested",
+      "source": "product 2026-09-05",
+      "language": "ru",
+      "seed": ["Надо бы разобраться с налогами до конца сентября."],
+      "message": "Не дроби, оставь одной задачей без шагов.",
+      "expect": {
+        "settles": true
+      },
+      "then": {
+        "message": "да",
+        "expect": {
+          "nextActionSet": false,
+          "checklistItems": 0
         }
       }
     }

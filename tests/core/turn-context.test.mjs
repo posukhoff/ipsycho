@@ -138,7 +138,16 @@ test("goal, checklist and focus collapse onto the task line and hints", () => {
     tasks: selectTasksForContext(tasks, occurrencesByTask, new Set(), { now, timezone }).shown,
     tasksTotal: 2,
     occurrencesByTask,
-    checklistByTask: new Map([["call", [{ done: true }, { done: true }, { done: false }, { done: false }, { done: false }]]]),
+    checklistByTask: new Map([
+      [
+        "call",
+        [
+          { text: "Собрать документы", done: true },
+          { text: "Позвонить в банк", done: true },
+          { text: "Заполнить заявление", done: false },
+        ],
+      ],
+    ]),
     goals: [{ id: "goal-1", version: 2, title: "Запустить продукт", why: "чтобы", status: "active", targetLocalDate: "2026-10-01" }],
     taskGoalLinks: [
       { taskId: "call", goalId: "goal-1" },
@@ -155,7 +164,12 @@ test("goal, checklist and focus collapse onto the task line and hints", () => {
     importance: "required",
     repeat: "каждую неделю: пн",
     goal: "g1",
-    checklist: "2/5",
+    // The steps themselves, not a ratio: a rewrite must be able to keep them.
+    checklist: [
+      { text: "Собрать документы", done: true },
+      { text: "Позвонить в банк", done: true },
+      { text: "Заполнить заявление", done: false },
+    ],
   });
   assert.deepEqual(model.goals, [{ id: "g1", title: "Запустить продукт", why: "чтобы", targetDate: "2026-10-01", tasks: ["t2"] }]);
   assert.deepEqual(model.hints, [

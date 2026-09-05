@@ -19,7 +19,8 @@ export interface ModelTaskLine {
   repeat?: string;
   state?: "in_progress" | "overdue" | "paused_series";
   goal?: string;
-  checklist?: string;
+  /** The steps themselves, so a rewrite can keep them instead of inventing a new list. */
+  checklist?: ReadonlyArray<{ text: string; done: boolean }>;
 }
 
 export interface ModelGoalLine {
@@ -261,7 +262,7 @@ export interface TurnContextInput {
   tasksTotal: number;
   truncated: boolean;
   occurrencesByTask: ReadonlyMap<string, readonly ContextOccurrenceRow[]>;
-  checklistByTask?: ReadonlyMap<string, ReadonlyArray<{ done: boolean }>>;
+  checklistByTask?: ReadonlyMap<string, ReadonlyArray<{ text: string; done: boolean }>>;
   goals: readonly ContextGoalRow[];
   taskGoalLinks: ReadonlyArray<{ taskId: string; goalId: string }>;
   profile: readonly ContextMemoryRow[];
@@ -341,7 +342,7 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
     const goal = goalByTask.get(task.id);
     if (goal) line.goal = goal;
     const checklist = input.checklistByTask?.get(task.id);
-    if (checklist?.length) line.checklist = `${checklist.filter((item) => item.done).length}/${checklist.length}`;
+    if (checklist?.length) line.checklist = checklist.map((item) => ({ text: item.text, done: item.done }));
     if (
       habitOfferEligible({
         recurring: Boolean(task.recurrenceRule),

@@ -948,6 +948,68 @@ test("a user from another personal workspace cannot create an action group in it
   });
 });
 
+test("a rewritten checklist keeps the ticks the user already made, and clear empties a field", async () => {
+  const { workspaceId, userId } = await fixture();
+  const taskId = randomUUID();
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, fuzzy_horizon_text, review_at, next_action) values ($1,$2,$3,'Разобраться с налогами','task','normal','active','fuzzy','Europe/Kyiv','к осени',now(),'Скачать выписки')",
+    [taskId, workspaceId, userId],
+  );
+  const items = ["Скачать выписки", "Собрать чеки", "Заполнить декларацию"];
+  for (const [index, text] of items.entries()) {
+    await database.pool.query("insert into task_checklist_items(id, workspace_id, task_id, text, done, sort_order) values ($1,$2,$3,$4,$5,$6)", [
+      randomUUID(),
+      workspaceId,
+      taskId,
+      text,
+      index === 0,
+      index,
+    ]);
+  }
+
+  // The model restates the steps and adds one; the tick on the first must survive.
+  await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId: randomUUID(),
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
+    steps: [
+      {
+        kind: "update_task",
+        taskId,
+        expectedVersion: 1,
+        patch: { checklist: [...items, "Отправить в налоговую"].map((text) => ({ text, done: false })) },
+      },
+    ],
+  });
+  const after = await database.pool.query("select text, done from task_checklist_items where task_id=$1 order by sort_order", [taskId]);
+  assert.deepEqual(
+    after.rows.map((row) => [row.text, row.done]),
+    [
+      ["Скачать выписки", true],
+      ["Собрать чеки", false],
+      ["Заполнить декларацию", false],
+      ["Отправить в налоговую", false],
+    ],
+  );
+
+  // «не дроби»: the steps and the next action are emptied, which `null` in a patch cannot express.
+  const version = (await database.pool.query("select version from tasks where id=$1", [taskId])).rows[0].version;
+  await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId: randomUUID(),
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
+    steps: [{ kind: "update_task", taskId, expectedVersion: version, patch: { nextAction: null, checklist: [] } }],
+  });
+  assert.equal((await database.pool.query("select next_action from tasks where id=$1", [taskId])).rows[0].next_action, null);
+  assert.equal((await database.pool.query("select count(*)::int as count from task_checklist_items where task_id=$1", [taskId])).rows[0].count, 0);
+});
+
 test("the week pool: a pick is toggled, capped at seven, and only counts for the week it names", async () => {
   const { workspaceId, userId } = await fixture();
   const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});

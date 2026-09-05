@@ -39,9 +39,10 @@ export type SettingsOperation = Extract<AppliedReportItem, { kind: "settings" }>
 
 export type UpdateTaskPatch = {
   title?: string;
-  why?: string;
-  nextAction?: string;
-  context?: string;
+  /** `null` empties the field; absent leaves it alone. */
+  why?: string | null;
+  nextAction?: string | null;
+  context?: string | null;
   importance?: "normal" | "required" | "critical";
   checklist?: Array<{ text: string; done: boolean }>;
   habitMode?: boolean;
@@ -1144,10 +1145,29 @@ export async function cancelOccurrenceDeliveries(tx: DbTransaction, workspaceId:
     .where(and(eq(reminderDeliveries.workspaceId, workspaceId), eq(reminderDeliveries.occurrenceId, occurrenceId), inArray(reminderDeliveries.status, ["pending", "processing"])));
 }
 
-export async function replaceChecklist(tx: DbTransaction, workspaceId: string, taskId: string, checklist: ReadonlyArray<{ text: string; done: boolean }>): Promise<void> {
+export /**
+ * A rewritten checklist keeps the ticks the user already made: an item whose text comes back
+ * unchanged stays done. Without this, a second pass over the same task (the model restating the
+ * steps) silently cleared the user's progress, and the model cannot avoid it — it does not own
+ * that state.
+ */
+async function replaceChecklist(tx: DbTransaction, workspaceId: string, taskId: string, checklist: ReadonlyArray<{ text: string; done: boolean }>): Promise<void> {
+  const previous = await tx
+    .select({ text: taskChecklistItems.text, done: taskChecklistItems.done })
+    .from(taskChecklistItems)
+    .where(and(eq(taskChecklistItems.workspaceId, workspaceId), eq(taskChecklistItems.taskId, taskId)));
+  const doneBefore = new Set(previous.filter((item) => item.done).map((item) => item.text.trim().toLowerCase()));
   await tx.delete(taskChecklistItems).where(and(eq(taskChecklistItems.workspaceId, workspaceId), eq(taskChecklistItems.taskId, taskId)));
   if (checklist.length) {
-    await tx.insert(taskChecklistItems).values(checklist.map((item, index) => ({ workspaceId, taskId, text: item.text, done: item.done, sortOrder: index })));
+    await tx.insert(taskChecklistItems).values(
+      checklist.map((item, index) => ({
+        workspaceId,
+        taskId,
+        text: item.text,
+        done: item.done || doneBefore.has(item.text.trim().toLowerCase()),
+        sortOrder: index,
+      })),
+    );
   }
 }
 

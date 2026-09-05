@@ -1,5 +1,6 @@
 import { formatLocalDateTime, formatLocalTime, intlLocale, scheduleLabel, type OccurrenceScheduleView } from "./time-presentation.js";
 import { localDateAt } from "./timezone.js";
+import { isRedundantText } from "./card-details.js";
 import type { Importance } from "./types.js";
 
 /**
@@ -19,6 +20,9 @@ export type AppliedReportItem =
       reviewAt?: Date | null;
       reminderAt: Date | null;
       goalTitle?: string | null;
+      /** The first concrete step and the steps behind it, when the task was created with them. */
+      nextAction?: string | null;
+      checklist?: readonly string[];
     }
   | { kind: "task_updated"; title: string; changes: TaskFieldChange[] }
   | {
@@ -159,6 +163,8 @@ const COPY: Record<
     memoryDeleted: string;
     settings: string;
     goal: string;
+    nextStepLine: string;
+    checklistLine: string;
     review: string;
     noReminder: string;
     atStart: string;
@@ -188,6 +194,8 @@ const COPY: Record<
     memoryDeleted: "🧠 Убрал из памяти",
     settings: "⚙️ Настройки обновлены",
     goal: "🎯 Цель",
+    nextStepLine: "➡️ Следующий шаг",
+    checklistLine: "☑️ Чеклист",
     review: "пересмотр",
     noReminder: "🔕 без напоминания",
     atStart: "в момент начала",
@@ -216,6 +224,8 @@ const COPY: Record<
     memoryDeleted: "🧠 Прибрав із пам'яті",
     settings: "⚙️ Налаштування оновлено",
     goal: "🎯 Ціль",
+    nextStepLine: "➡️ Наступний крок",
+    checklistLine: "☑️ Чекліст",
     review: "перегляд",
     noReminder: "🔕 без нагадування",
     atStart: "у момент початку",
@@ -244,6 +254,8 @@ const COPY: Record<
     memoryDeleted: "🧠 Removed from memory",
     settings: "⚙️ Settings updated",
     goal: "🎯 Goal",
+    nextStepLine: "➡️ Next step",
+    checklistLine: "☑️ Checklist",
     review: "review",
     noReminder: "🔕 no reminder",
     atStart: "at the start",
@@ -363,6 +375,15 @@ function renderCreatedTask(task: Extract<AppliedReportItem, { kind: "task_create
   const lines = [`${fill(copy.taskCreated, { title: task.title })}${taskBadges(task)}`];
   const when = createdWhen(task, now, locale);
   if (when) lines.push(when);
+  // The steps are the substance of a task the model made concrete, so the report shows them
+  // instead of leaving the user to open the card to find out what was actually saved.
+  const nextAction = task.nextAction?.trim();
+  if (nextAction && !isRedundantText(nextAction, [task.title])) lines.push(`${copy.nextStepLine}: ${nextAction}`);
+  const checklist = (task.checklist ?? []).map((item) => item.trim()).filter(Boolean);
+  if (checklist.length) {
+    lines.push(`${copy.checklistLine} 0/${checklist.length}`);
+    for (const item of checklist) lines.push(`◻️ ${item}`);
+  }
   if (task.goalTitle) lines.push(`${copy.goal}: «${task.goalTitle}»`);
   return lines.join("\n");
 }

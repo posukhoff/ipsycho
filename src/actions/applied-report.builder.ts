@@ -58,6 +58,8 @@ export async function buildAppliedReport(
           fuzzyHorizonText: created?.body.when.mode === "fuzzy" ? created.body.when.horizonText : null,
           reminderAt: reminderForTask(step.taskId),
           goalTitle: step.goalTitle,
+          ...(created?.body.nextAction ? { nextAction: created.body.nextAction } : {}),
+          ...(created?.body.checklist?.length ? { checklist: created.body.checklist.map((item) => item.text) } : {}),
         });
         break;
       }
