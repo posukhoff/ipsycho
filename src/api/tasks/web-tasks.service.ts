@@ -36,7 +36,7 @@ import {
   TaskMutationResponseSchema,
   TodayResponseSchema,
 } from "../contracts/index.js";
-import { ApiError, errorForIssues, pageInfo } from "../http/index.js";
+import { ApiError, errorForIssues, pageInfo, rethrowWriteError } from "../http/index.js";
 import {
   isLiveOccurrence,
   presentChecklist,
@@ -374,8 +374,14 @@ export class WebTasksService {
     const scope = { ...this.scope(user), now };
     const issues = await this.actions.validateResolved(actions, scope);
     if (issues.length) throw errorForIssues(issues, currentVersion);
-    const applied = await this.actions.applyResolved(actions, scope);
-    return applied.groupId;
+    try {
+      const applied = await this.actions.applyResolved(actions, scope);
+      return applied.groupId;
+    } catch (error) {
+      // The commit may or may not have landed. `unavailable` says «try again»; an `internal` would
+      // read as a bug the client cannot act on, and a success would be a lie.
+      rethrowWriteError(error, currentVersion);
+    }
   }
 
   private scope(user: WebAuthContext): ActionScope {

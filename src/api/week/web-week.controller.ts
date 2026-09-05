@@ -21,7 +21,7 @@ import {
   type WeekTakeTodayRequest,
   type WeekTakeTodayResponse,
 } from "../contracts/index.js";
-import { ApiError, apiRoute, errorForIssues, pageInfo, zodBody, zodParam, zodQuery } from "../http/index.js";
+import { ApiError, apiRoute, errorForIssues, pageInfo, rethrowWriteError, zodBody, zodParam, zodQuery } from "../http/index.js";
 
 /**
  * The week plan: the pool of dateless work, the handful taken for the coming week, and the one tap
@@ -146,7 +146,7 @@ export class WebWeekController {
     // the reschedule sheet, not a 500 from inside the transaction.
     const issues = await this.actions.validateResolved([action], scope);
     if (issues.length) throw errorForIssues(issues, task.version);
-    const applied = await this.actions.applyResolved([action], scope);
+    const applied = await this.actions.applyResolved([action], scope).catch((error: unknown) => rethrowWriteError(error, task.version));
 
     // Read back rather than reported: the occurrence the client opens next is the one the
     // transaction committed, whether it was created here or already existed.

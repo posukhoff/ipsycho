@@ -5,7 +5,7 @@ import "reflect-metadata";
 import { APP_FILTER } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
 import { AccessService } from "../../dist/access/access.service.js";
-import { ActionsService } from "../../dist/actions/actions.service.js";
+import { ActionsService, ActionStateUncertainError } from "../../dist/actions/actions.service.js";
 import { AiService } from "../../dist/ai/ai.service.js";
 import { ApiIpRateLimiter, ApiUserRateLimiter } from "../../dist/api/auth/rate-limiter.js";
 import {
@@ -461,6 +461,7 @@ function fakeActions(store, recorder) {
       return issues;
     },
     applyResolved: async (actions, scope) => {
+      if (recorder.applyThrows) throw recorder.applyThrows;
       const groupId = randomUUID();
       recorder.applied.push({ groupId, actions: [...actions], scope });
       for (const action of actions) {
@@ -526,7 +527,7 @@ function fakeContext(store) {
 
 async function createApp() {
   const store = seedStore();
-  const recorder = { applied: [], series: [], undone: [], transitions: [] };
+  const recorder = { applied: [], series: [], undone: [], transitions: [], applyThrows: null };
 
   const moduleRef = await Test.createTestingModule({
     imports: [WebTasksModule],
@@ -1083,4 +1084,38 @@ test("a request the contract refuses names the fields and never their values", a
   const badId = await harness.get("/tasks/not-a-uuid");
   assert.equal(badId.status, 400);
   assert.equal(badId.body.error.code, "validation_failed");
+});
+
+test("a write whose commit is uncertain says «try again», not «internal error»", async (t) => {
+  const harness = await createApp();
+  t.after(() => harness.close());
+
+  // The connection broke after the statement left the process: the row may or may not be there.
+  // `unavailable` is the only honest answer — `internal` reads as a bug the client cannot act on,
+  // and a success would be a lie. AGENTS.md requires an ambiguous outcome to be represented as one.
+  harness.recorder.applyThrows = new ActionStateUncertainError("connection terminated");
+
+  for (const [what, response] of [
+    [
+      "a task write",
+      await harness.post("/tasks", {
+        title: "Позвонить в банк",
+        why: null,
+        nextAction: null,
+        context: null,
+        checklist: null,
+        importance: "normal",
+        kind: "task",
+        when: { mode: "date", date: "2026-09-08" },
+        recurrence: null,
+        reminder: null,
+        timezone: null,
+        goalId: null,
+      }),
+    ],
+    ["a goal write", await harness.post("/goals", { title: "Разобраться с налогами", why: null, targetLocalDate: null })],
+  ]) {
+    assert.equal(response.status, 503, what);
+    assert.equal(response.body.error.code, "unavailable", what);
+  }
 });

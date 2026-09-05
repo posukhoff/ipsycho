@@ -20,7 +20,7 @@ import {
   type GoalsResponse,
   type UpdateGoalRequest,
 } from "../contracts/index.js";
-import { ApiError, errorForIssues, pageInfo } from "../http/index.js";
+import { ApiError, errorForIssues, pageInfo, rethrowWriteError } from "../http/index.js";
 import { presentGoalTaskRow, type TaskRow } from "../tasks/task.presenter.js";
 
 /** The three tabs the goals screen has; `counts` fills the badge on each of them. */
@@ -185,8 +185,12 @@ export class WebGoalsService {
     const scope = this.scope(user);
     const issues = await this.actions.validateResolved(actions, scope);
     if (issues.length) throw errorForIssues(issues, currentVersion);
-    const applied = await this.actions.applyResolved(actions, scope);
-    return applied.groupId;
+    try {
+      const applied = await this.actions.applyResolved(actions, scope);
+      return applied.groupId;
+    } catch (error) {
+      rethrowWriteError(error, currentVersion);
+    }
   }
 
   private scope(user: WebAuthContext): ActionScope {
