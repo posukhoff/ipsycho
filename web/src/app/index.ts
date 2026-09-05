@@ -1,26 +1,17 @@
 /**
- * Routing and the shell, in one import.
+ * What a screen imports from the shell.
  *
  * ```ts
- * import { defineScreen, useRoute, useNavigate, Link, useMe, useTodayLocalDate } from "../../app/index.js";
+ * import { useNavigate, Link, useMe, useTodayLocalDate, type RouteOf } from "../../app/index.js";
  * ```
+ *
+ * `defineScreen` is deliberately **not** here: a screen module registering itself through this
+ * barrel closes the loop `screens.ts`'s glob opens, and that cycle is what made a screen
+ * unrenderable outside a browser. It comes from `../../app/routes.js` instead.
+ *
+ * `App`, `Boot`, `Shell`, `RouterProvider` and the route helpers are not here either — `app/` wires
+ * itself from the concrete files, and nothing outside it names them.
  */
-export { App } from "./app.js";
-export { Boot, useMe, useRefreshMe, useSettings, useTimezone, useTodayLocalDate } from "./boot.js";
-export { Link, RouterProvider, useBackInterceptor, useNavigate, useRoute, type Navigator } from "./router.js";
-export {
-  DEFAULT_ROUTE,
-  ROOT_ROUTES,
-  isRootRoute,
-  parentRoute,
-  parseRoute,
-  routeFromStartParam,
-  routeHref,
-  routePath,
-  sameRoute,
-  type Route,
-  type RouteName,
-  type RouteOf,
-} from "./routes.js";
-export { defineScreen, hasScreen, screenFor, type ScreenDefinition } from "./screens.js";
-export { Shell } from "./shell.js";
+export { useMe, useSettings, useTimezone, useTodayLocalDate } from "./boot.js";
+export { Link, useBackInterceptor, useNavigate } from "./router.js";
+export type { Route, RouteOf } from "./routes.js";

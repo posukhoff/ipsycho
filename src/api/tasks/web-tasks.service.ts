@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import { ActionsService, type ActionScope } from "../../actions/actions.service.js";
 import { whenFromRescheduleFields } from "../../actions/action-conversion.js";
 import { ContextService } from "../../context/context.service.js";
-import type { ActionIssue } from "../../core/ai-actions.js";
 import type { ResolvedAction, TaskTarget, When } from "../../core/ai-contract.js";
 import { DomainRuleError } from "../../core/errors.js";
 import { paginate, type TaskScope as DomainTaskScope } from "../../core/task-list-view.js";
@@ -15,7 +14,6 @@ import type {
   ChecklistWriteRequest,
   CreateTaskRequest,
   OccurrenceStateRequest,
-  PageInfo,
   PageQuery,
   PausedSeriesResponse,
   ReschedulePreset,
@@ -38,7 +36,7 @@ import {
   TaskMutationResponseSchema,
   TodayResponseSchema,
 } from "../contracts/index.js";
-import { ApiError } from "../http/index.js";
+import { ApiError, errorForIssues, pageInfo } from "../http/index.js";
 import {
   isLiveOccurrence,
   presentChecklist,
@@ -142,10 +140,9 @@ export class WebTasksService {
     );
     const excluded = await Promise.all(rows.map((task) => this.tasks.listRecurrenceExclusions(user.access.workspaceId, task.id)));
     const pages = Math.max(1, Math.ceil(total / query.pageSize));
-    const page = Math.min(query.page, pages - 1);
     return PausedSeriesResponseSchema.parse({
       rows: rows.map((task, index) => presentPausedSeries(task, excluded[index] ?? [], pausedAt.get(task.id) ?? null)),
-      page: { page, pages, pageSize: query.pageSize, total, hasMore: (page + 1) * query.pageSize < total },
+      page: pageInfo({ page: Math.min(query.page, pages - 1), pages }, total, query.pageSize),
     } satisfies PausedSeriesResponse);
   }
 
@@ -158,17 +155,22 @@ export class WebTasksService {
    * What the reschedule sheet needs before it renders. `presetTimes` is the same computation the
    * card's «+1 ч / Вечером / Завтра» buttons perform, resolved here so the button can show the time
    * it will produce instead of the client re-deriving it from a timezone it does not have.
+   *
+   * `null` where the preset resolves to a *day* rather than a moment, which is what «завтра» means
+   * for a task that has no clock time. It used to answer local midnight, so the sheet offered
+   * «Завтра · 00:00» for a task the user had deliberately left untimed — and 00:00 is a real time a
+   * client cannot tell from a placeholder.
    */
   async rescheduleOptions(user: WebAuthContext, id: string): Promise<RescheduleOptions> {
     const { task, occurrence } = await this.resolveTarget(user, id);
     const timezone = occurrence?.timezone ?? task.timezone;
     const reasonRequired = occurrence ? await this.tasks.isRescheduleReasonRequired(user.access.workspaceId, occurrence.id) : false;
-    const presetTimes: Record<string, string> = {};
+    const presetTimes: Record<string, string | null> = {};
     for (const preset of PRESETS) {
-      const at = occurrence ? this.presetInstant(user, task, occurrence, preset) : null;
       // A task with no occurrence has nothing to move relative to; the sheet still has to render,
       // and the preset then stands for the same clock time on the day the choice names.
-      presetTimes[preset] = (at ?? this.presetInstantWithoutOccurrence(user, preset, timezone)).toISOString();
+      const at = occurrence ? this.presetInstant(user, task, occurrence, preset) : this.presetInstantWithoutOccurrence(user, preset, timezone);
+      presetTimes[preset] = at?.toISOString() ?? null;
     }
     return RescheduleOptionsSchema.parse({
       reasonRequired,
@@ -371,8 +373,7 @@ export class WebTasksService {
   private async apply(user: WebAuthContext, actions: readonly ResolvedAction[], now: Date, currentVersion: number | null): Promise<string> {
     const scope = { ...this.scope(user), now };
     const issues = await this.actions.validateResolved(actions, scope);
-    const issue = issues[0];
-    if (issue) throw errorForIssue(issue, currentVersion);
+    if (issues.length) throw errorForIssues(issues, currentVersion);
     const applied = await this.actions.applyResolved(actions, scope);
     return applied.groupId;
   }
@@ -482,9 +483,8 @@ export class WebTasksService {
   }
 
   /**
-   * What a preset resolves to right now. A preset that lands on a day without a clock time has no
-   * instant of its own; the start of that local day is the honest answer, and the client renders
-   * the day rather than the hour because the row it came from carries no time either.
+   * What a preset resolves to right now, or `null` when it lands on a day with no clock time —
+   * a day has no instant, and midnight is a real time the client could not tell from a placeholder.
    */
   private presetInstant(user: WebAuthContext, task: TaskRow, occurrence: OccurrenceRow, preset: ReschedulePreset): Date | null {
     const fields = quickRescheduleSchedule({
@@ -495,10 +495,9 @@ export class WebTasksService {
       morningReferenceTime: user.settings.morningReferenceTime,
       eveningReferenceTime: user.settings.eveningReferenceTime,
     });
-    if (fields.plannedStartAt) return fields.plannedStartAt;
-    if (fields.dueAt) return fields.dueAt;
-    const localDate = fields.plannedLocalDate ?? fields.dueLocalDate;
-    return localDate ? localDateAndTimeToUtc(localDate, "00:00", occurrence.timezone).date : null;
+    // A date-only result — `plannedLocalDate` or `dueLocalDate` with no instant — is a day, and
+    // there is no honest instant to name for it.
+    return fields.plannedStartAt ?? fields.dueAt ?? null;
   }
 
   private presetInstantWithoutOccurrence(user: WebAuthContext, preset: ReschedulePreset, timezone: string): Date {
@@ -528,17 +527,4 @@ export class WebTasksService {
     if (soon >= 24 * 60) return morning;
     return `${String(Math.floor(soon / 60)).padStart(2, "0")}:${String(soon % 60).padStart(2, "0")}`;
   }
-}
-
-/**
- * An action issue as the contract's error envelope. A stale reference is a conflict the client
- * refetches; everything else is a domain rule, named by its code and never by its message.
- */
-export function errorForIssue(issue: ActionIssue, currentVersion: number | null): ApiError {
-  if (issue.code === "stale" || issue.kind === "reference") return ApiError.conflict(currentVersion);
-  return ApiError.domainRule(issue.code);
-}
-
-function pageInfo(view: { page: number; pages: number }, total: number, pageSize: number): PageInfo {
-  return { page: view.page, pages: view.pages, pageSize, total, hasMore: (view.page + 1) * pageSize < total };
 }

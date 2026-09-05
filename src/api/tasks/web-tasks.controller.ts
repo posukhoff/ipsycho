@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
 import {
   ChecklistWriteRequestSchema,
@@ -65,6 +65,7 @@ export class WebTasksController {
   }
 
   @Post()
+  @HttpCode(200)
   create(@CurrentUser() user: WebAuthContext, @Body(zodBody(CreateTaskRequestSchema)) body: CreateTaskRequest): Promise<TaskMutationResponse> {
     return this.tasks.create(user, body);
   }
@@ -79,6 +80,7 @@ export class WebTasksController {
   }
 
   @Post(":id/state")
+  @HttpCode(200)
   setState(
     @CurrentUser() user: WebAuthContext,
     @Param("id", zodParam(UuidSchema)) id: string,
@@ -93,6 +95,7 @@ export class WebTasksController {
   }
 
   @Post(":id/reschedule")
+  @HttpCode(200)
   reschedule(
     @CurrentUser() user: WebAuthContext,
     @Param("id", zodParam(UuidSchema)) id: string,
@@ -102,6 +105,7 @@ export class WebTasksController {
   }
 
   @Post(":id/checklist")
+  @HttpCode(200)
   checklist(
     @CurrentUser() user: WebAuthContext,
     @Param("id", zodParam(UuidSchema)) id: string,
@@ -111,6 +115,7 @@ export class WebTasksController {
   }
 
   @Post(":id/series/pause")
+  @HttpCode(200)
   pauseSeries(
     @CurrentUser() user: WebAuthContext,
     @Param("id", zodParam(UuidSchema)) id: string,
@@ -120,6 +125,7 @@ export class WebTasksController {
   }
 
   @Post(":id/series/resume")
+  @HttpCode(200)
   resumeSeries(
     @CurrentUser() user: WebAuthContext,
     @Param("id", zodParam(UuidSchema)) id: string,

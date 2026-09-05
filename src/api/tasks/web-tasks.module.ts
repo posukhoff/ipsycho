@@ -1,10 +1,7 @@
 import { Module } from "@nestjs/common";
-import { AccessModule } from "../../access/access.module.js";
 import { ActionsModule } from "../../actions/actions.module.js";
-import { ConfigModule } from "../../config.module.js";
 import { ContextModule } from "../../context/context.module.js";
 import { RemindersModule } from "../../reminders/reminders.module.js";
-import { SettingsModule } from "../../settings/settings.module.js";
 import { TasksModule } from "../../tasks/tasks.module.js";
 import { WebAuthModule } from "../auth/index.js";
 import { WebGoalsController } from "../goals/web-goals.controller.js";
@@ -38,18 +35,12 @@ import { WebUndoController } from "./web-undo.controller.js";
  * This module also owns `src/api/goals/**`; one module keeps the two halves of the same screen
  * group in one place, and keeps `api.module.ts` closed to later edits.
  *
- * `WebAuthModule` is imported rather than re-provided: `InitDataGuard` is resolved from this
- * module's injector, and the two rate limiters are stateful singletons that must exist once per
- * process — providing them again here would give this module its own counters and permit a flood
- * once per module.
- *
- * `ConfigModule`, `AccessModule` and `SettingsModule` are imported for the same reason and not for
- * this module's own use: a guard named in `@UseGuards` is instantiated from the *enclosing*
- * module's injector, so `InitDataGuard`'s own dependencies have to be visible here. Importing the
- * modules shares their existing instances; it does not create second ones.
+ * `WebAuthModule` is imported rather than re-provided: it carries the guard, the two rate limiters
+ * — stateful singletons that must exist once per process — and, re-exported, the three modules the
+ * guard itself depends on. Everything below `WebAuthModule` in `imports` is this module's own.
  */
 @Module({
-  imports: [WebAuthModule, ConfigModule, AccessModule, SettingsModule, TasksModule, ActionsModule, ContextModule, RemindersModule],
+  imports: [WebAuthModule, TasksModule, ActionsModule, ContextModule, RemindersModule],
   controllers: [WebTasksController, WebGoalsController, WebUndoController],
   providers: [WebTasksService, WebGoalsService],
 })

@@ -57,9 +57,11 @@ export const ReminderRepeatRequestSchema = z.object({ date: LocalDateSchema, tim
 /** What both write endpoints answer with, so the list can be patched without a refetch. */
 export const ReminderMutationResponseSchema = z
   .object({
-    /** The delivery that now exists. A snooze supersedes the old one and creates a new id. */
-    reminder: ReminderRowSchema.nullable(),
-    /** Present when the change is reversible; feeds the Undo snackbar. */
+    /**
+     * Present when the change is reversible; feeds the Undo snackbar. It is the whole answer: the
+     * screen invalidates `reminders` and refetches, so returning the new delivery too would have
+     * cost a second read of the list on every write for a field nothing renders.
+     */
     undoGroupId: UuidSchema.nullable(),
   })
   .strict();
@@ -118,4 +120,3 @@ export type ReminderRepeatRequest = z.infer<typeof ReminderRepeatRequestSchema>;
 export type ReminderMutationResponse = z.infer<typeof ReminderMutationResponseSchema>;
 export type ReminderCancelResponse = z.infer<typeof ReminderCancelResponseSchema>;
 export type TaskReminder = z.infer<typeof TaskReminderSchema>;
-export type ReminderInput = z.infer<typeof ReminderInputSchema>;

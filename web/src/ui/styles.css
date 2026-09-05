@@ -299,10 +299,6 @@ select {
   color: var(--c-danger);
 }
 
-.ip-accent {
-  color: var(--c-accent);
-}
-
 .ip-small {
   font-size: 13px;
 }

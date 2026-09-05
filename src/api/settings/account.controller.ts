@@ -1,8 +1,7 @@
-import { Body, Controller, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
 import { AccessService, DELETION_GRACE_DAYS } from "../../access/access.service.js";
 import { AccountDeleteRequestSchema, AccountDeleteResponseSchema, type AccountDeleteRequest, type AccountDeleteResponse } from "../contracts/index.js";
-import { apiRoute } from "../http/routes.js";
-import { zodBody } from "../http/zod-validation.pipe.js";
+import { apiRoute, zodBody } from "../http/index.js";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
 
 /**
@@ -25,6 +24,7 @@ export class WebAccountController {
   constructor(private readonly access: AccessService) {}
 
   @Post("delete")
+  @HttpCode(200)
   async delete(@CurrentUser() user: WebAuthContext, @Body(zodBody(AccountDeleteRequestSchema)) _body: AccountDeleteRequest): Promise<AccountDeleteResponse> {
     // The internal uuid is what every other endpoint uses; deletion is keyed on the Telegram id,
     // because that is the identity the allowlist and `/restore` are keyed on — and the guard

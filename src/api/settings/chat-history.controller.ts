@@ -1,7 +1,7 @@
-import { Controller, Post, UseGuards } from "@nestjs/common";
+import { Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
 import { ChatService } from "../../chat/chat.service.js";
 import { ClearHistoryResponseSchema, type ClearHistoryResponse } from "../contracts/index.js";
-import { apiRoute } from "../http/routes.js";
+import { apiRoute } from "../http/index.js";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
 
 /**
@@ -21,6 +21,7 @@ export class WebChatHistoryController {
   constructor(private readonly chat: ChatService) {}
 
   @Post("clear")
+  @HttpCode(200)
   async clear(@CurrentUser() user: WebAuthContext): Promise<ClearHistoryResponse> {
     const cleared = await this.chat.clearConversation(user.access.workspaceId, user.access.user.id);
     return ClearHistoryResponseSchema.parse({ cleared } satisfies ClearHistoryResponse);

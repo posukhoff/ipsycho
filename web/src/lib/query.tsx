@@ -30,10 +30,6 @@ function useApiContext(): ApiContextValue {
   return value;
 }
 
-export function useApiClient(): ApiClient {
-  return useApiContext().client;
-}
-
 export function useQueryCache(): QueryCache {
   return useApiContext().cache;
 }

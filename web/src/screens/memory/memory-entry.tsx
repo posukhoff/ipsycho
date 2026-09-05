@@ -143,7 +143,7 @@ export function MemoryEntrySheet({
         </Field>
 
         {allowTypeChange ? (
-          <Field label={t("task.kind")}>
+          <Field label={t("memory.type_label")}>
             <Select value={type} options={types} onChange={setType} />
           </Field>
         ) : null}

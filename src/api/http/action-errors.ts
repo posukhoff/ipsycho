@@ -1,21 +1,25 @@
 import { ActionStateUncertainError } from "../../actions/actions.service.js";
 import type { ActionIssue } from "../../core/ai-actions.js";
 import { isDomainRuleError } from "../../core/errors.js";
-import { ApiError } from "../http/api-error.js";
+import { ApiError } from "./api-error.js";
 
 /**
  * How a journaled write's refusal becomes one of the ten error codes.
  *
- * Every write in this group goes through `ActionsService`, so it fails in exactly two ways: as a
+ * Every write in `src/api/**` goes through `ActionsService`, so it fails in exactly two ways: as a
  * list of `ActionIssue` from `validateResolved`, or as a throw from `applyResolved`. Both are
  * translated here rather than in each controller, because the interesting distinction — a stale
  * optimistic version is a `conflict` the client can recover from, everything else is a
  * `domain_rule` it can only report — is easy to get wrong once per endpoint.
  *
+ * It lives under `src/api/http/` because every endpoint group writes: tasks, goals, the week plan,
+ * settings, memory and reminders all reached for it, and four of them had reached for a second copy
+ * that knew about one stale code instead of two.
+ *
  * Nothing derived from a message reaches the client. `ApiError.domainRule` keeps the code token and
  * `ApiError.conflict` carries the row's own version, never the one the request sent.
  */
-const STALE_CODES = new Set(["stale", "settings_stale", "memory_stale"]);
+const STALE_CODES = new Set(["stale", "settings_stale"]);
 
 /**
  * The domain's own stale refusals are `DomainRuleError`s with no code — `settings are stale or
@@ -25,7 +29,7 @@ const STALE_CODES = new Set(["stale", "settings_stale", "memory_stale"]);
  */
 const STALE_MESSAGE = /\b(?:stale|missing|changed)\b/iu;
 
-export function apiErrorForIssues(issues: readonly ActionIssue[], currentVersion: number | null): ApiError {
+export function errorForIssues(issues: readonly ActionIssue[], currentVersion: number | null): ApiError {
   const issue = issues[0];
   if (!issue) return new ApiError("internal");
   if (issue.kind === "reference" || STALE_CODES.has(issue.code)) return ApiError.conflict(currentVersion);

@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { GoalScope, TaskScope } from "../api/contracts.js";
 
 /**
@@ -35,6 +36,30 @@ export type RouteName = Route["name"];
 
 /** `RouteOf<"task">` is `{ name: "task"; id: string }` — what a screen component receives. */
 export type RouteOf<Name extends RouteName> = Extract<Route, { name: Name }>;
+
+export interface ScreenDefinition {
+  readonly name: RouteName;
+  readonly component: ComponentType<{ route: Route }>;
+}
+
+/**
+ * Binds a component to a route name, with the route type flowing into the component: `TaskScreen`
+ * is declared as `({ route }: { route: RouteOf<"task"> }) => …`, reads `route.id` with no narrowing
+ * inside the component, and cannot be registered under the wrong name.
+ *
+ * It lives here, next to the route union it types, rather than in `screens.ts` next to the registry
+ * that collects it. `screens.ts` glob-imports every `screens/<group>/index.ts`, and those files
+ * call this — so a `defineScreen` exported from `screens.ts`, or re-exported through `app/index.ts`,
+ * is a cycle. The browser build hoists it into working order; Vite's SSR transform does not, and
+ * `defineScreen is not a function` is what rendering a screen outside a browser used to produce.
+ * `routes.ts` imports nothing from `app/`, so the registry can reach the screens and the screens
+ * can reach this without either waiting on the other.
+ */
+export function defineScreen<Name extends RouteName>(name: Name, component: ComponentType<{ route: RouteOf<Name> }>): ScreenDefinition {
+  // The registry is keyed by route name, so by the time the shell renders `component` the route it
+  // passes is `RouteOf<Name>` by construction. One cast here replaces a narrowing in every screen.
+  return { name, component: component as ComponentType<{ route: Route }> };
+}
 
 export const DEFAULT_ROUTE: Route = { name: "today" };
 

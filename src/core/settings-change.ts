@@ -1,5 +1,6 @@
 import { DomainRuleError } from "./errors.js";
 import { normalizeLanguageTag } from "./language.js";
+import { isIanaTimezone } from "./timezone-lookup.js";
 import { parseLocalTime } from "./timezone.js";
 
 /**
@@ -63,15 +64,6 @@ function atLeast15(value: number | null | undefined, field: string): number | un
   if (value === null || value === undefined) return undefined;
   if (!Number.isInteger(value) || value < 15) throw new DomainRuleError(`${field} must be an integer of at least 15 minutes`, "settings_shape");
   return value;
-}
-
-export function isIanaTimezone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: value }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function buildSettingsPatch(change: SettingsChange, current: { timezone: string }): SettingsPatchFields {

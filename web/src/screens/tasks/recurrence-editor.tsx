@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { TEXT_LIMITS, type MissPolicy, type RecurrenceInput, type RecurrenceView, type TaskKind, type Weekday } from "../../api/contracts.js";
+import { TEXT_LIMITS, type MissPolicy, type RecurrenceInput, type TaskKind, type Weekday } from "../../api/contracts.js";
 import { useT } from "../../i18n/index.js";
 import { DateField, DateListEditor, Field, MonthDayPicker, NumberInput, SegmentedControl, Switch, WeekdayPicker, type Option } from "../../ui/index.js";
 
@@ -43,20 +43,6 @@ export function recurrenceFromDraft(draft: RecurrenceDraft, kind: TaskKind): Rec
     skipDates: draft.skipDates.length > 0 ? [...draft.skipDates] : null,
     // An event has no miss policy; sending one would be a field the domain has nowhere to put.
     missed: kind === "task" ? draft.missed : null,
-  };
-}
-
-/** The stored rule as a draft, so «изменить повтор» opens on what the series already does. */
-export function draftFromRecurrence(recurrence: RecurrenceView | null): RecurrenceDraft {
-  if (!recurrence) return EMPTY_RECURRENCE;
-  return {
-    frequency: recurrence.frequency,
-    interval: recurrence.interval,
-    weekdays: recurrence.weekdays,
-    monthDays: recurrence.monthDays,
-    until: recurrence.endLocalDate,
-    skipDates: recurrence.excludedLocalDates,
-    missed: recurrence.missPolicy ?? "expire",
   };
 }
 

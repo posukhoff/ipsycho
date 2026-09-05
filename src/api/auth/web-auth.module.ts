@@ -24,17 +24,20 @@ import { ApiIpRateLimiter, ApiUserRateLimiter } from "./rate-limiter.js";
  * }
  * ```
  *
- * A guard named in `@UseGuards` is instantiated from the enclosing module's injector, which is why
- * `InitDataGuard` and both limiters are exported: a module that imports this one can use the guard
- * without re-providing it, and there is then exactly one limiter instance per process.
+ * A guard named in `@UseGuards` is *constructed* in the injector of the module that names it, not in
+ * the one that exported it, so everything `InitDataGuard` asks for has to be resolvable from there
+ * too. That is why `ConfigModule`, `AccessModule` and `SettingsModule` are re-exported: importing
+ * this module brings the guard and its dependencies in one line, instead of four modules repeating
+ * the same three imports for a class none of them names.
  *
  * The limiters are stateful singletons on purpose. Providing them again in another module would
- * give that module its own counters, and the flood would be permitted once per module.
+ * give that module its own counters, and the flood would be permitted once per module; importing
+ * them — including through this re-export — shares the one instance.
  */
 @Module({
   imports: [ConfigModule, AccessModule, SettingsModule, AiModule, ChatModule],
   controllers: [MeController],
   providers: [InitDataGuard, ApiIpRateLimiter, ApiUserRateLimiter],
-  exports: [InitDataGuard, ApiIpRateLimiter, ApiUserRateLimiter],
+  exports: [InitDataGuard, ApiIpRateLimiter, ApiUserRateLimiter, ConfigModule, AccessModule, SettingsModule],
 })
 export class WebAuthModule {}

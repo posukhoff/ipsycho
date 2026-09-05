@@ -1,4 +1,4 @@
-import { defineScreen } from "../../app/index.js";
+import { defineScreen } from "../../app/routes.js";
 import { TaskScreen } from "./detail.js";
 import { TaskEditScreen, TaskNewScreen } from "./form.js";
 import { TasksScreen } from "./list.js";

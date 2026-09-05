@@ -1,8 +1,5 @@
 import { Module } from "@nestjs/common";
-import { AccessModule } from "../../access/access.module.js";
 import { ActionsModule } from "../../actions/actions.module.js";
-import { ConfigModule } from "../../config.module.js";
-import { SettingsModule } from "../../settings/settings.module.js";
 import { TasksModule } from "../../tasks/tasks.module.js";
 import { WebAuthModule } from "../auth/index.js";
 import { WebWeekController } from "./web-week.controller.js";
@@ -21,18 +18,13 @@ import { WebWeekController } from "./web-week.controller.js";
  *
  * `WebAuthModule` is imported rather than re-provided, so both rate limiters stay the single
  * stateful instances they have to be: providing them again here would give this module its own
- * counters and permit the same flood a second time.
- *
- * `ConfigModule`, `AccessModule` and `SettingsModule` are here only because of the guard. A class
- * named in `@UseGuards` is instantiated in the injector of the module that declares the controller —
- * Nest registers it as that module's own injectable rather than resolving the exported one — so
- * everything `InitDataGuard` asks for has to be reachable from here. The guard itself is stateless
- * and a second instance costs nothing; the two limiters are the part that must not be duplicated,
- * and those come from `WebAuthModule`'s exports.
+ * counters and permit the same flood a second time. It also re-exports the three modules
+ * `InitDataGuard` injects, which a module naming the guard in `@UseGuards` has to be able to
+ * resolve — Nest constructs the guard here rather than resolving the exported instance.
  *
  * `ActionsModule` is here for one endpoint. «Делаю сегодня» is a real schedule change, so it goes
  * through `ActionsService` like every other write and journals into a group the user can undo;
  * doing it any other way would make Undo lie about what the app did.
  */
-@Module({ imports: [WebAuthModule, ConfigModule, AccessModule, SettingsModule, TasksModule, ActionsModule], controllers: [WebWeekController] })
+@Module({ imports: [WebAuthModule, TasksModule, ActionsModule], controllers: [WebWeekController] })
 export class WebWeekModule {}

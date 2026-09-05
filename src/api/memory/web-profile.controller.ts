@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards } from "@nestjs/common";
 import { ContextService } from "../../context/context.service.js";
 import { ProfileResponseSchema, type ProfileResponse } from "../contracts/index.js";
-import { apiRoute } from "../http/routes.js";
+import { apiRoute } from "../http/index.js";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
 import { presentMemory } from "./memory.presenter.js";
 

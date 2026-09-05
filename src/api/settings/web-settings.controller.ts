@@ -14,11 +14,8 @@ import {
   type TimezoneSearchQuery,
   type TimezoneSearchResponse,
 } from "../contracts/index.js";
-import { ApiError } from "../http/api-error.js";
-import { apiRoute } from "../http/routes.js";
-import { zodBody, zodQuery } from "../http/zod-validation.pipe.js";
+import { ApiError, apiRoute, errorForIssues, rethrowWriteError, zodBody, zodQuery } from "../http/index.js";
 import { CurrentUser, InitDataGuard, presentSettings, type WebAuthContext, type WebSettingsRow } from "../auth/index.js";
-import { apiErrorForIssues, rethrowWriteError } from "./action-errors.js";
 import { planSettingsChange } from "./settings-change.plan.js";
 import { searchTimezones } from "./timezone-search.js";
 
@@ -74,7 +71,7 @@ export class WebSettingsController {
     let groupId: string;
     try {
       const issues = await this.actions.validateResolved([plan.action], scope);
-      if (issues.length) throw apiErrorForIssues(issues, current.version);
+      if (issues.length) throw errorForIssues(issues, current.version);
       groupId = (await this.actions.applyResolved([plan.action], scope)).groupId;
     } catch (error) {
       rethrowWriteError(error, current.version);

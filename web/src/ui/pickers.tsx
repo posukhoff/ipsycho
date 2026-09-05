@@ -162,33 +162,6 @@ export function DateListEditor({
     </div>
   );
 }
-
-/** A date and a time side by side, for the one shape that has both. */
-export function DateTimeField({
-  date,
-  time,
-  onChange,
-  todayLocalDate,
-  timeRequired,
-}: {
-  date: string | null;
-  time: string | null;
-  onChange: (next: { date: string | null; time: string | null }) => void;
-  todayLocalDate: string;
-  timeRequired?: boolean | undefined;
-}): ReactNode {
-  return (
-    <div className="ip-inline">
-      <div style={{ flex: "1 1 60%" }}>
-        <DateField value={date} todayLocalDate={todayLocalDate} onChange={(next) => onChange({ date: next, time })} />
-      </div>
-      <div style={{ flex: "1 1 30%" }}>
-        <TimeField value={time} allowEmpty={!timeRequired} onChange={(next) => onChange({ date, time: next })} />
-      </div>
-    </div>
-  );
-}
-
 /** «Через 15 минут», «через час» — the offsets the reminder card offers, as buttons. */
 export function QuickChoices<Value extends string>({
   options,

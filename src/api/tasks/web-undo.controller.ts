@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
 import { UndoRequestSchema, UndoResponseSchema, type UndoRequest, type UndoResponse } from "../contracts/index.js";
 import { apiRoute, zodBody } from "../http/index.js";
@@ -22,6 +22,7 @@ export class WebUndoController {
   constructor(private readonly tasks: WebTasksService) {}
 
   @Post("undo")
+  @HttpCode(200)
   async undo(@CurrentUser() user: WebAuthContext, @Body(zodBody(UndoRequestSchema)) body: UndoRequest): Promise<UndoResponse> {
     return UndoResponseSchema.parse({ undone: await this.tasks.undo(user, body.groupId) } satisfies UndoResponse);
   }

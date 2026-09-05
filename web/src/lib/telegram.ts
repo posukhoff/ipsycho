@@ -261,17 +261,3 @@ export const haptics = {
     callSafely(() => webApp()?.HapticFeedback?.selectionChanged());
   },
 };
-
-/** Opens an external link through Telegram when it can, and falls back to the iframe-safe form. */
-export function openExternal(url: string): void {
-  const app = webApp();
-  if (app?.openLink) {
-    callSafely(() => app.openLink?.(url));
-    return;
-  }
-  globalThis.open?.(url, "_blank", "noopener,noreferrer");
-}
-
-export function closeApp(): void {
-  callSafely(() => webApp()?.close());
-}

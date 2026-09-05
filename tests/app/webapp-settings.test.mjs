@@ -656,7 +656,7 @@ test("clearing the AI history says how much it forgot, and forgets nothing else"
   t.after(() => harness.close());
 
   const { status, body } = await harness.post("/chat/history/clear");
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   assert.deepEqual(body, { cleared: 9 });
   assert.equal(harness.calls.cleared, 1);
 });
@@ -676,7 +676,7 @@ test("account deletion needs the literal word, and says the way back is the chat
   assert.equal(harness.calls.requestDeletion.length, 0);
 
   const { status, body } = await harness.post("/account/delete", { confirm: "delete" });
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   assert.equal(body.deleteAfter, "2026-09-19T06:00:00.000Z");
   assert.equal(body.graceDays, 14);
   // Not a capability flag: the deletion screen has to render the sentence, because the guard
@@ -912,7 +912,7 @@ test("a delivery beyond the list window is still snoozable, repeatable and cance
   );
 
   const snoozed = await harness.post(`/reminders/${far.delivery.id}/snooze`, { choice: "1h" });
-  assert.equal(snoozed.status, 201, "a delivery the list could not reach is still addressable by id");
+  assert.equal(snoozed.status, 200, "a delivery the list could not reach is still addressable by id");
   assert.deepEqual(harness.calls.followUp.at(-1).occurrenceId, OCCURRENCE_ID);
 
   const cancelled = await harness.del(`/reminders/${far.delivery.id}`);
@@ -925,7 +925,7 @@ test("snoozing repeats the contact without journaling a state change", async (t)
   t.after(() => harness.close());
 
   const { status, body } = await harness.post(`/reminders/${DELIVERY_ID}/snooze`, { choice: "15m" });
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   assert.deepEqual(harness.calls.followUp, [{ workspaceId: WORKSPACE_ID, userId: USER_ID, occurrenceId: OCCURRENCE_ID, choice: "15m" }]);
   // No state changed, so there is nothing truthful for Undo to restore. A group id here would be a
   // button that promises a rollback it cannot perform.
@@ -945,7 +945,7 @@ test("repeating at a named time is a journaled reminder on the occurrence", asyn
   t.after(() => harness.close());
 
   const { status, body } = await harness.post(`/reminders/${DELIVERY_ID}/repeat`, { date: "2026-09-11", time: "10:15" });
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   const [action] = harness.calls.apply.at(-1).actions;
   assert.equal(action.type, "set_reminder");
   assert.equal(action.mode, "add");

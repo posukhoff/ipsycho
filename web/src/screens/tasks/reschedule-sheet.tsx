@@ -162,11 +162,16 @@ export function RescheduleSheet({
           ) : null}
 
           <div className="ip-inline">
-            {data.presets.map((preset) => (
-              <Button key={preset} small variant="secondary" disabled={!reasonReady || reschedule.isPending} onClick={() => submit({ kind: "preset", preset })}>
-                {`${t(PRESET_KEYS[preset])} · ${formatInstantTime(data.presetTimes[preset], data.timezone, t.locale)}`}
-              </Button>
-            ))}
+            {data.presets.map((preset) => {
+              // `null` means the preset resolves to a whole day: the task has no clock time, so the
+              // button names the preset alone rather than the 00:00 the server used to invent.
+              const at = data.presetTimes[preset] ?? null;
+              return (
+                <Button key={preset} small variant="secondary" disabled={!reasonReady || reschedule.isPending} onClick={() => submit({ kind: "preset", preset })}>
+                  {at ? `${t(PRESET_KEYS[preset])} · ${formatInstantTime(at, data.timezone, t.locale)}` : t(PRESET_KEYS[preset])}
+                </Button>
+              );
+            })}
           </div>
 
           {custom ? (

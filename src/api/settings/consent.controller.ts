@@ -1,10 +1,9 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, UseGuards } from "@nestjs/common";
 import { AiService } from "../../ai/ai.service.js";
 import { ChatService } from "../../chat/chat.service.js";
-import { ConsentRequestSchema, ConsentResponseSchema, type ConsentRequest, type ConsentResponse, type ConsentState } from "../contracts/index.js";
-import { apiRoute } from "../http/routes.js";
-import { zodBody } from "../http/zod-validation.pipe.js";
-import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
+import { ConsentRequestSchema, ConsentResponseSchema, type ConsentRequest, type ConsentResponse } from "../contracts/index.js";
+import { apiRoute, zodBody } from "../http/index.js";
+import { CurrentUser, InitDataGuard, presentConsents, type WebAuthContext } from "../auth/index.js";
 
 /**
  * Provider consent, as the settings screen shows and changes it.
@@ -15,9 +14,8 @@ import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.j
  * endpoint buys is a screen that can say «AI is off because you have not agreed» instead of a turn
  * that fails in the chat a minute later.
  *
- * Two scopes because there are two providers. `text` is whichever provider is configured; `voice`
- * is always OpenAI, since transcription runs there whoever answers the chat — which is exactly why
- * the bot asks for the two separately (`ai:consent` and `voice:consent`).
+ * The two scopes and why they are two are `presentConsents`, which `GET /me` embeds as well: one
+ * mapping, so the bootstrap and this endpoint cannot disagree about what the user agreed to.
  */
 @Controller(apiRoute("consent"))
 @UseGuards(InitDataGuard)
@@ -33,6 +31,7 @@ export class WebConsentController {
   }
 
   @Post("grant")
+  @HttpCode(200)
   async grant(@CurrentUser() user: WebAuthContext, @Body(zodBody(ConsentRequestSchema)) body: ConsentRequest): Promise<ConsentResponse> {
     const userId = user.access.user.id;
     // Granting voice grants both providers, because a voice turn is a transcription *and* a model
@@ -44,6 +43,7 @@ export class WebConsentController {
   }
 
   @Post("revoke")
+  @HttpCode(200)
   async revoke(@CurrentUser() user: WebAuthContext, @Body(zodBody(ConsentRequestSchema)) body: ConsentRequest): Promise<ConsentResponse> {
     const userId = user.access.user.id;
     // Revoking text revokes both — what `/ai_revoke` does — because voice cannot outlive it.
@@ -55,12 +55,6 @@ export class WebConsentController {
   }
 
   private async present(userId: string): Promise<ConsentResponse> {
-    const version = this.ai.consentVersion;
-    const [text, voice] = await Promise.all([this.ai.hasConsent(userId), this.ai.hasProviderConsent(userId, "openai")]);
-    const consents: ConsentState[] = [
-      { scope: "text", granted: text, provider: this.ai.providerName, version },
-      { scope: "voice", granted: voice, provider: "openai", version },
-    ];
-    return ConsentResponseSchema.parse({ consents } satisfies ConsentResponse);
+    return ConsentResponseSchema.parse({ consents: await presentConsents(this.ai, userId) } satisfies ConsentResponse);
   }
 }

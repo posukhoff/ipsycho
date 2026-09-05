@@ -9,7 +9,7 @@ import type { SettingsPatchApi } from "./use-settings-patch.js";
  *
  * A quiet window normally crosses midnight — «не пиши мне с 22:00 до 08:00» — so `start > end` is
  * the *common* case, not an error. Printing «22:00–08:00» flat reads as a range typed backwards, so
- * a crossing window is spelled out with «до … завтра» and carries the same marker in the list.
+ * a crossing window is spelled out with «до … следующего дня» and carries a compact marker in the list.
  *
  * The weekend is optional on purpose, and the rule is the domain's, not this screen's:
  * `buildSettingsPatch` copies the weekday range into the weekend when the weekend fields are null,
@@ -43,7 +43,7 @@ export function QuietHoursSheet({ quietHours, patch, onClose }: { quietHours: Qu
         <ListRow
           title={t("settings.quiet_weekend")}
           subtitle={splitWeekend ? null : quietWindowLabel(weekdayStart, weekdayEnd, t)}
-          trailing={<Switch checked={splitWeekend} label={t("settings.quiet_weekend")} onChange={setSplitWeekend} />}
+          trailing={<Switch checked={splitWeekend} label={t("settings.quiet_weekend_different")} onChange={setSplitWeekend} />}
         />
 
         {splitWeekend ? (
@@ -94,10 +94,10 @@ export function crossesMidnight(start: string, end: string): boolean {
   return start > end;
 }
 
-/** «с 22:00 до 08:00 завтра» — the crossing is named rather than left to look like a typo. */
+/** «с 22:00 до 08:00 следующего дня» — the crossing is named rather than left to look like a typo. */
 export function quietWindowLabel(start: string, end: string, t: Translator): string {
   const base = `${t("settings.quiet_from")} ${start} ${t("settings.quiet_to")} ${end}`;
-  return crossesMidnight(start, end) ? `${base} ${t("common.tomorrow")}` : base;
+  return crossesMidnight(start, end) ? `${base} ${t("settings.quiet_overnight")}` : base;
 }
 
 /** The same window as a list row's meta, with the crossing marked where there is no room to spell it. */

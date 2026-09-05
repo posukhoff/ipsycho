@@ -27,7 +27,7 @@ export function MemoryScreen(): ReactNode {
     <Screen header={<ScreenHeader title={t("memory.title")} {...(sensitiveCount > 0 ? { subtitle: t("memory.sensitive_count", { count: sensitiveCount }) } : {})} />}>
       {list.isLoading ? <SkeletonList /> : null}
       {!list.isLoading && list.error !== undefined && list.items.length === 0 ? <ErrorState error={list.error} onRetry={list.refresh} /> : null}
-      {!list.isLoading && list.error === undefined && list.items.length === 0 ? <EmptyState icon="🧠" title={t("memory.empty")} body={t("profile.hint")} /> : null}
+      {!list.isLoading && list.error === undefined && list.items.length === 0 ? <EmptyState icon="🧠" title={t("memory.empty")} body={t("memory.hint")} /> : null}
 
       {list.items.length > 0 ? (
         <Section footer={t("memory.sensitive_hint")}>

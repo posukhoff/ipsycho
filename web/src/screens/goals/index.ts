@@ -1,4 +1,4 @@
-import { defineScreen } from "../../app/index.js";
+import { defineScreen } from "../../app/routes.js";
 import { GoalScreen } from "./detail.js";
 import { GoalsScreen } from "./list.js";
 

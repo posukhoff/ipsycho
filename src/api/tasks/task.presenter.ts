@@ -1,8 +1,7 @@
 import { selectCardDetails } from "../../core/card-details.js";
-import { occurrenceLocalDate } from "../../core/local-schedule.js";
+import { isOverdueForDisplay, occurrenceLocalDate } from "../../core/local-schedule.js";
 import { parseRecurrenceRule } from "../../core/recurrence.js";
 import { rowLocalDate, type TaskGroup as DomainTaskGroup } from "../../core/task-list-view.js";
-import { localDateAt } from "../../core/timezone.js";
 import type { TasksService } from "../../tasks/tasks.service.js";
 import type { ContextService } from "../../context/context.service.js";
 import type {
@@ -43,18 +42,6 @@ export type GoalRowRecord = NonNullable<Awaited<ReturnType<ContextService["findG
 export type ScreenRow = { task: TaskRow; occurrence: OccurrenceRow | null };
 
 const LIVE_OCCURRENCE_STATUSES = new Set(["scheduled", "open", "in_progress"]);
-
-/**
- * Whether a line says «просрочено». The maintained flag and the local date disagree until the
- * minute loop catches up, so the date decides for an earlier day and the flag for today — the same
- * rule `isOverdueForDisplay` applies in `src/telegram/telegram-format.ts`, decided once on the
- * server so two clients cannot answer it differently.
- */
-export function isOverdueForDisplay(occurrence: OccurrenceRow, now: Date): boolean {
-  if (occurrence.overdue) return true;
-  const localDate = occurrenceLocalDate(occurrence);
-  return Boolean(localDate && localDate < localDateAt(now, occurrence.timezone));
-}
 
 export function presentOccurrenceSchedule(occurrence: OccurrenceRow): OccurrenceSchedule {
   return {

@@ -370,7 +370,7 @@ function TaskBody({ task, reload }: { task: TaskDetail; reload: () => void }): R
         onClose={() => setConfirming(null)}
         onConfirm={() => changeState("skipped")}
         title={t("state.mark_skipped")}
-        description={t("reschedule.scope_occurrence")}
+        description={t("task.skip_one_confirm")}
         confirmLabel={t("state.mark_skipped")}
         pending={setState.isPending}
       />
@@ -386,7 +386,13 @@ function TaskBody({ task, reload }: { task: TaskDetail; reload: () => void }): R
         onClose={() => setConfirming(null)}
         onConfirm={() => changeState("cancelled")}
         title={t("state.mark_cancelled")}
-        description={task.title}
+        description={
+          <>
+            {task.title}
+            <br />
+            {t("task.cancel_one_confirm")}
+          </>
+        }
         confirmLabel={t("state.mark_cancelled")}
         destructive
         pending={setState.isPending}

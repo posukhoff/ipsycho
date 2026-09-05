@@ -20,9 +20,8 @@ import {
   type GoalsResponse,
   type UpdateGoalRequest,
 } from "../contracts/index.js";
-import { ApiError } from "../http/index.js";
+import { ApiError, errorForIssues, pageInfo } from "../http/index.js";
 import { presentGoalTaskRow, type TaskRow } from "../tasks/task.presenter.js";
-import { errorForIssue } from "../tasks/web-tasks.service.js";
 
 /** The three tabs the goals screen has; `counts` fills the badge on each of them. */
 const SCOPES: readonly GoalScope[] = ["active", "paused", "completed"];
@@ -61,7 +60,7 @@ export class WebGoalsService {
     return GoalsResponseSchema.parse({
       scope: query.scope,
       goals: view.items.map((row) => presentGoalRow(row.goal, row.tasks.length, idleByGoal.get(row.goal.id) ?? null)),
-      page: { page: view.page, pages: view.pages, pageSize: query.pageSize, total: scoped.length, hasMore: (view.page + 1) * query.pageSize < scoped.length },
+      page: pageInfo(view, scoped.length, query.pageSize),
       counts,
     } satisfies GoalsResponse);
   }
@@ -185,8 +184,7 @@ export class WebGoalsService {
   private async apply(user: WebAuthContext, actions: readonly ResolvedAction[], currentVersion: number | null): Promise<string> {
     const scope = this.scope(user);
     const issues = await this.actions.validateResolved(actions, scope);
-    const issue = issues[0];
-    if (issue) throw errorForIssue(issue, currentVersion);
+    if (issues.length) throw errorForIssues(issues, currentVersion);
     const applied = await this.actions.applyResolved(actions, scope);
     return applied.groupId;
   }

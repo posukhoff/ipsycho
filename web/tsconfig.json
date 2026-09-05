@@ -18,6 +18,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    // `web/src/mocks/answers.ts` imports `./fixtures.ts` by its real extension so that Node can
+    // load it in `tests/app/webapp-mocks.test.mjs` without a build step. Legal only under `noEmit`.
+    "allowImportingTsExtensions": true,
     "noEmit": true
   },
   "include": ["src", "vite.config.ts", "../src/api/contracts"]

@@ -15,11 +15,8 @@ import {
   type MemoryQuery,
   type MemoryResponse,
 } from "../contracts/index.js";
-import { ApiError } from "../http/api-error.js";
-import { apiRoute } from "../http/routes.js";
-import { zodBody, zodParam, zodQuery } from "../http/zod-validation.pipe.js";
+import { ApiError, apiRoute, errorForIssues, rethrowWriteError, zodBody, zodParam, zodQuery } from "../http/index.js";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
-import { apiErrorForIssues, rethrowWriteError } from "../settings/action-errors.js";
 import { presentMemory, type MemoryItem } from "./memory.presenter.js";
 
 /**
@@ -142,7 +139,7 @@ export class WebMemoryController {
     };
     try {
       const issues = await this.actions.validateResolved([action], scope);
-      if (issues.length) throw apiErrorForIssues(issues, version);
+      if (issues.length) throw errorForIssues(issues, version);
       return (await this.actions.applyResolved([action], scope)).groupId;
     } catch (error) {
       rethrowWriteError(error, version);

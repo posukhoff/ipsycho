@@ -75,27 +75,8 @@ export function shiftLocalDate(localDate: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** 1 is Monday, 7 is Sunday — the same numbering as `weeklyReviewWeekday`. */
-export function isoWeekday(localDate: string): number {
-  const day = new Date(`${localDate}T00:00:00.000Z`).getUTCDay();
-  return day === 0 ? 7 : day;
-}
-
 export function formatWeekday(localDate: string, locale: Locale, style: "short" | "long" = "short"): string {
   return new Intl.DateTimeFormat(intlLocale(locale), { weekday: style, timeZone: "UTC" }).format(new Date(`${localDate}T12:00:00.000Z`));
-}
-
-/** `10:00 – 11:30`, collapsing to a single time when there is no end. */
-export function formatTimeRange(startInstant: string | null, endInstant: string | null, timezone: string, locale: Locale): string {
-  if (!startInstant) return endInstant ? formatInstantTime(endInstant, timezone, locale) : "";
-  const start = formatInstantTime(startInstant, timezone, locale);
-  if (!endInstant) return start;
-  return `${start}–${formatInstantTime(endInstant, timezone, locale)}`;
-}
-
-/** Minutes between two instants, for a window's duration field in the create form. */
-export function minutesBetween(startInstant: string, endInstant: string): number {
-  return Math.round((new Date(endInstant).getTime() - new Date(startInstant).getTime()) / 60_000);
 }
 
 /** `13:05` plus 90 minutes, staying inside the day. Used by the duration control. */

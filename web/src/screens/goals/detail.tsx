@@ -72,7 +72,7 @@ function GoalBody({ detail, reload }: { detail: GoalDetail; reload: () => void }
     invalidate,
     onSuccess: (data) => {
       setUnlinking(null);
-      undo.offer(t("common.saved"), data.undoGroupId, ["goal", "goals", "task"]);
+      undo.offer(t("goals.unlinked_toast"), data.undoGroupId, ["goal", "goals", "task"]);
     },
     onError: () => {
       setUnlinking(null);
@@ -227,7 +227,7 @@ function LinkTaskSheet({
   const link = useMutation("linkGoal", {
     invalidate: ["goal", "goals", "task", "taskList"],
     onSuccess: (data) => {
-      undo.offer(t("common.saved"), data.undoGroupId, ["goal", "goals", "task"]);
+      undo.offer(t("goals.linked_toast"), data.undoGroupId, ["goal", "goals", "task"]);
       onLinked();
       onClose();
     },

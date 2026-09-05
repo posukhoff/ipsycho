@@ -89,7 +89,7 @@ export function TaskNewScreen(): ReactNode {
   const create = useMutation("createTask", {
     invalidate: ["taskList", "today", "week", "goals", "goal", "reminders"],
     onSuccess: (data) => {
-      undo.offer(t("common.saved"), data.undoGroupId, ["taskList", "today", "week"]);
+      undo.offer(t("tasks.created_toast"), data.undoGroupId, ["taskList", "today", "week"]);
       navigate.replace({ name: "task", id: data.task.occurrence?.id ?? data.task.id });
     },
     onError: () => toast.show(t("state.failed_toast"), { tone: "error" }),

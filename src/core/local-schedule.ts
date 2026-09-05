@@ -1,3 +1,4 @@
+import { isIanaTimezone } from "./timezone-lookup.js";
 import { compareLocalDates, localDateAndTimeToUtc, localDateAt, parseLocalDate, parseLocalTime, shiftLocalDate } from "./timezone.js";
 
 export type LocalScheduleMode = "exact" | "window" | "date" | "deadline" | "fuzzy";
@@ -128,11 +129,7 @@ function requireOnlyAbsent(values: Record<string, unknown>, mode: string): void 
 }
 
 function assertTimezone(timezone: string): void {
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date());
-  } catch {
-    throw new Error("timezone is not a valid IANA timezone");
-  }
+  if (!isIanaTimezone(timezone)) throw new Error("timezone is not a valid IANA timezone");
 }
 
 /**
@@ -166,16 +163,34 @@ export function occurrenceFallsOnLocalDate(
  * answers "is it on this day", which is true for overdue work on every day; a date window needs
  * the day itself. The order matches how a card reads the occurrence: planned before due.
  */
-export function occurrenceLocalDate(input: {
+export interface OccurrenceDayFields {
   timezone: string;
   plannedLocalDate?: string | null;
   dueLocalDate?: string | null;
   plannedStartAt?: Date | string | null;
   dueAt?: Date | string | null;
-}): string | null {
+}
+
+export function occurrenceLocalDate(input: OccurrenceDayFields): string | null {
   if (input.plannedStartAt) return localDateAt(new Date(input.plannedStartAt), input.timezone);
   if (input.plannedLocalDate) return input.plannedLocalDate;
   if (input.dueAt) return localDateAt(new Date(input.dueAt), input.timezone);
   if (input.dueLocalDate) return input.dueLocalDate;
   return null;
+}
+
+/**
+ * Whether a line says «просрочено». Two answers used to disagree: the line read the maintained
+ * `overdue` flag, while the list's own «просрочено раньше» count read the local date, so a task
+ * whose day had passed could be counted and yet look untouched until the minute loop caught up.
+ * The date decides for an earlier day, the flag for today.
+ *
+ * It lives here rather than in either presentation layer because both ask it: the bot renders the
+ * word, the Mini App's contract carries `overdue` as a boolean the client is forbidden to
+ * recompute — a phone in another timezone would answer it differently.
+ */
+export function isOverdueForDisplay(occurrence: OccurrenceDayFields & { overdue?: boolean | undefined }, now: Date): boolean {
+  if (occurrence.overdue) return true;
+  const localDate = occurrenceLocalDate(occurrence);
+  return Boolean(localDate && localDate < localDateAt(now, occurrence.timezone));
 }

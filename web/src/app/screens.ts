@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { Route, RouteName, RouteOf } from "./routes.js";
+import type { Route, RouteName, ScreenDefinition } from "./routes.js";
 
 /**
  * How the three screen groups plug into the shell without sharing a file.
@@ -11,7 +11,7 @@ import type { Route, RouteName, RouteOf } from "./routes.js";
  *
  * ```ts
  * // web/src/screens/tasks/index.ts, owned by group 6
- * import { defineScreen } from "../../app/screens.js";
+ * import { defineScreen } from "../../app/routes.js";
  * import { TodayScreen } from "./today.js";
  * import { TaskScreen } from "./task.js";
  *
@@ -21,25 +21,14 @@ import type { Route, RouteName, RouteOf } from "./routes.js";
  * ];
  * ```
  *
- * `defineScreen` is what makes the route type flow into the component: `TaskScreen` is declared as
- * `({ route }: { route: RouteOf<"task"> }) => …` and gets `route.id` typed as a string, with no
- * narrowing inside the component and no way to register it under the wrong route name.
+ * `defineScreen` is in `routes.js`, not here: a screen module calling a function this file exports
+ * would close the loop the glob opens, and that cycle is what made a screen unrenderable outside a
+ * browser. This file only collects.
  *
  * A route with no registered screen renders the not-found screen. That is deliberate: it means the
  * shell builds and runs with zero screens implemented, which is what lets groups 6, 7 and 8 start
  * the moment this lands instead of waiting for one another.
  */
-
-export interface ScreenDefinition {
-  readonly name: RouteName;
-  readonly component: ComponentType<{ route: Route }>;
-}
-
-export function defineScreen<Name extends RouteName>(name: Name, component: ComponentType<{ route: RouteOf<Name> }>): ScreenDefinition {
-  // The registry is keyed by route name, so by the time the shell renders `component` the route it
-  // passes is `RouteOf<Name>` by construction. One cast here replaces a narrowing in every screen.
-  return { name, component: component as ComponentType<{ route: Route }> };
-}
 
 interface ScreenModule {
   readonly screens?: readonly ScreenDefinition[];
@@ -63,8 +52,4 @@ const REGISTRY = collect();
 
 export function screenFor(name: RouteName): ComponentType<{ route: Route }> | undefined {
   return REGISTRY.get(name);
-}
-
-export function hasScreen(name: RouteName): boolean {
-  return REGISTRY.has(name);
 }

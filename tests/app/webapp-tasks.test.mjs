@@ -809,7 +809,7 @@ test("a state change goes through the action journal with the versions the clien
   t.after(() => harness.close());
 
   const { status, body } = await harness.post(`/tasks/${ids.occPoint}/state`, { state: "done", expectedVersion: 3 });
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   const parsed = TaskMutationResponseSchema.parse(body);
 
   assert.equal(harness.recorder.applied.length, 1, "the write is one action group, exactly like the same tap in chat");
@@ -833,7 +833,7 @@ test("a state change goes through the action journal with the versions the clien
   assert.equal(parsed.undoGroupId, applied.groupId);
 
   const undone = await harness.post("/undo", { groupId: applied.groupId });
-  assert.equal(undone.status, 201);
+  assert.equal(undone.status, 200);
   assert.deepEqual(undone.body, { undone: true });
   assert.deepEqual(harness.recorder.undone, [{ workspaceId: WORKSPACE_ID, actorUserId: USER_ID, groupId: applied.groupId }]);
 });
@@ -845,14 +845,14 @@ test("cancelling a repeat can mean this date or the whole rule, and the version 
   t.after(() => harness.close());
 
   const one = await harness.post(`/tasks/${ids.occSeriesOne}/state`, { state: "cancelled", expectedVersion: 2, scope: "occurrence" });
-  assert.equal(one.status, 201);
+  assert.equal(one.status, 200);
   assert.equal(harness.recorder.applied[0].actions[0].target.kind, "occurrence");
   assert.equal(harness.recorder.applied[0].actions[0].target.occurrenceVersion, 2, "an occurrence cancel carries the occurrence version");
 
   // The whole repeat addresses the task, so the *task* version is what travels — the table in the
   // contract, not a guess from the id in the path.
   const whole = await harness.post(`/tasks/${ids.occSeriesOne}/state`, { state: "cancelled", expectedVersion: 4, scope: "series" });
-  assert.equal(whole.status, 201);
+  assert.equal(whole.status, 200);
   assert.deepEqual(harness.recorder.applied[1].actions[0].target, { kind: "series", taskId: ids.taskSeries, taskVersion: 4 });
 
   // And a stale task version is the conflict for the task, not for the occurrence under it.
@@ -871,7 +871,7 @@ test("«seen» records what is blocking it in the journal and promises no Undo",
   t.after(() => harness.close());
 
   const { status, body } = await harness.post(`/tasks/${ids.occPoint}/state`, { state: "seen", expectedVersion: 3, note: "жду ответа от банка" });
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   const parsed = TaskMutationResponseSchema.parse(body);
 
   assert.deepEqual(harness.recorder.applied, [], "there is no set_task_state for «seen»; inventing a group would invent an Undo");
@@ -884,7 +884,7 @@ test("«seen» records what is blocking it in the journal and promises no Undo",
   assert.equal(parsed.undoGroupId, null);
 
   const started = await harness.post(`/tasks/${ids.occPoint}/state`, { state: "started", expectedVersion: 4 });
-  assert.equal(started.status, 201);
+  assert.equal(started.status, 200);
   assert.equal(harness.recorder.transitions[1].nextStatus, "in_progress");
 });
 
@@ -943,7 +943,7 @@ test("a domain rule the request breaks is named by its code, never by its messag
     scope: null,
     recurrence: null,
   });
-  assert.equal(withReason.status, 201);
+  assert.equal(withReason.status, 200);
   const [applied] = harness.recorder.applied;
   assert.equal(applied.actions[0].type, "reschedule");
   assert.equal(applied.actions[0].reason, "time");
@@ -968,7 +968,7 @@ test("a checklist tick is a whole-list write through the journal, because the do
   t.after(() => harness.close());
 
   const { status } = await harness.post(`/tasks/${ids.taskPoint}/checklist`, { expectedVersion: 1, items: [{ text: "шаг", done: true }] });
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   const [applied] = harness.recorder.applied;
   assert.equal(applied.actions[0].type, "update_task");
   assert.deepEqual(applied.actions[0].patch.checklist, [{ text: "шаг", done: true }]);
@@ -993,7 +993,7 @@ test("a create is journalled and answers with the row it actually wrote", async 
     timezone: null,
     goalId: ids.goal,
   });
-  assert.equal(status, 201);
+  assert.equal(status, 200);
   const parsed = TaskMutationResponseSchema.parse(body);
   assert.equal(parsed.task.title, "Сдать отчёт");
 
@@ -1032,7 +1032,7 @@ test("goals are created, linked and unlinked through the same journal", async (t
   assert.equal(created.undoGroupId, harness.recorder.applied[0].groupId);
 
   const linked = await harness.post(`/goals/${ids.goal}/tasks`, { taskId: ids.taskSeries, expectedGoalVersion: 2, expectedTaskVersion: 4 });
-  assert.equal(linked.status, 201);
+  assert.equal(linked.status, 200);
   assert.equal(harness.recorder.applied[1].actions[0].op, "link");
   assert.equal(harness.recorder.applied[1].actions[0].taskVersion, 4);
 

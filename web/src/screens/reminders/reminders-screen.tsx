@@ -64,7 +64,7 @@ export function RemindersScreen(): ReactNode {
     <Screen header={<ScreenHeader title={t("reminders.title")} {...(snoozeNotice ? { subtitle: snoozeNotice } : {})} />}>
       {list.isLoading ? <SkeletonList /> : null}
       {!list.isLoading && list.error !== undefined && list.items.length === 0 ? <ErrorState error={list.error} onRetry={list.refresh} /> : null}
-      {!list.isLoading && list.error === undefined && list.items.length === 0 ? <EmptyState icon="🔔" title={t("reminders.empty")} body={t("today.empty_hint")} /> : null}
+      {!list.isLoading && list.error === undefined && list.items.length === 0 ? <EmptyState icon="🔔" title={t("reminders.empty")} body={t("reminders.hint")} /> : null}
 
       {groupByDay(list.items).map((day) => (
         <Section key={day.localDate} title={dayTitle(day.localDate, todayLocalDate, t)}>
@@ -180,7 +180,7 @@ function ReminderActions({ state, onClose, onAskCancel, onRefresh }: { state: Sh
           {formatLocalDate(row.localDate, t.locale, { todayLocalDate })} · {formatInstantTime(row.scheduledFor, row.timezone, t.locale)}
         </p>
 
-        <ListRow title={t("task.title_label")} subtitle={row.title} to={{ name: "task", id: row.taskId }} chevron />
+        <ListRow title={t("reminders.open_task")} subtitle={row.title} to={{ name: "task", id: row.taskId }} chevron />
 
         <div className="ip-field__label">{t("reminders.snooze")}</div>
         <QuickChoices

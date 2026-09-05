@@ -104,7 +104,7 @@ export function TodayGroupRow({ group, todayLocalDate, expanded, busy, onToggle,
                   </Button>
                 )}
                 <Link to={{ name: "task", id: lead.taskId }} className="ip-button ip-button--ghost ip-button--small">
-                  {t("common.more")}
+                  {t("common.open")}
                 </Link>
               </Inline>
             }

@@ -50,10 +50,5 @@ export function webAuthOf(request: unknown): WebAuthContext {
   return context;
 }
 
-/** The fields every log line inside an authenticated request carries. Internal uuid only. */
-export function webLogContext(context: WebAuthContext): { requestId: string; userId: string } {
-  return { requestId: context.requestId, userId: context.access.user.id };
-}
-
 /** `me(@CurrentUser() user: WebAuthContext)`. Groups 2–4 read the caller through this. */
 export const CurrentUser = createParamDecorator((_data: unknown, context: ExecutionContext): WebAuthContext => webAuthOf(context.switchToHttp().getRequest<unknown>()));

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
 import {
   CreateGoalRequestSchema,
@@ -37,6 +37,7 @@ export class WebGoalsController {
   }
 
   @Post()
+  @HttpCode(200)
   create(@CurrentUser() user: WebAuthContext, @Body(zodBody(CreateGoalRequestSchema)) body: CreateGoalRequest): Promise<GoalMutationResponse> {
     return this.goals.create(user, body);
   }
@@ -51,6 +52,7 @@ export class WebGoalsController {
   }
 
   @Post(":id/tasks")
+  @HttpCode(200)
   link(
     @CurrentUser() user: WebAuthContext,
     @Param("id", zodParam(UuidSchema)) id: string,

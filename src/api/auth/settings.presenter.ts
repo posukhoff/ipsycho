@@ -1,5 +1,6 @@
+import type { AiService } from "../../ai/ai.service.js";
 import { telegramLocale } from "../../telegram/telegram-locale.js";
-import type { Locale, SettingsResponse } from "../contracts/index.js";
+import type { ConsentState, Locale, SettingsResponse } from "../contracts/index.js";
 import type { WebSettingsRow } from "./web-auth-context.js";
 
 /**
@@ -47,6 +48,27 @@ export function presentSettings(row: WebSettingsRow, extras: { historyMessageCou
     onboardingCompletedAt: row.onboardingCompletedAt?.toISOString() ?? null,
     historyMessageCount: extras.historyMessageCount,
   };
+}
+
+/**
+ * The two consents, as `GET /me` embeds them and `GET|POST /consent` answers them.
+ *
+ * Two scopes because there are two providers: `text` is whichever provider is configured, `voice`
+ * is always OpenAI, because transcription runs there whoever answers the chat — which is exactly
+ * why the bot asks for the two separately (`ai:consent` and `voice:consent`). It sits beside
+ * `presentSettings` for the same reason that one does: the bootstrap and the settings screen both
+ * carry it, and two mappings are how they start disagreeing about what the user agreed to.
+ *
+ * A pre-check, never the gate. `ChatService` re-reads consent immediately before it calls the model
+ * and `TranscriptionService` does the same before it uploads audio.
+ */
+export async function presentConsents(ai: AiService, userId: string): Promise<ConsentState[]> {
+  const version = ai.consentVersion;
+  const [text, voice] = await Promise.all([ai.hasConsent(userId), ai.hasProviderConsent(userId, "openai")]);
+  return [
+    { scope: "text", granted: text, provider: ai.providerName, version },
+    { scope: "voice", granted: voice, provider: "openai", version },
+  ];
 }
 
 /** `pinned_language` is a varchar; only the three the interface has count as pinned. */

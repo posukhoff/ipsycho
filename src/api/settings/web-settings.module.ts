@@ -3,7 +3,6 @@ import { AccessModule } from "../../access/access.module.js";
 import { ActionsModule } from "../../actions/actions.module.js";
 import { AiModule } from "../../ai/ai.module.js";
 import { ChatModule } from "../../chat/chat.module.js";
-import { ConfigModule } from "../../config.module.js";
 import { ContextModule } from "../../context/context.module.js";
 import { RemindersModule } from "../../reminders/reminders.module.js";
 import { SettingsModule } from "../../settings/settings.module.js";
@@ -35,18 +34,15 @@ import { WebSettingsController } from "./web-settings.controller.js";
  * and it is the one endpoint with no counterpart — restore stays a chat command, because the guard
  * refuses a deletion-pending user by design.
  *
- * `WebAuthModule` is imported, never re-provided: `InitDataGuard` is resolved from this module's
- * injector, and both rate limiters stay one instance per process. Providing them again here would
- * give this module its own counters and permit a flood once per module.
- *
- * `ConfigModule`, `AccessModule` and `SettingsModule` are imported for the same reason: a guard
- * named in `@UseGuards` is *constructed* in the module that names it, so its own dependencies have
- * to be resolvable here even though the class comes from `WebAuthModule`.
+ * `WebAuthModule` is imported, never re-provided: it brings the guard, the two rate limiters as the
+ * single instances per process they have to be, and — re-exported — the modules `InitDataGuard`
+ * injects, because a guard named in `@UseGuards` is *constructed* in the module that names it.
+ * `AccessModule` and `SettingsModule` are named again below for this module's own controllers.
  *
  * This module also owns `src/api/reminders/**` and `src/api/memory/**`.
  */
 @Module({
-  imports: [WebAuthModule, ConfigModule, SettingsModule, RemindersModule, ContextModule, ActionsModule, ChatModule, AiModule, AccessModule, TasksModule],
+  imports: [WebAuthModule, SettingsModule, AccessModule, RemindersModule, ContextModule, ActionsModule, ChatModule, AiModule, TasksModule],
   controllers: [WebSettingsController, WebRemindersController, WebMemoryController, WebProfileController, WebConsentController, WebChatHistoryController, WebAccountController],
 })
 export class WebSettingsModule {}

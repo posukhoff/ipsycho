@@ -100,5 +100,4 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
 };
 
 export type ErrorDetails = z.infer<typeof ErrorDetailsSchema>;
-export type ApiErrorBody = z.infer<typeof ApiErrorBodySchema>;
 export type ErrorEnvelope = z.infer<typeof ErrorEnvelopeSchema>;

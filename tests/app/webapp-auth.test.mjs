@@ -5,6 +5,7 @@ import "reflect-metadata";
 import { GUARDS_METADATA, METHOD_METADATA, MODULE_METADATA, PATH_METADATA } from "@nestjs/common/constants.js";
 import { APP_FILTER } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
+import { AccessModule } from "../../dist/access/access.module.js";
 import { AccessService, DELETION_GRACE_DAYS } from "../../dist/access/access.service.js";
 import { AiService } from "../../dist/ai/ai.service.js";
 import { ApiModule } from "../../dist/api/api.module.js";
@@ -15,8 +16,10 @@ import { API_PREFIX, MeResponseSchema } from "../../dist/api/contracts/index.js"
 import { ApiExceptionFilter } from "../../dist/api/http/api-exception.filter.js";
 import { ChatService } from "../../dist/chat/chat.service.js";
 import { APP_CONFIG } from "../../dist/config.js";
+import { ConfigModule } from "../../dist/config.module.js";
 import { DatabaseService } from "../../dist/database/database.service.js";
 import { JobQueueService } from "../../dist/queue/job-queue.service.js";
+import { SettingsModule } from "../../dist/settings/settings.module.js";
 import { SettingsService } from "../../dist/settings/settings.service.js";
 import { TelegramService } from "../../dist/telegram/telegram.service.js";
 
@@ -426,16 +429,37 @@ test("an active user with no settings row is a 503, not a refusal that looks lik
   assert.equal(harness.calls.resolveActiveUser, 1);
 });
 
-test("the module exports the guard and the limiters the other API groups depend on", async (t) => {
+test("the module exports the guard, and nothing else in the API provides the limiters", async (t) => {
   const harness = await createApp();
   t.after(() => harness.close());
 
-  // Groups 2–4 write `imports: [WebAuthModule]` and `@UseGuards(InitDataGuard)`. That resolves the
-  // guard from their own injector, so the module has to export it — and both limiters have to be
-  // one instance per process, or a flood is permitted once per module.
+  // Groups 2–4 write `imports: [WebAuthModule]` and `@UseGuards(InitDataGuard)`. A guard named in
+  // `@UseGuards` is *constructed* in the module that names it, so this module has to export both
+  // the guard and everything the guard injects.
   assert.ok(harness.app.get(InitDataGuard) instanceof InitDataGuard);
-  assert.equal(harness.app.get(ApiIpRateLimiter), harness.ipLimiter);
-  assert.equal(harness.app.get(ApiUserRateLimiter), harness.userLimiter);
+  const exported = Reflect.getMetadata(MODULE_METADATA.EXPORTS, WebAuthModule) ?? [];
+  for (const dependency of [InitDataGuard, ApiIpRateLimiter, ApiUserRateLimiter, ConfigModule, AccessModule, SettingsModule]) {
+    assert.ok(exported.includes(dependency), `WebAuthModule does not export ${dependency.name}`);
+  }
+
+  // The limiters are stateful, and one instance per process is the whole point of them: a module
+  // that listed them in its own `providers` would get its own counters, and the flood a limiter
+  // exists to stop would be permitted once per module. Asking the running app for them proves
+  // nothing — `app.get` searches one container — so this reads the graph instead.
+  const providers = new Map();
+  const seen = new Set();
+  const visit = (entry) => {
+    if (!entry || seen.has(entry)) return;
+    seen.add(entry);
+    const module = entry.module ?? entry;
+    for (const provider of entry.providers ?? Reflect.getMetadata(MODULE_METADATA.PROVIDERS, module) ?? []) {
+      if (provider === ApiIpRateLimiter || provider === ApiUserRateLimiter) providers.set(provider, [...(providers.get(provider) ?? []), module.name]);
+    }
+    for (const imported of entry.imports ?? Reflect.getMetadata(MODULE_METADATA.IMPORTS, module) ?? []) visit(imported);
+  };
+  visit(ApiModule.register(true));
+  assert.deepEqual(providers.get(ApiIpRateLimiter), ["WebAuthModule"]);
+  assert.deepEqual(providers.get(ApiUserRateLimiter), ["WebAuthModule"]);
 });
 
 test("a body the parser refuses stays inside the envelope and is not a server fault", async (t) => {

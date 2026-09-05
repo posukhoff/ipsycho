@@ -4,10 +4,10 @@ import { AiService } from "../../ai/ai.service.js";
 import { ChatService } from "../../chat/chat.service.js";
 import { APP_CONFIG, type AppConfig } from "../../config.js";
 import { localDateAt } from "../../core/timezone.js";
-import { MeResponseSchema, type ConsentState, type MeResponse } from "../contracts/index.js";
-import { apiRoute } from "../http/routes.js";
+import { MeResponseSchema, type MeResponse } from "../contracts/index.js";
+import { apiRoute } from "../http/index.js";
 import { InitDataGuard } from "./init-data.guard.js";
-import { presentSettings } from "./settings.presenter.js";
+import { presentConsents, presentSettings } from "./settings.presenter.js";
 import { CurrentUser, type WebAuthContext } from "./web-auth-context.js";
 
 /**
@@ -35,7 +35,7 @@ export class MeController {
     const { access, settings, locale } = user;
     const [historyMessageCount, consents, callsLastHour] = await Promise.all([
       this.chat.historyMessageCount(access.workspaceId, access.user.id),
-      this.consentStates(access.user.id),
+      presentConsents(this.ai, access.user.id),
       this.ai.callsLastHour(access.user.id),
     ]);
 
@@ -48,8 +48,10 @@ export class MeController {
       todayLocalDate: localDateAt(new Date(), settings.timezone),
       ai: {
         status: access.user.aiStatus,
-        configured: this.chat.isAiConfigured(),
-        provider: this.chat.providerName,
+        // `AiService`, not `ChatService`: both answers are the same two lines relayed, and asking
+        // the relay meant every test harness had to fake the same fact on two services.
+        configured: this.ai.isConfigured(),
+        provider: this.ai.providerName,
         // The hourly call budget, so the screen can say «подожди» instead of failing a turn. The
         // message budget is the other half of `aiBurstAllowed` and needs the messages repository,
         // which `src/api/**` may not touch; `ChatService` re-checks both at the boundary anyway.
@@ -62,19 +64,5 @@ export class MeController {
       // after it; the bootstrap is where a constant the whole app reads belongs.
       deletionGraceDays: DELETION_GRACE_DAYS,
     } satisfies MeResponse);
-  }
-
-  /**
-   * Two scopes, two providers. `text` is the configured chat provider; `voice` is always OpenAI,
-   * because transcription runs there whichever provider answers the chat — which is exactly why the
-   * two are asked for separately in the bot, and why the screen has to show them separately too.
-   */
-  private async consentStates(userId: string): Promise<ConsentState[]> {
-    const version = this.ai.consentVersion;
-    const [text, voice] = await Promise.all([this.ai.hasConsent(userId), this.ai.hasProviderConsent(userId, "openai")]);
-    return [
-      { scope: "text", granted: text, provider: this.ai.providerName, version },
-      { scope: "voice", granted: voice, provider: "openai", version },
-    ];
   }
 }

@@ -309,8 +309,12 @@ export const RescheduleOptionsSchema = z
   .object({
     reasonRequired: z.boolean(),
     presets: z.array(ReschedulePresetSchema),
-    /** What each preset resolves to right now, so the button can show the time it will produce. */
-    presetTimes: z.record(ReschedulePresetSchema, IsoInstantSchema),
+    /**
+     * What each preset resolves to right now, so the button can show the time it will produce —
+     * and `null` where it resolves to a whole day instead, which is what «завтра» means for a task
+     * with no clock time. The button then names the preset alone rather than an invented 00:00.
+     */
+    presetTimes: z.record(ReschedulePresetSchema, IsoInstantSchema.nullable()),
     timezone: TimezoneSchema,
     /** True for a repeating task: the sheet then has to ask «this date or the series». */
     hasSeries: z.boolean(),
@@ -423,7 +427,6 @@ export type CancelScope = z.infer<typeof CancelScopeSchema>;
 export type OccurrenceStateRequest = z.infer<typeof OccurrenceStateRequestSchema>;
 export type ReschedulePreset = z.infer<typeof ReschedulePresetSchema>;
 export type RescheduleReasonCode = z.infer<typeof RescheduleReasonCodeSchema>;
-export type RescheduleReason = z.infer<typeof RescheduleReasonSchema>;
 export type RescheduleRequest = z.infer<typeof RescheduleRequestSchema>;
 export type RescheduleOptions = z.infer<typeof RescheduleOptionsSchema>;
 export type TaskBody = z.infer<typeof TaskBodySchema>;

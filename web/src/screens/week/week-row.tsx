@@ -38,7 +38,7 @@ export function WeekPoolListRow({ row, pickDisabled, takeDisabled, onToggle, onT
 
   return (
     <ListRow
-      leading={<Checkbox square checked={row.picked} disabled={pickDisabled} label={t("nav.week")} onChange={() => onToggle(row)} />}
+      leading={<Checkbox square checked={row.picked} disabled={pickDisabled} label={t("week.pick_label")} onChange={() => onToggle(row)} />}
       title={row.title}
       subtitle={
         <Inline>
@@ -52,7 +52,7 @@ export function WeekPoolListRow({ row, pickDisabled, takeDisabled, onToggle, onT
           </Button>
         </Inline>
       }
-      trailing={<IconButton label={t("common.more")} icon="›" onClick={() => navigate.push({ name: "task", id: row.taskId })} />}
+      trailing={<IconButton label={t("common.open")} icon="›" onClick={() => navigate.push({ name: "task", id: row.taskId })} />}
     />
   );
 }

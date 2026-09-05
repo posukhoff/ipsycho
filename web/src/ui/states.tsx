@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { ApiRequestError } from "../api/client.js";
 import { useT } from "../i18n/index.js";
 import type { QueryResult } from "../lib/query.js";
 import type { EndpointName, EndpointResponse } from "../api/contracts.js";
@@ -121,9 +120,4 @@ export function AsyncContent<Name extends EndpointName>({
   if (query.error !== undefined) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
   if (query.isLoading) return skeleton ?? <SkeletonList />;
   return null;
-}
-
-/** True when a failure should be shown as «ничего нет» rather than as a problem. */
-export function isNotFoundError(error: unknown): boolean {
-  return error instanceof ApiRequestError && error.isNotFound;
 }

@@ -25,25 +25,19 @@ import { EmptyState, ErrorState, Skeleton } from "../ui/states.js";
  * is why the settings screen has to state that `/restore` is a chat command.
  */
 
-interface MeContextValue {
-  readonly me: MeResponse;
-  readonly refresh: () => Promise<void>;
-}
+const MeContext = createContext<MeResponse | null>(null);
 
-const MeContext = createContext<MeContextValue | null>(null);
-
-/** The bootstrap response. Available to every screen; it is fetched once and cached. */
+/**
+ * The bootstrap response. Available to every screen; it is fetched once and cached.
+ *
+ * There is no `refresh` beside it: `useSettingsPatch` invalidates `["me"]` in the query cache after
+ * a change that moves the timezone or the language, which refetches this the same way, and a second
+ * way to do it is a second thing to remember.
+ */
 export function useMe(): MeResponse {
   const value = useContext(MeContext);
   if (!value) throw new Error("useMe is only available under <Boot>");
-  return value.me;
-}
-
-/** Refetches `/me` — after a settings change that moved the timezone or the language. */
-export function useRefreshMe(): () => Promise<void> {
-  const value = useContext(MeContext);
-  if (!value) throw new Error("useRefreshMe is only available under <Boot>");
-  return value.refresh;
+  return value;
 }
 
 export function useSettings(): SettingsResponse {
@@ -71,7 +65,7 @@ export function Boot({ children }: { children: ReactNode }): ReactNode {
     const locale = resolveLocale(me.data.settings.pinnedLanguage, me.data.settings.telegramLanguage ?? telegramLanguageCode());
     return (
       <I18nProvider locale={locale}>
-        <MeContext.Provider value={{ me: me.data, refresh: me.refetch }}>{children}</MeContext.Provider>
+        <MeContext.Provider value={me.data}>{children}</MeContext.Provider>
       </I18nProvider>
     );
   }

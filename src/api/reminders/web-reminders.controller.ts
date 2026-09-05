@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { ActionsService, type ActionScope } from "../../actions/actions.service.js";
 import type { ResolvedActionOf } from "../../core/ai-contract.js";
-import { localDateAndTimeToUtc, localDateAt } from "../../core/timezone.js";
+import { paginate } from "../../core/task-list-view.js";
+import { localDateAt } from "../../core/timezone.js";
 import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
 import {
@@ -19,12 +20,8 @@ import {
   type RemindersQuery,
   type RemindersResponse,
 } from "../contracts/index.js";
-import { ApiError } from "../http/api-error.js";
-import { apiRoute } from "../http/routes.js";
-import { zodBody, zodParam, zodQuery } from "../http/zod-validation.pipe.js";
+import { ApiError, apiRoute, errorForIssues, pageInfo, rethrowWriteError, zodBody, zodParam, zodQuery } from "../http/index.js";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
-import { apiErrorForIssues, rethrowWriteError } from "../settings/action-errors.js";
-import { paginate } from "../settings/paging.js";
 import { presentReminder, type UpcomingReminder } from "./reminders.presenter.js";
 
 /**
@@ -39,6 +36,11 @@ import { presentReminder, type UpcomingReminder } from "./reminders.presenter.js
  * one in the API would be a second ordering that could disagree with the bot's. It bounds the
  * *list* only — every write addresses its delivery through `findUpcoming`, so a reminder past the
  * window is still snoozable, repeatable and cancellable.
+ *
+ * No write reads the list back. A snooze and a repeat both answer with the undo group and nothing
+ * else: the client invalidates `reminders` and refetches, so a second 200-row read per write bought
+ * a field nothing rendered — and answered `null` for exactly the deliveries that fell outside the
+ * window, which is the read cap leaking into a write all over again.
  */
 const WINDOW = 200;
 
@@ -55,10 +57,10 @@ export class WebRemindersController {
   async list(@CurrentUser() user: WebAuthContext, @Query(zodQuery(RemindersQuerySchema)) query: RemindersQuery): Promise<RemindersResponse> {
     const now = new Date();
     const rows = await this.upcoming(user, now);
-    const paged = paginate(rows, query);
+    const view = paginate(rows, query.page, query.pageSize);
     return RemindersResponseSchema.parse({
-      rows: paged.rows.map(presentReminder),
-      page: paged.page,
+      rows: view.items.map(presentReminder),
+      page: pageInfo(view, rows.length, query.pageSize),
       timezone: user.settings.timezone,
       todayLocalDate: localDateAt(now, user.settings.timezone),
       // Every row below is still scheduled: a notification snooze delays delivery, it does not
@@ -69,6 +71,7 @@ export class WebRemindersController {
 
   /** `follow:snooze:*` on the reminder card: say it again in 15 minutes or an hour. */
   @Post(":deliveryId/snooze")
+  @HttpCode(200)
   async snooze(
     @CurrentUser() user: WebAuthContext,
     @Param("deliveryId", zodParam(UuidSchema)) deliveryId: string,
@@ -89,14 +92,9 @@ export class WebRemindersController {
     // is «эта задача больше не ждёт ответа», and it is a domain refusal rather than a failure.
     if (!created) throw ApiError.domainRule("occurrence_terminal");
 
-    const rows = await this.upcoming(user, new Date());
-    const row = rows.find((candidate) => candidate.delivery.id === created);
-    return ReminderMutationResponseSchema.parse({
-      reminder: row ? presentReminder(row) : null,
-      // A snooze is not journaled — it creates a contact, it changes no state — so there is nothing
-      // truthful for Undo to restore. Claiming otherwise is how an Undo button starts lying.
-      undoGroupId: null,
-    } satisfies ReminderMutationResponse);
+    // A snooze is not journaled — it creates a contact, it changes no state — so there is nothing
+    // truthful for Undo to restore. Claiming otherwise is how an Undo button starts lying.
+    return ReminderMutationResponseSchema.parse({ undoGroupId: null } satisfies ReminderMutationResponse);
   }
 
   /**
@@ -108,6 +106,7 @@ export class WebRemindersController {
    * minutes. Neither this nor snooze touches the task's own time.
    */
   @Post(":deliveryId/repeat")
+  @HttpCode(200)
   async repeat(
     @CurrentUser() user: WebAuthContext,
     @Param("deliveryId", zodParam(UuidSchema)) deliveryId: string,
@@ -147,18 +146,13 @@ export class WebRemindersController {
     let groupId: string;
     try {
       const issues = await this.actions.validateResolved([action], scope);
-      if (issues.length) throw apiErrorForIssues(issues, context.occurrence.version);
+      if (issues.length) throw errorForIssues(issues, context.occurrence.version);
       groupId = (await this.actions.applyResolved([action], scope)).groupId;
     } catch (error) {
       rethrowWriteError(error, context.occurrence.version);
     }
 
-    // Matched on `intendedFor`, not on `scheduledFor`: quiet hours may have pushed the delivery, and
-    // the moment the user asked for is the one that survives that.
-    const intendedFor = localDateAndTimeToUtc(body.date, body.time, timezone).date;
-    const rows = await this.upcoming(user, new Date());
-    const row = rows.find((candidate) => candidate.delivery.occurrenceId === occurrenceId && candidate.delivery.intendedFor.getTime() === intendedFor.getTime());
-    return ReminderMutationResponseSchema.parse({ reminder: row ? presentReminder(row) : null, undoGroupId: groupId } satisfies ReminderMutationResponse);
+    return ReminderMutationResponseSchema.parse({ undoGroupId: groupId } satisfies ReminderMutationResponse);
   }
 
   /** `rem:cancel`: withdraw one pending delivery without touching the rule that produced it. */

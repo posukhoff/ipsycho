@@ -283,18 +283,21 @@ export const me: MeResponse = {
 
 /* ----------------------------------------------------------------- lists */
 
-const COUNTS = { overdue: 1, today: 3, week: 5, month: 6, all: 6, nodate: 1 } as const;
+const COUNTS = { overdue: 1, today: 3, week: 5, month: 5, all: 6, nodate: 1 } as const;
 
 /**
  * `scopeMatches` keeps anything already past in every window and drops an undated task from all of
  * them but `nodate`. A mock that answered the same five groups to every tab would let a screen ship
  * without ever meeting the empty-tab or fuzzy-row case.
+ *
+ * The buckets are checked against `scopeMatches` itself in `tests/app/webapp-mocks.test.mjs`, which
+ * is how `today` was found holding the series' *next* date and `month` an undated task.
  */
 const GROUPS_BY_SCOPE: Record<string, TaskGroup[]> = {
   overdue: [group([taxRow])],
-  today: [group([taxRow]), group([standupRow, standupNextRow]), group([reviewRow])],
+  today: [group([taxRow]), group([standupRow]), group([reviewRow])],
   week: [group([taxRow]), group([standupRow, standupNextRow]), group([reviewRow]), group([callRow]), group([dentistRow])],
-  month: [group([taxRow]), group([standupRow, standupNextRow]), group([reviewRow]), group([callRow]), group([dentistRow]), group([bookRow])],
+  month: [group([taxRow]), group([standupRow, standupNextRow]), group([reviewRow]), group([callRow]), group([dentistRow])],
   all: [group([taxRow]), group([standupRow, standupNextRow]), group([reviewRow]), group([callRow]), group([dentistRow]), group([bookRow])],
   nodate: [group([bookRow])],
 };
@@ -315,10 +318,27 @@ export function taskListForScope(scope: string): TaskListResponse {
 
 export const taskList: TaskListResponse = taskListForScope("week");
 
+/**
+ * The second sitting of the same series *today*, not its next date.
+ *
+ * `listTodayGrouped` keeps only the rows that cover the requested day, so a Today group holds more
+ * than one row exactly when a series fires twice in one day — never because the next date exists.
+ * The fixture used to reuse `standupNextRow`, dated two days out, which taught the Today screen to
+ * expect a shape the server cannot send.
+ */
+const standupSecondRow: TaskListRow = {
+  ...standupRow,
+  occurrenceId: ids.standupNext,
+  occurrenceVersion: 1,
+  occurrenceStatus: "scheduled",
+  schedule: { ...emptySchedule, plannedStartAt: "2026-09-05T15:00:00.000Z" },
+  nextReminderAt: "2026-09-05T14:45:00.000Z",
+};
+
 export const today: TodayResponse = {
   localDate: TODAY,
   timezone: TZ,
-  groups: [group([standupRow, standupNextRow]), group([reviewRow])],
+  groups: [group([standupRow, standupSecondRow]), group([reviewRow])],
   page: { page: 0, pages: 1, pageSize: 30, total: 2, hasMore: false },
   staleCount: 1,
   completedCount: 2,

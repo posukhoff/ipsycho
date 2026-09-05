@@ -22,8 +22,6 @@ export type CopyKey = keyof typeof ru;
 
 const DICTIONARIES: Record<Locale, Record<CopyKey, string>> = { ru, uk, en };
 
-export const LOCALES: readonly Locale[] = ["ru", "uk", "en"];
-
 /** Pinned language → Telegram `language_code` → English. */
 export function resolveLocale(pinnedLanguage?: Locale | null, telegramLanguage?: string | null): Locale {
   const value = (pinnedLanguage ?? telegramLanguage ?? "en").toLowerCase();
@@ -135,10 +133,6 @@ export function I18nProvider({ locale, children }: { locale: Locale; children: R
 /** `const t = useT(); t("task.why")`. Also carries `t.locale`, `t.plural` and `t.error`. */
 export function useT(): Translator {
   return useContext(I18nContext);
-}
-
-export function useLocale(): Locale {
-  return useContext(I18nContext).locale;
 }
 
 export { en, ru, uk };

@@ -1,4 +1,4 @@
-import { defineScreen } from "../../app/index.js";
+import { defineScreen } from "../../app/routes.js";
 import { TodayScreen } from "./today-screen.js";
 
 /**

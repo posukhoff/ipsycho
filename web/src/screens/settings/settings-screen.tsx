@@ -143,7 +143,7 @@ function SettingsBody({ settings, onReload, onDeleted }: { settings: SettingsRes
 
       <Section
         title={t("settings.section_quiet")}
-        footer={settings.quietHours.timezone === settings.timezone ? null : `${t("schedule.field_timezone")}: ${settings.quietHours.timezone}`}
+        footer={settings.quietHours.timezone === settings.timezone ? null : t("settings.quiet_timezone", { timezone: settings.quietHours.timezone })}
       >
         <ListRow
           title={t("settings.quiet_hours")}

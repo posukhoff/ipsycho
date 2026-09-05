@@ -21,8 +21,7 @@ import {
   type WeekTakeTodayRequest,
   type WeekTakeTodayResponse,
 } from "../contracts/index.js";
-import { ApiError, apiRoute, zodBody, zodParam, zodQuery } from "../http/index.js";
-import { errorForIssue } from "../tasks/web-tasks.service.js";
+import { ApiError, apiRoute, errorForIssues, pageInfo, zodBody, zodParam, zodQuery } from "../http/index.js";
 
 /**
  * The week plan: the pool of dateless work, the handful taken for the coming week, and the one tap
@@ -68,7 +67,7 @@ export class WebWeekController {
       // `total` counts the rows this endpoint can actually page through, not `plan.total`: the
       // repository caps the pool it materialises, and a total the pages cannot reach makes an
       // infinite list ask for a page that clamps back to the last one and repeat it for ever.
-      page: { page: view.page, pages: view.pages, pageSize: query.pageSize, total: rows.length, hasMore: view.rest > 0 },
+      page: pageInfo(view, rows.length, query.pageSize),
       pickLimit: WEEK_PICK_LIMIT,
       pickedCount: rows.filter((row) => row.picked).length,
       summary: plan.summary,
@@ -76,12 +75,7 @@ export class WebWeekController {
     } satisfies WeekResponse);
   }
 
-  /**
-   * Take a pool task for the coming week.
-   *
-   * `200`, not Nest's default `201`: nothing is created and there is no new address to point at.
-   * The answer is the state of a row that already existed, which is what the client re-renders.
-   */
+  /** Take a pool task for the coming week. */
   @Post("pick/:taskId")
   @HttpCode(200)
   pick(@CurrentUser() user: WebAuthContext, @Param("taskId", zodParam(UuidSchema)) taskId: string): Promise<WeekPickResponse> {
@@ -151,8 +145,7 @@ export class WebWeekController {
     // whose second move needs a reason — is the domain refusal the client can render and route to
     // the reschedule sheet, not a 500 from inside the transaction.
     const issues = await this.actions.validateResolved([action], scope);
-    const issue = issues[0];
-    if (issue) throw errorForIssue(issue, task.version);
+    if (issues.length) throw errorForIssues(issues, task.version);
     const applied = await this.actions.applyResolved([action], scope);
 
     // Read back rather than reported: the occurrence the client opens next is the one the

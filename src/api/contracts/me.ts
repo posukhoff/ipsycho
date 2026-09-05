@@ -59,6 +59,4 @@ export const MeResponseSchema = z
   })
   .strict();
 
-export type MeAccess = z.infer<typeof MeAccessSchema>;
-export type MeAi = z.infer<typeof MeAiSchema>;
 export type MeResponse = z.infer<typeof MeResponseSchema>;
