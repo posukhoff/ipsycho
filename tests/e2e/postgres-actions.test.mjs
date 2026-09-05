@@ -970,3 +970,35 @@ test("an explicit reminder on a new task is persisted instead of the default one
   assert.equal(result.reminderSchedules[0]?.scheduledFor.toISOString(), "2026-08-23T14:30:00.000Z");
   assert.equal(enqueued.length, 1);
 });
+
+test("cancelling a task closes the task itself, not only the date in front of it", async () => {
+  const { workspaceId, userId } = await fixture();
+  const { taskId, occurrenceId } = await createOccurrence(workspaceId, userId);
+  const groupId = randomUUID();
+  const now = new Date();
+
+  const applied = await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
+    steps: [{ kind: "cancel_task", taskId, expectedVersion: 1 }],
+  });
+  assert.equal(applied.steps[0].kind, "cancel_task");
+
+  let [task] = await database.db.select().from(tasks).where(eq(tasks.id, taskId));
+  let [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
+  assert.equal(task?.status, "cancelled", "the task row must not stay active, or it keeps showing in lists and context");
+  assert.equal(occurrence?.status, "cancelled");
+
+  // Undo restores both halves of the same step.
+  const claimed = await actions.claimUndo(workspaceId, userId, groupId, new Date(now.getTime() + 1_000));
+  assert.ok(claimed);
+  await groups.undo({ workspaceId, groupId, now: new Date(now.getTime() + 2_000) });
+  [task] = await database.db.select().from(tasks).where(eq(tasks.id, taskId));
+  [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
+  assert.equal(task?.status, "active");
+  assert.equal(occurrence?.status, "open");
+});

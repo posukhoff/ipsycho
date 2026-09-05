@@ -170,6 +170,11 @@ const BY_CODE: Record<string, Copy> = {
     uk: "Не зберіг: час має бути у форматі HH:MM, наприклад 09:30.",
     en: "Not saved: the time must be HH:MM, for example 09:30.",
   },
+  timezone_scope_required: {
+    ru: "Применить новый часовой пояс ко всем срокам и напоминаниям или только к профилю?",
+    uk: "Застосувати новий часовий пояс до всіх строків і нагадувань чи лише до профілю?",
+    en: "Apply the new timezone to every deadline and reminder, or to the profile only?",
+  },
   settings_shape: {
     ru: "Не сохранил настройку: не хватает значения. Скажи, что и на что менять.",
     uk: "Не зберіг налаштування: бракує значення. Скажи, що і на що змінювати.",

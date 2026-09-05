@@ -171,7 +171,9 @@ async function validateSettingsAction(action: ResolvedActionOf<"settings">, user
   if (!current || current.version !== action.expectedVersion) throw new InvalidAiActionError("settings are stale or missing", "settings_stale");
   if (action.operation === "timezone") {
     if (!action.timezone) throw new InvalidAiActionError("timezone is required", "settings_shape");
-    if (action.applyTimezoneTo === null) throw new InvalidAiActionError("timezone scope is required", "settings_shape");
+    // The scope is a real question, not a malformed request: ask it in those words instead of
+    // answering «a value is missing».
+    if (action.applyTimezoneTo === null) throw new InvalidAiActionError("timezone scope is required", "timezone_scope_required");
     new Intl.DateTimeFormat("en", { timeZone: action.timezone }).format(now);
     return;
   }

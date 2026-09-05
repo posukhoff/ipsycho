@@ -103,6 +103,7 @@ const goalAction = (over = {}) => ({
   reviewEnabled: null,
   ...over,
 });
+const emptyPatch = () => ({ title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null });
 const createTask = (over = {}) => ({
   type: "create_task",
   intent: "explicit",
@@ -327,4 +328,32 @@ test("a package keeps resolving after one action fails, and every issue names it
       [2, "skip_one_time"],
     ],
   );
+});
+
+test("an explanation attached to a cancellation is dropped, not fatal", async () => {
+  // The model narrates why it cancels («объединено с t1»); a note only has a home with `seen`,
+  // and rejecting the package over that sentence used to kill an otherwise correct merge.
+  const result = await resolve([setState({ task: { id: "t1" }, state: "cancelled", note: "Объединено с задачей t2" })]);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.resolved[0].note, null);
+
+  const blocker = await resolve([setState({ task: { id: "t1" }, state: "seen", note: "жду ответа от банка" })]);
+  assert.deepEqual(blocker.issues, []);
+  assert.equal(blocker.resolved[0].note, "жду ответа от банка");
+});
+
+test("an update that changes nothing is dropped when the message carries other work", async () => {
+  // «выдели X в отдельную задачу» sometimes comes back as a create plus an update with an empty
+  // patch. Failing the package over that threw away the task the user actually asked for.
+  const withCreate = await resolve([{ type: "update_task", intent: "explicit", task: { id: "t1" }, patch: emptyPatch() }, createTask({ title: "Устранить течь у биде" })]);
+  assert.deepEqual(withCreate.issues, []);
+  assert.equal(withCreate.resolved.length, 1);
+  assert.equal(withCreate.resolved[0].type, "create_task");
+
+  // Alone it is kept, so the domain validation still refuses it and the reply never claims a
+  // change that did not happen (see the empty_patch test in action-conversion).
+  const alone = await resolve([{ type: "update_task", intent: "explicit", task: { id: "t1" }, patch: emptyPatch() }]);
+  assert.deepEqual(alone.issues, []);
+  assert.equal(alone.resolved.length, 1);
+  assert.equal(alone.resolved[0].type, "update_task");
 });

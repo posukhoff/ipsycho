@@ -2,7 +2,7 @@ import type { AiAction, ResolvedAction, TaskTarget, When } from "../core/ai-cont
 import type { ActionIssue } from "../core/ai-actions.js";
 import { refKindOf, type RefMap } from "../core/ai-refs.js";
 import type { OccurrenceStatus, TaskStatus, TimeMode } from "../core/types.js";
-import { assertTimezone, InvalidAiActionError } from "./action-conversion.js";
+import { assertTimezone, InvalidAiActionError, isNoOpUpdatePatch } from "./action-conversion.js";
 import { localDateAt, localDateTimeAt } from "../core/timezone.js";
 
 /**
@@ -38,7 +38,12 @@ export async function resolveActions(actions: readonly AiAction[], refs: RefMap,
   const resolved: ResolvedAction[] = [];
   const issues: ActionIssue[] = [];
   const seen = new Set<string>();
-  for (const [index, action] of actions.entries()) {
+  // An update that changes nothing is dropped when the message carries other work: the model
+  // sometimes pairs «выдели X в отдельную задачу» with an empty patch, and failing the package
+  // over it threw away the new task the user actually asked for. Alone, it still reports.
+  const meaningful = actions.filter((action) => action.type !== "update_task" || !isNoOpUpdatePatch(action.patch));
+  const effective = meaningful.length && meaningful.length < actions.length ? meaningful : actions;
+  for (const [index, action] of effective.entries()) {
     try {
       const timezone = timezoneFor(action, settings.timezone);
       const base = { intent: action.intent, timezone, reviewTime: reviewTimeFor(action, timezone, settings.morningReferenceTime, now) };
@@ -107,7 +112,10 @@ async function resolveOne(
     case "set_task_state": {
       const task = await taskRef(action.task.id, refs, deps);
       const target = await taskTarget(task, action.scope, deps, { includeElapsed: action.state === "done", purpose: "state", state: action.state });
-      return { type: "set_task_state", ...base, target, state: action.state, note: action.note };
+      // A note is the user's blocker text and has a place to be stored only with `seen`. The model
+      // sometimes attaches an explanation to a cancellation instead; dropping it here keeps a
+      // sentence from failing the whole package, and nothing is lost — it was never persisted.
+      return { type: "set_task_state", ...base, target, state: action.state, note: action.state === "seen" ? action.note : null };
     }
     case "reschedule": {
       const task = await taskRef(action.task.id, refs, deps);

@@ -536,17 +536,20 @@ export async function cancelTaskInTx(tx: DbTransaction, input: CancelTaskInput):
   const task = await loadTask(tx, input.workspaceId, input.taskId, input.expectedVersion);
   if (task.status !== "active") throw new DomainRuleError("only an active task can be cancelled");
 
+  // Cancelling the task means the task, not just the date in front of it. Closing only the
+  // occurrence left the row active, so the task kept showing up in the list and in the model's
+  // context — which is how a merge left the absorbed task alive.
   const occurrence = await liveOccurrence(tx, input.workspaceId, task.id, ["scheduled", "open", "in_progress"]);
-  if (occurrence) {
-    const result = await updateOccurrenceInTx(tx, { ...input, occurrenceId: occurrence.id, expectedVersion: occurrence.version, operation: "cancel" });
-    return { kind: "cancel_task", taskId: task.id, occurrenceId: occurrence.id, title: task.title, touched: result.touched };
-  }
+  const occurrenceResult = occurrence ? await updateOccurrenceInTx(tx, { ...input, occurrenceId: occurrence.id, expectedVersion: occurrence.version, operation: "cancel" }) : null;
 
   const planningReviewRuleIds = await retirePlanningReview(tx, input.workspaceId, task.id);
+  // Cancelling the occurrence bumps the task's version, so the row is re-read before the task
+  // itself is closed; the optimistic check still holds, just against the version this step made.
+  const current = occurrenceResult ? await loadTaskById(tx, input.workspaceId, task.id) : task;
   const [updatedTask] = await tx
     .update(tasks)
     .set({ status: "cancelled", version: sql`${tasks.version} + 1`, updatedAt: input.now })
-    .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, task.id), eq(tasks.version, task.version)))
+    .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, task.id), eq(tasks.version, current.version)))
     .returning();
   if (!updatedTask) throw new DomainRuleError("task changed while cancelling it");
   await tx.insert(actionEvents).values({
@@ -560,7 +563,13 @@ export async function cancelTaskInTx(tx: DbTransaction, input: CancelTaskInput):
     afterState: taskMutableState(updatedTask),
   });
   await tx.insert(taskEvents).values({ workspaceId: input.workspaceId, taskId: task.id, actorUserId: input.actorUserId, eventType: "task:cancelled" });
-  return { kind: "cancel_task", taskId: task.id, occurrenceId: null, title: task.title, touched: [{ entity: "task", id: task.id, version: updatedTask.version }] };
+  return {
+    kind: "cancel_task",
+    taskId: task.id,
+    occurrenceId: occurrence?.id ?? null,
+    title: task.title,
+    touched: [...(occurrenceResult?.touched ?? []), { entity: "task", id: task.id, version: updatedTask.version }],
+  };
 }
 
 export async function rescheduleOccurrenceInTx(tx: DbTransaction, input: RescheduleOccurrenceInput): Promise<InTx<RescheduleOccurrenceStepResult>> {
@@ -1111,6 +1120,16 @@ async function completeLoadedOccurrence(
     eventType: "occurrence:done",
   });
   return { kind: "complete_task", taskId: row.task.id, occurrenceId: input.occurrenceId, title: row.task.title, touched };
+}
+
+async function loadTaskById(tx: DbTransaction, workspaceId: string, taskId: string) {
+  const [task] = await tx
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)))
+    .limit(1);
+  if (!task) throw new DomainRuleError("task is stale or missing");
+  return task;
 }
 
 async function loadTask(tx: DbTransaction, workspaceId: string, taskId: string, expectedVersion: number, message = "task is stale or missing") {

@@ -113,14 +113,18 @@ export function taskDefinitionFromBody(body: TaskBody, ctx: ScheduleContext, now
   const schedule = compileWhen(body.when, ctx);
   const { timeMode, timezone, ...timing } = schedule;
   const recurring = body.recurrence ? recurrenceFields(body.recurrence, schedule, timezone) : {};
+  // «Событие» means something that happens at a set time. When the model labels a deadline or a
+  // bare day as an event, the label is the wrong half, not the time the user gave: the task keeps
+  // the time and loses the label, instead of the whole package being refused.
+  const kind = body.kind === "event" && timeMode !== "point" && timeMode !== "window" ? ("task" as const) : body.kind;
   const definition: TaskDefinition = {
-    kind: body.kind,
+    kind,
     importance: body.importance,
     timeMode,
     timezone,
     ...timing,
     ...recurring,
-    ...(body.recurrence && body.kind === "task" ? { missPolicy: body.recurrence.missed ?? missPolicyDefault(timeMode) } : {}),
+    ...(body.recurrence && kind === "task" ? { missPolicy: body.recurrence.missed ?? missPolicyDefault(timeMode) } : {}),
     habitMode: Boolean(body.habit),
     ...(body.habit
       ? { minimumAction: body.habit.minimumAction, desiredAction: body.habit.desiredAction, ...(body.habit.trigger ? { habitTrigger: body.habit.trigger } : {}) }
@@ -228,8 +232,9 @@ export function reminderRuleFromReminder(reminder: Reminder, timezone: string): 
   };
 }
 
-export function validateUpdateTaskPatch(patch: UpdateTaskPatch): void {
-  if (
+/** An update that names no field changes nothing; it is not a mistake worth failing a package for. */
+export function isNoOpUpdatePatch(patch: UpdateTaskPatch): boolean {
+  return (
     patch.title === null &&
     patch.why === null &&
     patch.nextAction === null &&
@@ -237,7 +242,11 @@ export function validateUpdateTaskPatch(patch: UpdateTaskPatch): void {
     patch.importance === null &&
     patch.checklist === null &&
     patch.habit === null
-  ) {
+  );
+}
+
+export function validateUpdateTaskPatch(patch: UpdateTaskPatch): void {
+  if (isNoOpUpdatePatch(patch)) {
     throw new InvalidAiActionError("update_task patch must change at least one field", "empty_patch");
   }
   if (patch.title !== null && !patch.title.trim()) throw new InvalidAiActionError("task title cannot be empty", "blank_field");

@@ -57,6 +57,9 @@ const chat = new ChatService(ai, actions, messages, turnContext, context);
 
 const TIMEZONE = "Europe/Kyiv";
 const WEEKDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+/** A 5xx from the provider is not a failed dialog; one retry keeps it out of the pass rate. */
+const TRANSIENT = /\b(429|500|502|503|504)\b|Unable to verify model access|ECONNRESET|ETIMEDOUT/u;
+
 const dialogs = JSON.parse(readFileSync("tests/eval/dialogs.json", "utf8"));
 const selected = args.only ? dialogs.cases.filter((item) => args.only.includes(item.id)) : dialogs.cases;
 if (!selected.length) throw new Error("no cases selected");
@@ -122,12 +125,16 @@ async function evaluate(dialog, run) {
     let after = await snapshot(scope);
     let followUp = null;
     if (dialog.then) {
-      followUp = await send(scope, dialog.then.message, dialog.language);
+      // The follow-up answers a card or a question. When the turn applied straight away and asked
+      // nothing, there is nothing to answer, and sending «да» anyway makes the model invent a new
+      // task — the expectations are still checked against the state the dialog reached.
+      const awaitsUser = result.kind === "ok" && (result.pendingCount > 0 || /[?？]/u.test(result.text ?? ""));
+      if (awaitsUser) followUp = await send(scope, dialog.then.message, dialog.language);
       after = await snapshot(scope);
     }
     const failed = [
       ...checkExpectations(dialog.expect, { result, calls, before, after, scope }),
-      ...(dialog.then ? checkExpectations(dialog.then.expect, { result: followUp, calls: 1, before, after, scope }).map((item) => `then:${item}`) : []),
+      ...(dialog.then ? checkExpectations(dialog.then.expect, { result: followUp ?? result, calls: 1, before, after, scope }).map((item) => `then:${item}`) : []),
     ];
     return {
       id: dialog.id,
@@ -137,6 +144,9 @@ async function evaluate(dialog, run) {
       calls,
       elapsedMs: Date.now() - started,
       reply: result.kind === "ok" ? result.text : result.kind,
+      // What the server actually stored, in its own words: a failure that says "applied 2" is
+      // otherwise impossible to read back once the throwaway workspace is gone.
+      report: result.kind === "ok" ? (result.report ?? null) : null,
       applied: result.kind === "ok" ? result.appliedCount : 0,
       pending: result.kind === "ok" ? result.pendingCount : 0,
     };
@@ -181,6 +191,12 @@ function checkExpectations(expect, ctx) {
   }
   if (expect.occurrencesDone !== undefined && after.doneOccurrences - before.doneOccurrences !== expect.occurrencesDone) {
     fail("occurrencesDone", `${after.doneOccurrences - before.doneOccurrences} ≠ ${expect.occurrencesDone}`);
+  }
+  if (expect.activeTasks !== undefined) {
+    // The end state, not the route: «объедини» can rename one task and close the other, or close
+    // both and create the combined one. What must hold is how many live tasks are left.
+    const active = after.tasks.filter((task) => task.status === "active").length;
+    if (active !== expect.activeTasks) fail("activeTasks", `${active} ≠ ${expect.activeTasks}`);
   }
   if (expect.tasksCancelled !== undefined && after.cancelledTasks - before.cancelledTasks !== expect.tasksCancelled) {
     fail("tasksCancelled", `${after.cancelledTasks - before.cancelledTasks} ≠ ${expect.tasksCancelled}`);
@@ -281,9 +297,6 @@ async function fixture(dialog) {
   await ai.grantConsent(userId);
   return { userId, workspaceId, telegramId: Number(telegramId), messageId: 7_000_000 };
 }
-
-/** A 5xx from the provider is not a failed dialog; one retry keeps it out of the pass rate. */
-const TRANSIENT = /\b(429|500|502|503|504)\b|Unable to verify model access|ECONNRESET|ETIMEDOUT/u;
 
 async function send(scope, text, language) {
   try {

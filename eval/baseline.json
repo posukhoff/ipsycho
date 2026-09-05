@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-09-04T21:06:45.321Z",
+  "startedAt": "2026-09-05T09:45:52.528Z",
   "provider": "openai",
   "model": "gpt-5.4-mini",
   "runs": 3,
@@ -139,6 +139,20 @@
     },
     {
       "id": "done-by-text",
+      "runs": 3,
+      "passed": 3,
+      "failures": [],
+      "passRate": 1
+    },
+    {
+      "id": "split-into-separate-task",
+      "runs": 3,
+      "passed": 3,
+      "failures": [],
+      "passRate": 1
+    },
+    {
+      "id": "merge-two-tasks",
       "runs": 3,
       "passed": 3,
       "failures": [],

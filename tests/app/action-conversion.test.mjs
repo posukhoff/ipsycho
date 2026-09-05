@@ -308,3 +308,15 @@ test("a day reminder anchored to the wrong end of the task falls back to the day
   assert.equal(input.explicitReminder?.anchor, "planned_start");
   assert.equal(input.explicitReminder?.localTime, "12:00");
 });
+
+test("an event with a deadline keeps the time and loses the label instead of failing", () => {
+  // The model called «во вторник до 17:00 отправить выписку» an event; refusing that threw away
+  // the three other tasks of the same message.
+  const input = createTaskInputFromBody(body({ kind: "event", when: { mode: "deadline", date: "2026-09-08", time: "17:00" } }), scope, ctx);
+  assert.equal(input.definition.kind, "task");
+  assert.equal(input.definition.timeMode, "deadline");
+
+  // A real event still stays an event.
+  const meeting = createTaskInputFromBody(body({ kind: "event", when: { mode: "exact", date: "2026-09-08", time: "17:00", durationMinutes: 30 } }), scope, ctx);
+  assert.equal(meeting.definition.kind, "event");
+});
