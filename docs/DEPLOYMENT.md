@@ -99,6 +99,11 @@ S3_BACKUP_URI=s3://your-private-bucket/ipsycho \
 ./scripts/backup-compose.sh
 ```
 
+`S3_BACKUP_URI` may be left unset: the runner then writes the encrypted copy
+locally and says `offsite=no`. That protects against a bad migration or a
+wrong delete, never against losing the machine, so treat it as a stopgap until
+a bucket exists.
+
 For a non-AWS S3-compatible service, also set `S3_ENDPOINT_URL`. The runner
 creates the encrypted file atomically, validates that it can be decrypted and
 parsed, retains 7 daily and 4 weekly copies locally and remotely, and fails if

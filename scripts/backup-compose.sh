@@ -5,7 +5,9 @@ set -euo pipefail
 # port stays private: pg_dump and pg_restore run inside the database container.
 umask 077
 : "${BACKUP_KEY_FILE:?BACKUP_KEY_FILE is required}"
-: "${S3_BACKUP_URI:?S3_BACKUP_URI is required}"
+# Off-site copy is optional so a machine without a bucket still keeps encrypted daily backups.
+# Local-only protects against a bad migration or a wrong DELETE, never against losing the disk.
+S3_BACKUP_URI="${S3_BACKUP_URI:-}"
 
 PROJECT_DIR="${PROJECT_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
 BACKUP_DIR="${BACKUP_DIR:-$PROJECT_DIR/backups}"
@@ -40,9 +42,11 @@ flock -n 9 || { echo "another backup is still running" >&2; exit 1; }
 
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 command -v openssl >/dev/null 2>&1 || { echo "openssl is required" >&2; exit 1; }
-command -v aws >/dev/null 2>&1 || { echo "aws CLI is required" >&2; exit 1; }
 [ -r "$BACKUP_KEY_FILE" ] || { echo "BACKUP_KEY_FILE must be readable" >&2; exit 1; }
-case "$S3_BACKUP_URI" in s3://*) ;; *) echo "S3_BACKUP_URI must start with s3://" >&2; exit 1 ;; esac
+if [ -n "$S3_BACKUP_URI" ]; then
+  command -v aws >/dev/null 2>&1 || { echo "aws CLI is required when S3_BACKUP_URI is set" >&2; exit 1; }
+  case "$S3_BACKUP_URI" in s3://*) ;; *) echo "S3_BACKUP_URI must start with s3://" >&2; exit 1 ;; esac
+fi
 mkdir -p "$DAILY_DIR" "$WEEKLY_DIR"
 
 cd "$PROJECT_DIR"
@@ -70,20 +74,24 @@ if [ "$DOW" = "7" ]; then
   prune_local "$WEEKLY_DIR" 'ipsycho-*.dump.enc' 4
 fi
 
-REMOTE_BASE="${S3_BACKUP_URI%/}"
-aws_s3 cp "$ENC" "$REMOTE_BASE/daily/$(basename "$ENC")" --only-show-errors
-aws_s3 cp "$ENC.sha256" "$REMOTE_BASE/daily/$(basename "$ENC").sha256" --only-show-errors
-if [ "${WEEKLY:-}" != "" ]; then
-  aws_s3 cp "$WEEKLY" "$REMOTE_BASE/weekly/$(basename "$WEEKLY")" --only-show-errors
-  aws_s3 cp "$WEEKLY.sha256" "$REMOTE_BASE/weekly/$(basename "$WEEKLY").sha256" --only-show-errors
+if [ -n "$S3_BACKUP_URI" ]; then
+  REMOTE_BASE="${S3_BACKUP_URI%/}"
+  aws_s3 cp "$ENC" "$REMOTE_BASE/daily/$(basename "$ENC")" --only-show-errors
+  aws_s3 cp "$ENC.sha256" "$REMOTE_BASE/daily/$(basename "$ENC").sha256" --only-show-errors
+  if [ "${WEEKLY:-}" != "" ]; then
+    aws_s3 cp "$WEEKLY" "$REMOTE_BASE/weekly/$(basename "$WEEKLY")" --only-show-errors
+    aws_s3 cp "$WEEKLY.sha256" "$REMOTE_BASE/weekly/$(basename "$WEEKLY").sha256" --only-show-errors
+  fi
+  aws_s3 ls "$REMOTE_BASE/daily/" | awk '{print $4}' | { grep '^ipsycho-.*\.dump\.enc$' || true; } | sort -r | awk 'NR>7' | while IFS= read -r name; do
+    [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/daily/$name" --only-show-errors && aws_s3 rm "$REMOTE_BASE/daily/$name.sha256" --only-show-errors
+  done
+  aws_s3 ls "$REMOTE_BASE/weekly/" | awk '{print $4}' | { grep '^ipsycho-.*\.dump\.enc$' || true; } | sort -r | awk 'NR>4' | while IFS= read -r name; do
+    [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/weekly/$name" --only-show-errors && aws_s3 rm "$REMOTE_BASE/weekly/$name.sha256" --only-show-errors
+  done
+else
+  echo "S3_BACKUP_URI is empty: the encrypted copy stays on this machine only" >&2
 fi
-aws_s3 ls "$REMOTE_BASE/daily/" | awk '{print $4}' | { grep '^ipsycho-.*\.dump\.enc$' || true; } | sort -r | awk 'NR>7' | while IFS= read -r name; do
-  [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/daily/$name" --only-show-errors && aws_s3 rm "$REMOTE_BASE/daily/$name.sha256" --only-show-errors
-done
-aws_s3 ls "$REMOTE_BASE/weekly/" | awk '{print $4}' | { grep '^ipsycho-.*\.dump\.enc$' || true; } | sort -r | awk 'NR>4' | while IFS= read -r name; do
-  [ -n "$name" ] && aws_s3 rm "$REMOTE_BASE/weekly/$name" --only-show-errors && aws_s3 rm "$REMOTE_BASE/weekly/$name.sha256" --only-show-errors
-done
 
 # Optional dead-man switch (healthchecks.io or similar): a missing ping means the cron stopped.
 if [ -n "${BACKUP_PING_URL:-}" ]; then curl -fsS -m 10 --retry 3 "$BACKUP_PING_URL" >/dev/null || echo "backup ping failed" >&2; fi
-printf 'backup_ok file=%s\n' "$ENC"
+printf 'backup_ok file=%s offsite=%s\n' "$ENC" "$([ -n "$S3_BACKUP_URI" ] && echo yes || echo no)"

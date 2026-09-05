@@ -14,6 +14,10 @@ test("Compose backup publishes only a fully validated encrypted file", () => {
   assert.match(source, /pg_restore --list/);
   assert.match(source, /mv "\$ENC_TMP" "\$ENC"/);
   assert.match(source, /S3_BACKUP_URI must start with s3:\/\//);
+  // Without a bucket the backup still runs and stays local; the log says so plainly.
+  assert.match(source, /S3_BACKUP_URI="\$\{S3_BACKUP_URI:-\}"/);
+  assert.match(source, /the encrypted copy stays on this machine only/);
+  assert.match(source, /offsite=%s/);
 });
 
 test("Compose restore drill uses a disposable container, never production postgres", () => {
