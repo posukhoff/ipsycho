@@ -6,7 +6,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { todayLine } from "../telegram/telegram-ui.js";
 import type { TelegramLocale } from "../telegram/telegram-locale.js";
 import { compactText } from "../core/telegram-ux.js";
-import { currentWeekStart, previousWeekRange } from "../core/week-plan.js";
+import { targetWeekStart, previousWeekRange } from "../core/week-plan.js";
 import { taskOccurrences, tasks } from "../database/schema.js";
 
 const NONTERMINAL = ["scheduled", "open", "in_progress"] as const;
@@ -73,7 +73,7 @@ export class BriefingContentService {
     const pickedForWeek = await this.database.db
       .select({ id: tasks.id, title: tasks.title, importance: tasks.importance })
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, currentWeekStart(input.localDate))))
+      .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, targetWeekStart(input.localDate))))
       .orderBy(tasks.updatedAt);
 
     const morning = () => {

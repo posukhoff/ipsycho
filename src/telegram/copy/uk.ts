@@ -132,7 +132,7 @@ export const uk: Record<keyof typeof ru, string> = {
   scope_all_button: "Усі",
   scope_nodate_button: "🫧 Без дати",
   paused_series_button: "⏸ На паузі: {count}",
-  week_plan_header: "🗂 План тижня з {monday}",
+  week_plan_header: "🗂 План тижня з {monday} · у пулі: {count}",
   week_plan_summary: "За минулий тиждень закрито: {done}. Взято й не почато: {stale}.",
   week_plan_hint: "Тапни завдання, щоб узяти його на тиждень або повернути в пул.",
   week_plan_empty: "У пулі немає завдань без дати. Опиши справу словами — і вона з\u2019явиться тут.",

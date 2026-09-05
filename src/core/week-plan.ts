@@ -1,4 +1,4 @@
-import { compareLocalDates, parseLocalDate, shiftLocalDate } from "./timezone.js";
+import { parseLocalDate, shiftLocalDate } from "./timezone.js";
 
 /**
  * The week pool. A task with no date waits here; once a week the user takes some of them for the
@@ -22,45 +22,41 @@ export function mondayOf(localDate: string): string {
   return shiftLocalDate(localDate, 1 - localWeekday(localDate));
 }
 
-/** The week a pick made today belongs to: this week, since the day it is taken into is inside it. */
-export function currentWeekStart(todayLocalDate: string): string {
-  return mondayOf(todayLocalDate);
+/**
+ * The week a pick made today is for. Sunday is the day the week card arrives, and a pick made then
+ * is meant for the week that starts tomorrow — stamping today's Monday made it read as last week's
+ * unfinished work the moment Monday came.
+ */
+export function targetWeekStart(todayLocalDate: string): string {
+  return localWeekday(todayLocalDate) === 7 ? mondayOf(shiftLocalDate(todayLocalDate, 1)) : mondayOf(todayLocalDate);
 }
 
-/** A pick counts only while it names the week today belongs to. */
+/** A pick counts only while it names the week it was made for. */
 export function isPickLive(pickedWeekStart: string | null | undefined, todayLocalDate: string): boolean {
-  return Boolean(pickedWeekStart) && pickedWeekStart === currentWeekStart(todayLocalDate);
+  return Boolean(pickedWeekStart) && pickedWeekStart === targetWeekStart(todayLocalDate);
 }
 
-/** A pick from an earlier week: the task was taken and never closed. */
+/** A pick from the week before this one: taken and never given a day. Older marks stop being news. */
 export function isPickStale(pickedWeekStart: string | null | undefined, todayLocalDate: string): boolean {
-  return Boolean(pickedWeekStart) && compareLocalDates(pickedWeekStart!, currentWeekStart(todayLocalDate)) < 0;
+  return Boolean(pickedWeekStart) && pickedWeekStart === shiftLocalDate(targetWeekStart(todayLocalDate), -7);
 }
 
-/** Monday and Sunday of the week before the one today belongs to, for the weekly summary. */
+/** The week that just ended, relative to the week a pick made today is for. */
 export function previousWeekRange(todayLocalDate: string): { start: string; end: string } {
-  const start = shiftLocalDate(currentWeekStart(todayLocalDate), -7);
+  const start = shiftLocalDate(targetWeekStart(todayLocalDate), -7);
   return { start, end: shiftLocalDate(start, 6) };
-}
-
-export function isWithinLocalRange(localDate: string, range: { start: string; end: string }): boolean {
-  return compareLocalDates(localDate, range.start) >= 0 && compareLocalDates(localDate, range.end) <= 0;
 }
 
 /**
  * Ordering for the pick screen: what was taken and left undone first, because that is the decision
  * the user is avoiding; then the rest of the pool by importance and age.
  */
-export function comparePoolRows<T extends { pickedWeekStart?: string | null; importance: "normal" | "required" | "critical"; updatedAt?: Date | string | null }>(
+export function comparePoolRows<T extends { title: string; pickedWeekStart?: string | null; importance: "normal" | "required" | "critical" }>(
   todayLocalDate: string,
 ): (a: T, b: T) => number {
-  const rank = (row: T) => (isPickStale(row.pickedWeekStart, todayLocalDate) ? 0 : isPickLive(row.pickedWeekStart, todayLocalDate) ? 1 : 2);
+  // Ordering never depends on whether a row is picked: the screen redraws after every tap, and a
+  // row that jumps means the next tap lands on a different task.
+  const rank = (row: T) => (isPickStale(row.pickedWeekStart, todayLocalDate) ? 0 : 1);
   const weight = { critical: 0, required: 1, normal: 2 } as const;
-  return (a, b) => {
-    const byPick = rank(a) - rank(b);
-    if (byPick !== 0) return byPick;
-    const byImportance = weight[a.importance] - weight[b.importance];
-    if (byImportance !== 0) return byImportance;
-    return new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime();
-  };
+  return (a, b) => rank(a) - rank(b) || weight[a.importance] - weight[b.importance] || a.title.localeCompare(b.title);
 }

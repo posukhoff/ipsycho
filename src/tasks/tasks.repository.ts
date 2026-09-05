@@ -16,6 +16,7 @@ import {
   tasks,
   userSettings,
   workspaceMembers,
+  workspaces,
 } from "../database/schema.js";
 import { DomainRuleError } from "../core/errors.js";
 
@@ -181,14 +182,40 @@ export class TasksRepository {
       .limit(limit);
   }
 
-  /** Sets or clears the week mark. The tap itself is the reversal, so this is not an action group. */
-  async setPickedWeek(workspaceId: string, taskId: string, weekStart: string | null, now = new Date()): Promise<boolean> {
-    const [row] = await this.database.db
-      .update(tasks)
-      .set({ pickedWeekStart: weekStart, updatedAt: now })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")))
-      .returning({ id: tasks.id });
-    return Boolean(row);
+  /**
+   * Takes a pool task for the given week or puts it back; the same tap is the reversal, so this is
+   * not an action group. The count and the write are one transaction: the cap has to hold when two
+   * taps arrive together.
+   */
+  async togglePickedForWeek(workspaceId: string, taskId: string, weekStart: string, limit: number, now = new Date()): Promise<"picked" | "released" | "full" | null> {
+    return this.database.db.transaction(async (tx) => {
+      // The cap is a property of the whole week, not of one row, so the workspace is what has to be
+      // held: locking only the tapped task lets two taps each count six and both write the seventh.
+      await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId)).for("update");
+      const [task] = await tx
+        .select({ pickedWeekStart: tasks.pickedWeekStart })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")))
+        .for("update");
+      if (!task) return null;
+      if (task.pickedWeekStart === weekStart) {
+        await tx
+          .update(tasks)
+          .set({ pickedWeekStart: null, updatedAt: now })
+          .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
+        return "released";
+      }
+      const [picked] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, weekStart)));
+      if ((picked?.count ?? 0) >= limit) return "full";
+      await tx
+        .update(tasks)
+        .set({ pickedWeekStart: weekStart, updatedAt: now })
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
+      return "picked";
+    });
   }
 
   /**

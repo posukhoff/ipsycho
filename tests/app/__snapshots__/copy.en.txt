@@ -114,7 +114,7 @@ Main: Позвонить клиенту
 To change, complete, or reschedule a task, just write it in a message.
 
 ### week plan
-🗂 Week plan from 07.09
+🗂 Week plan from 07.09 · in the pool: 3
 
 Closed last week: 4. Taken and not started: 1.
 

@@ -130,7 +130,7 @@ export const en: Record<keyof typeof ru, string> = {
   scope_all_button: "All",
   scope_nodate_button: "🫧 No date",
   paused_series_button: "⏸ Paused: {count}",
-  week_plan_header: "🗂 Week plan from {monday}",
+  week_plan_header: "🗂 Week plan from {monday} · in the pool: {count}",
   week_plan_summary: "Closed last week: {done}. Taken and not started: {stale}.",
   week_plan_hint: "Tap a task to take it for the week or put it back in the pool.",
   week_plan_empty: "The pool has no undated tasks. Describe one in your own words and it shows up here.",

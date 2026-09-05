@@ -34,38 +34,44 @@ function service(overrides = {}) {
 
 test("a tap takes a pool task for the week and redraws the screen it came from", async () => {
   const { service: handler, toggled, redrawn } = service();
-  const ctx = callbackContext(`wk:t:${TASK_ID}`);
+  const ctx = callbackContext(`wk:t:0:${TASK_ID}`);
   await handler.toggle(ctx);
   assert.equal(toggled.length, 1);
   assert.equal(toggled[0].taskId, TASK_ID);
   assert.match(toggled[0].today, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(ctx.answers[0], /\S/);
-  assert.deepEqual(redrawn, [{ edit: true, page: undefined }]);
+  assert.deepEqual(redrawn, [{ edit: true, page: 0 }], "the tap redraws the page it came from");
 });
 
 test("the same tap releases the task, so the pick needs no Undo of its own", async () => {
   const { service: handler, redrawn } = service({ toggleResult: "released" });
-  const ctx = callbackContext(`wk:t:${TASK_ID}`);
+  const ctx = callbackContext(`wk:t:0:${TASK_ID}`);
   await handler.toggle(ctx);
   assert.match(ctx.answers[0], /\S/);
   assert.equal(redrawn.length, 1);
 });
 
+test("a toggle on a later page redraws that page, not the first", async () => {
+  const { service: handler, redrawn } = service();
+  await handler.toggle(callbackContext(`wk:t:2:${TASK_ID}`));
+  assert.deepEqual(redrawn, [{ edit: true, page: 2 }]);
+});
+
 test("a full week and a task that left the pool are answered, not written", async () => {
   const full = service({ toggleResult: "full" });
-  const fullCtx = callbackContext(`wk:t:${TASK_ID}`);
+  const fullCtx = callbackContext(`wk:t:0:${TASK_ID}`);
   await full.service.toggle(fullCtx);
   assert.match(fullCtx.answers[0], /7/, "the toast says how many the week already holds");
   assert.equal(full.redrawn.length, 0, "a refused pick does not redraw");
 
   const gone = service({ toggleResult: null });
-  const goneCtx = callbackContext(`wk:t:${TASK_ID}`);
+  const goneCtx = callbackContext(`wk:t:0:${TASK_ID}`);
   await gone.service.toggle(goneCtx);
   assert.match(goneCtx.answers[0], /\S/);
   assert.equal(gone.redrawn.length, 0);
 
   const malformed = service();
-  const badCtx = callbackContext("wk:t:not-a-uuid");
+  const badCtx = callbackContext("wk:t:0:not-a-uuid");
   await malformed.service.toggle(badCtx);
   assert.equal(malformed.toggled.length, 0);
 });

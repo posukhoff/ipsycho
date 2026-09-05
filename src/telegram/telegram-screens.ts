@@ -1,6 +1,6 @@
 import { compactText } from "../core/telegram-ux.js";
 import { recurrenceLabel } from "../core/recurrence-label.js";
-import { currentWeekStart, isPickLive, isPickStale } from "../core/week-plan.js";
+import { targetWeekStart, isPickLive, isPickStale } from "../core/week-plan.js";
 import { localDateAt, parseLocalDate, shiftLocalDate } from "../core/timezone.js";
 import { selectCardDetails } from "../core/card-details.js";
 import type { TaskScope } from "../core/task-list-view.js";
@@ -143,8 +143,8 @@ export function weekPlanText(
   options: { locale?: TelegramLocale; todayLocalDate: string; total?: number; offset?: number; summary: { done: number; takenNotStarted: number } },
 ): string {
   const locale = options.locale ?? "ru";
-  const monday = formatDateLabel(currentWeekStart(options.todayLocalDate), locale);
-  const header = t(locale, "week_plan_header", { monday });
+  const monday = formatDateLabel(targetWeekStart(options.todayLocalDate));
+  const header = t(locale, "week_plan_header", { monday, count: options.total ?? rows.length });
   const summary = t(locale, "week_plan_summary", { done: options.summary.done, stale: options.summary.takenNotStarted });
   if (!rows.length) return [header, "", summary, "", t(locale, "week_plan_empty")].join("\n");
   const offset = options.offset ?? 0;
@@ -156,6 +156,12 @@ export function weekPlanText(
   }
   lines.push("", t(locale, "week_plan_hint"));
   return compactText(lines.join("\n"), 3_800);
+}
+
+/** Drops one «взято на неделю» line from a morning card whose task has just been given a day. */
+export function removeWeekLine(body: string, title: string): string {
+  const lines = body.split("\n").filter((line) => line.trim() !== `▸ ${title}`);
+  return lines.join("\n");
 }
 
 /** Paused series: the title and the rhythm each one will pick up again. */

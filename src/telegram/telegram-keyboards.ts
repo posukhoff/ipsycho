@@ -215,7 +215,7 @@ export function weekPlanKeyboard(
   const keyboard = new InlineKeyboard();
   for (const row of rows) {
     const title = row.title.length > 26 ? `${row.title.slice(0, 25)}\u2026` : row.title;
-    keyboard.text(`${row.picked ? "☑️" : "◻️"} ${title}`, `wk:t:${row.id}`).row();
+    keyboard.text(`${row.picked ? "☑️" : "◻️"} ${title}`, `wk:t:${paging.page ?? 0}:${row.id}`).row();
   }
   const page = paging.page ?? 0;
   const pages = paging.pages ?? 1;
@@ -225,6 +225,16 @@ export function weekPlanKeyboard(
     keyboard.row();
   }
   return appendFooter(keyboard, locale);
+}
+
+/** The morning card's take-today rows: one tap gives that task today. */
+export function weekTakeTodayKeyboard(rows: ReadonlyArray<{ id: string; title: string }>, locale: TelegramLocale = "ru"): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const row of rows.slice(0, 8)) {
+    const title = row.title.length > 24 ? `${row.title.slice(0, 23)}\u2026` : row.title;
+    keyboard.text(t(locale, "week_take_today_row", { title }), `wk:d:${row.id}`).row();
+  }
+  return keyboard.text(t(locale, "today_button"), "nav:today");
 }
 
 /** Paused series, one row each: the tap that brings the series back. */

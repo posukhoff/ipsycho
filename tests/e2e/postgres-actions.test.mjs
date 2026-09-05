@@ -1048,6 +1048,61 @@ test("the week pool: a pick is toggled, capped at seven, and only counts for the
   assert.equal(await service.togglePickedForWeek(workspaceId, randomUUID(), today), null);
 });
 
+test("a task given a day leaves the week pool, so the cap and the summary stay honest", async () => {
+  const { workspaceId, userId } = await fixture();
+  const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});
+  const today = "2026-09-09";
+  const created = [];
+  for (let index = 0; index < 7; index += 1) created.push((await createFuzzyTask(workspaceId, userId, `Пул ${index}`)).taskId);
+  for (const taskId of created) assert.equal(await service.togglePickedForWeek(workspaceId, taskId, today), "picked");
+
+  // Giving one of them a day is what «делаю сегодня» does.
+  const version = (await database.pool.query("select version from tasks where id=$1", [created[0]])).rows[0].version;
+  await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId: randomUUID(),
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
+    steps: [
+      {
+        kind: "concretise_task",
+        taskId: created[0],
+        expectedVersion: version,
+        definition: { kind: "task", importance: "normal", timeMode: "window", timezone: "Europe/Kyiv", plannedLocalDate: today },
+        occurrenceStatus: "open",
+      },
+    ],
+  });
+  assert.equal((await database.pool.query("select picked_week_start from tasks where id=$1", [created[0]])).rows[0].picked_week_start, null);
+  assert.equal((await service.listPickedForWeek(workspaceId, today)).length, 6, "the task that got a day is no longer waiting for one");
+  const plan = await service.listWeekPlanForTelegram(workspaceId, today);
+  assert.equal(plan.summary.takenNotStarted, 0, "a task that did get a day is not «taken and never started»");
+
+  // The freed slot can be filled, and the cap still holds at seven.
+  const extra = (await createFuzzyTask(workspaceId, userId, "Ещё одна")).taskId;
+  assert.equal(await service.togglePickedForWeek(workspaceId, extra, today), "picked");
+  const another = (await createFuzzyTask(workspaceId, userId, "И ещё")).taskId;
+  assert.equal(await service.togglePickedForWeek(workspaceId, another, today), "full");
+  assert.equal((await service.listPickedForWeek(workspaceId, today)).length, 7);
+});
+
+test("two taps arriving together cannot both take the last slot", async () => {
+  const { workspaceId, userId } = await fixture();
+  const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});
+  const today = "2026-09-09";
+  for (let index = 0; index < 6; index += 1) {
+    const { taskId } = await createFuzzyTask(workspaceId, userId, `Занято ${index}`);
+    await service.togglePickedForWeek(workspaceId, taskId, today);
+  }
+  const first = (await createFuzzyTask(workspaceId, userId, "Первый")).taskId;
+  const second = (await createFuzzyTask(workspaceId, userId, "Второй")).taskId;
+  const results = await Promise.all([service.togglePickedForWeek(workspaceId, first, today), service.togglePickedForWeek(workspaceId, second, today)]);
+  assert.deepEqual(results.filter((result) => result === "picked").length, 1, `one pick and one refusal, got ${results.join("/")}`);
+  assert.equal((await service.listPickedForWeek(workspaceId, today)).length, 7);
+});
+
 test("the weekly summary counts what closed inside the previous local week", async () => {
   const { workspaceId, userId } = await fixture();
   const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});

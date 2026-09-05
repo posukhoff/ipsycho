@@ -5,7 +5,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import { AccessService } from "../access/access.service.js";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { SettingsService } from "../settings/settings.service.js";
-import { taskKeyboard } from "./telegram-ui.js";
+import { taskKeyboard, weekTakeTodayKeyboard } from "./telegram-ui.js";
 import type { BriefingKind } from "../core/digest-policy.js";
 import { compactText } from "../core/telegram-ux.js";
 import { TelegramUpdatesRepository } from "./telegram-updates.repository.js";
@@ -129,15 +129,8 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     weekTasks: ReadonlyArray<{ id: string; title: string }> = [],
   ): Promise<number> {
     let keyboard: InlineKeyboard | undefined;
-    if (kind === "morning") {
-      keyboard = new InlineKeyboard();
-      // One tap gives a task taken for this week its day, so those rows come first.
-      for (const task of weekTasks.slice(0, 8)) {
-        const title = task.title.length > 24 ? `${task.title.slice(0, 23)}…` : task.title;
-        keyboard.text(t(locale, "week_take_today_row", { title }), `wk:d:${task.id}`).row();
-      }
-      keyboard.text(t(locale, "today_button"), "nav:today");
-    }
+    // One tap gives a task taken for this week its day, so those rows come before the navigation.
+    if (kind === "morning") keyboard = weekTakeTodayKeyboard(weekTasks, locale);
     if (kind === "weekly") {
       keyboard ??= new InlineKeyboard();
       keyboard.text(t(locale, "week_plan_button"), "nav:week");

@@ -141,7 +141,7 @@ export const ru = {
   scope_all_button: "Все",
   scope_nodate_button: "🫧 Без даты",
   paused_series_button: "⏸ На паузе: {count}",
-  week_plan_header: "🗂 План недели с {monday}",
+  week_plan_header: "🗂 План недели с {monday} · в пуле: {count}",
   week_plan_summary: "За прошлую неделю закрыто: {done}. Взято и не начато: {stale}.",
   week_plan_hint: "Тапни задачу, чтобы взять её на неделю или вернуть в пул.",
   week_plan_empty: "В пуле нет задач без даты. Опиши дело словами — и оно появится здесь.",

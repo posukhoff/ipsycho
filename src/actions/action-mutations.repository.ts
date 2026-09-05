@@ -644,6 +644,9 @@ export async function concretiseTaskInTx(tx: DbTransaction, input: ConcretiseTas
       dueLocalDate: definition.dueLocalDate ?? null,
       fuzzyHorizonText: null,
       reviewAt: null,
+      // The task now has a day, so it has left the pool: keeping the week mark would hold a slot
+      // and count in "taken and never started".
+      pickedWeekStart: null,
       version: sql`${tasks.version} + 1`,
       updatedAt: input.now,
     })
@@ -1164,7 +1167,6 @@ export function taskMutableState(row: typeof tasks.$inferSelect, recurrenceExclu
     dueLocalDate: row.dueLocalDate,
     fuzzyHorizonText: row.fuzzyHorizonText,
     reviewAt: row.reviewAt?.toISOString() ?? null,
-    pickedWeekStart: row.pickedWeekStart,
     recurrenceRule: row.recurrenceRule,
     recurrenceTimezone: row.recurrenceTimezone,
     recurrenceEndLocalDate: row.recurrenceEndLocalDate,

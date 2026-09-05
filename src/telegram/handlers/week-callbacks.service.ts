@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { Bot, InlineKeyboard, type CallbackQueryContext } from "grammy";
+import { Bot, type CallbackQueryContext } from "grammy";
 import { ActionsService } from "../../actions/actions.service.js";
 import { SettingsService } from "../../settings/settings.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
@@ -11,9 +11,10 @@ import { safeError } from "../../observability/safe-error.js";
 import { t } from "../copy/index.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { ScreensService } from "./screens.service.js";
+import { removeWeekLine, weekTakeTodayKeyboard } from "../telegram-ui.js";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const WEEK_TOGGLE_CALLBACK = new RegExp(`^wk:t:(${UUID})$`);
+const WEEK_TOGGLE_CALLBACK = new RegExp(`^wk:t:(\\d{1,3}):(${UUID})$`);
 const WEEK_TAKE_TODAY_CALLBACK = new RegExp(`^wk:d:(${UUID})$`);
 const WEEK_PAGE_CALLBACK = /^wk:p:(\d{1,3})$/;
 
@@ -39,8 +40,10 @@ export class WeekCallbacksService {
 
   async toggle(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
-    const taskId = WEEK_TOGGLE_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (!taskId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    const match = WEEK_TOGGLE_CALLBACK.exec(ctx.callbackQuery.data);
+    const page = match?.[1];
+    const taskId = match?.[2];
+    if (!taskId || page === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     const today = localDateAt(new Date(), settings.timezone);
     const result = await this.tasks.togglePickedForWeek(access.workspaceId, taskId, today).catch((error) => {
       logger.error("week toggle failed", { taskId, error: safeError(error) });
@@ -49,7 +52,8 @@ export class WeekCallbacksService {
     if (result === null) return void (await ctx.answerCallbackQuery({ text: t(locale, "week_pick_gone_toast") }));
     if (result === "full") return void (await ctx.answerCallbackQuery({ text: t(locale, "week_full_toast", { limit: WEEK_PICK_LIMIT }) }));
     await ctx.answerCallbackQuery({ text: t(locale, result === "picked" ? "week_picked_toast" : "week_released_toast") });
-    await this.screens.weekPlan_(ctx, true);
+    // The tap stays on the page it came from: redrawing page one would move the list under the finger.
+    await this.screens.weekPlan_(ctx, true, Number(page));
   }
 
   async page(ctx: CallbackQueryContext<AppContext>): Promise<void> {
@@ -90,12 +94,12 @@ export class WeekCallbacksService {
     await ctx.answerCallbackQuery({ text: t(locale, "week_take_today_toast") });
     // The row it acted on is gone from the week list, so the card must stop offering it.
     const remaining = await this.tasks.listPickedForWeek(access.workspaceId, today);
-    const keyboard = new InlineKeyboard();
-    for (const row of remaining.slice(0, 8)) {
-      const title = row.title.length > 26 ? `${row.title.slice(0, 25)}…` : row.title;
-      keyboard.text(`▶️ ${title}`, `wk:d:${row.id}`).row();
-    }
-    keyboard.text(t(locale, "today_button"), "nav:today");
-    await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => undefined);
+    const keyboard = weekTakeTodayKeyboard(remaining, locale);
+    // The body listed the task too, so editing only the buttons would leave the card contradicting
+    // itself: the line stays while its tap is gone.
+    const body = ctx.callbackQuery.message?.text;
+    const redrawn = body ? removeWeekLine(body, task.title) : null;
+    if (redrawn && redrawn !== body) await ctx.editMessageText(redrawn, { reply_markup: keyboard }).catch(() => undefined);
+    else await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => undefined);
   }
 }
