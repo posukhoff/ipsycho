@@ -62,10 +62,6 @@ export function validateTaskDefinition(task: TaskDefinition): ValidationResult {
     const startTime = `${String(local.hour).padStart(2, "0")}:${String(local.minute).padStart(2, "0")}`;
     if (!recurrence.byTime.includes(startTime)) errors.push("plannedStartAt time must be included in BYTIME");
   }
-  if (task.habitMode && (task.kind !== "task" || !recurring)) errors.push("habit mode requires a recurring task");
-  if (task.habitMode && (!task.minimumAction?.trim() || !task.desiredAction?.trim())) {
-    errors.push("habit mode requires minimumAction and desiredAction");
-  }
 
   if (task.timeMode === "point") {
     if (!task.plannedStartAt) errors.push("point requires plannedStartAt");

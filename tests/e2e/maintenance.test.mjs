@@ -45,7 +45,6 @@ async function createTask({ workspaceId, userId }, title, startInMinutes = 60) {
       timeMode: "point",
       timezone: "Europe/Kyiv",
       plannedStartAt: new Date(now.getTime() + startInMinutes * 60_000),
-      habitMode: false,
     },
     explicitReminder: { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -600, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" },
   });

@@ -221,7 +221,6 @@ export const uk: Record<keyof typeof ru, string> = {
   cancel_what_toast: "Що скасувати?",
   cancel_one_button: "Лише це",
   cancel_series_button: "Усю серію",
-  started_toast: "Розпочато",
   done_occurrence_toast: "Готово ✓",
   skipped_toast: "Пропущено",
   cancelled_occurrence_toast: "Скасовано",
@@ -243,7 +242,6 @@ export const uk: Record<keyof typeof ru, string> = {
   resched_failed_text: "Не вдалося перенести. Скажи новий час ще раз, наприклад «завтра о 10» або «пт 15:00–16:00».",
   reason_too_short: "Не вдалося перенести. Напиши коротко, чому переносиш, ще раз.",
   repeated_reschedule: "Це вже повторне перенесення. Якщо проблема не лише в часі, можна зафіксувати, що саме заважає почати.",
-  started_button: "Почав",
 
   followup_custom_toast: "Напиши час",
   followup_custom_prompt: "Напиши: кількість хвилин (мінімум 15), HH:MM або YYYY-MM-DD HH:MM.",

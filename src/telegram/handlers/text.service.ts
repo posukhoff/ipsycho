@@ -180,9 +180,7 @@ export class TextService {
       if (!parsed.schedule.fuzzyHorizonText) {
         const count = await this.tasks.countOccurrenceEvents(access.workspaceId, pending.occurrenceId, "occurrence:rescheduled");
         if (count >= 2) {
-          await ctx.reply(t(locale, "repeated_reschedule"), {
-            reply_markup: new InlineKeyboard().text(t(locale, "started_button"), `occ:start:${pending.occurrenceId}`),
-          });
+          await ctx.reply(t(locale, "repeated_reschedule"));
         }
       }
     } catch (error) {

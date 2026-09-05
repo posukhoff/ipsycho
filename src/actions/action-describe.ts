@@ -19,8 +19,6 @@ const C = {
     titleTo: "название →",
     importanceTo: "важность →",
     importance: { critical: "критическая", required: "обязательная", normal: "обычная" },
-    habitOn: "включить режим привычки",
-    habitOff: "выключить режим привычки",
     checklist: "чеклист",
     why: "зачем",
     nextAction: "следующий шаг",
@@ -76,8 +74,6 @@ const C = {
     titleTo: "назва →",
     importanceTo: "важливість →",
     importance: { critical: "критична", required: "обов'язкова", normal: "звичайна" },
-    habitOn: "увімкнути режим звички",
-    habitOff: "вимкнути режим звички",
     checklist: "чекліст",
     why: "навіщо",
     nextAction: "наступний крок",
@@ -133,8 +129,6 @@ const C = {
     titleTo: "title →",
     importanceTo: "importance →",
     importance: { critical: "critical", required: "required", normal: "normal" },
-    habitOn: "enable habit mode",
-    habitOff: "disable habit mode",
     checklist: "checklist",
     why: "why",
     nextAction: "next step",
@@ -207,7 +201,6 @@ export function describeAction(action: ResolvedAction, locale: Locale = "ru", na
       const parts: string[] = [];
       if (patch.title !== null) parts.push(`${c.titleTo} ${q(patch.title)}`);
       if (patch.importance !== null) parts.push(`${c.importanceTo} ${c.importance[patch.importance]}`);
-      if (patch.habit !== null) parts.push("minimumAction" in patch.habit ? c.habitOn : c.habitOff);
       if (patch.checklist !== null) parts.push(`${c.checklist} (${patch.checklist.length})`);
       if (patch.why !== null) parts.push(c.why);
       if (patch.nextAction !== null) parts.push(c.nextAction);
@@ -219,7 +212,6 @@ export function describeAction(action: ResolvedAction, locale: Locale = "ru", na
       const target = taskName(action.target.taskId);
       const series = action.target.kind === "series" ? c.series : "";
       if (action.state === "done") return `${c.done}${target}`;
-      if (action.state === "started") return `${c.start}${target}`;
       if (action.state === "skipped") return `${c.skip}${target}`;
       return `${c.cancel}${target}${series}`;
     }

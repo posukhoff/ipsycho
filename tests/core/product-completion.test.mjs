@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { morningDigestSections, briefingStillUseful } from "../../.core-dist/digest-policy.js";
-import { habitOfferEligible } from "../../.core-dist/habit-policy.js";
 import { estimateAiCostUsd, aiBurstAllowed, shouldWarnMonthlySpend } from "../../.core-dist/ai-usage-policy.js";
 import { seriesOperationState } from "../../.core-dist/series-policy.js";
 
@@ -17,12 +16,6 @@ test("the morning digest separates priority from normal, and a briefing is never
   );
   assert.equal(briefingStillUseful("weekly", "2026-08-09", "2026-08-09"), true);
   assert.equal(briefingStillUseful("morning", "2026-08-09", "2026-08-10"), false);
-});
-
-test("habit offer is at most once and only for recurring tasks", () => {
-  assert.equal(habitOfferEligible({ recurring: true, kind: "task", alreadyHabit: false, offeredBefore: false, behavioral: true }), true);
-  assert.equal(habitOfferEligible({ recurring: true, kind: "task", alreadyHabit: false, offeredBefore: true, behavioral: true }), false);
-  assert.equal(habitOfferEligible({ recurring: true, kind: "event", alreadyHabit: false, offeredBefore: false, behavioral: true }), false);
 });
 
 test("AI usage policies calculate and gate without floats accumulating in domain state", () => {

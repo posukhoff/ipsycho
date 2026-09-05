@@ -125,10 +125,6 @@ export function taskDefinitionFromBody(body: TaskBody, ctx: ScheduleContext, now
     ...timing,
     ...recurring,
     ...(body.recurrence && kind === "task" ? { missPolicy: body.recurrence.missed ?? missPolicyDefault(timeMode) } : {}),
-    habitMode: Boolean(body.habit),
-    ...(body.habit
-      ? { minimumAction: body.habit.minimumAction, desiredAction: body.habit.desiredAction, ...(body.habit.trigger ? { habitTrigger: body.habit.trigger } : {}) }
-      : {}),
   };
   const validation = validateTaskDefinition(definition);
   if (!validation.ok) throw new InvalidAiActionError(validation.errors.join("; "), "task_definition");
@@ -247,7 +243,6 @@ export function isNoOpUpdatePatch(patch: UpdateTaskPatch): boolean {
     patch.context === null &&
     patch.importance === null &&
     patch.checklist === null &&
-    patch.habit === null &&
     !patch.clear?.length
   );
 }
@@ -260,9 +255,6 @@ export function validateUpdateTaskPatch(patch: UpdateTaskPatch): void {
   if (patch.why !== null && !patch.why.trim()) throw new InvalidAiActionError("why cannot be blank; use no update instead", "blank_field");
   if (patch.nextAction !== null && !patch.nextAction.trim()) throw new InvalidAiActionError("nextAction cannot be blank; use no update instead", "blank_field");
   if (patch.context !== null && !patch.context.trim()) throw new InvalidAiActionError("context cannot be blank; use no update instead", "blank_field");
-  if (patch.habit && "minimumAction" in patch.habit && (!patch.habit.minimumAction.trim() || !patch.habit.desiredAction.trim())) {
-    throw new InvalidAiActionError("habit mode requires minimumAction and desiredAction", "blank_field");
-  }
   if (patch.checklist !== null) {
     if (patch.checklist.length > 20) throw new InvalidAiActionError("checklist may contain at most 20 items", "checklist");
     const normalized = patch.checklist.map((item) => item.text.trim());
@@ -305,10 +297,6 @@ export function seriesDefinitionFromReschedule(action: ResolvedActionOf<"resched
     ...timing,
     ...recurring,
     ...(current.kind === "task" ? { missPolicy: action.recurrence?.missed ?? current.missPolicy ?? missPolicyDefault(timeMode) } : {}),
-    ...(current.habitMode !== undefined ? { habitMode: current.habitMode } : {}),
-    ...(current.minimumAction ? { minimumAction: current.minimumAction } : {}),
-    ...(current.desiredAction ? { desiredAction: current.desiredAction } : {}),
-    ...(current.habitTrigger ? { habitTrigger: current.habitTrigger } : {}),
   };
   const validation = validateTaskDefinition(next);
   if (!validation.ok) throw new InvalidAiActionError(validation.errors.join("; "), "task_definition");

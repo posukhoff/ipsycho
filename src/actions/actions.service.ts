@@ -358,15 +358,6 @@ export class ActionsService implements OnApplicationBootstrap {
       expiresAt: actionExpiry(now, ACTION_CONFIRMATION_TTL_MS),
       actions: actions.map((action) => ({ id: randomUUID(), actionType: action.type, payload: action })),
     });
-    for (const action of actions) {
-      if (action.type !== "update_task" || action.intent !== "inferred") continue;
-      if (action.patch.habit === null || !("minimumAction" in action.patch.habit)) continue;
-      const marked = await this.tasks.markHabitOfferSent(scope.workspaceId, action.taskId, now);
-      if (!marked) {
-        await this.repository.cancelPendingGroup(scope.workspaceId, scope.actorUserId, groupId).catch(() => undefined);
-        throw new InvalidAiActionError("habit mode was already offered for this task", "habit_not_eligible");
-      }
-    }
     const locale = interfaceLocale(scope.language);
     const names = await this.actionNames(scope.workspaceId, scope.actorUserId, actions);
     return { groupId, count: actions.length, titles: actions.map((action) => describeAction(action, locale, names)) };
@@ -599,7 +590,6 @@ function snoozeUntilFromAction(action: ResolvedActionOf<"settings">, timezone: s
 
 function updateTaskPatchForRepository(action: ResolvedActionOf<"update_task">) {
   const patch = action.patch;
-  const habit = patch.habit;
   const cleared = new Set(patch.clear ?? []);
   return {
     ...(cleared.has("why") ? { why: null } : {}),
@@ -612,11 +602,6 @@ function updateTaskPatchForRepository(action: ResolvedActionOf<"update_task">) {
     ...(patch.context !== null ? { context: patch.context.trim() } : {}),
     ...(patch.importance !== null ? { importance: patch.importance } : {}),
     ...(patch.checklist !== null ? { checklist: patch.checklist.map((item) => ({ text: item.text.trim(), done: item.done })) } : {}),
-    ...(habit === null
-      ? {}
-      : "minimumAction" in habit
-        ? { habitMode: true, minimumAction: habit.minimumAction, desiredAction: habit.desiredAction, habitTrigger: habit.trigger }
-        : { habitMode: false, minimumAction: null, desiredAction: null, habitTrigger: null }),
   };
 }
 
@@ -629,7 +614,6 @@ function taskStateStep(action: ResolvedActionOf<"set_task_state">): ActionGroupS
     return { kind: "cancel_task", taskId: target.taskId, expectedVersion: target.taskVersion };
   }
   if (target.kind !== "occurrence") throw new InvalidAiActionError("a task without a date has no occurrence to change", "fuzzy_no_occurrence");
-  if (action.state === "started") return { kind: "update_occurrence", occurrenceId: target.occurrenceId, expectedVersion: target.occurrenceVersion, operation: "start" };
   return { kind: "update_occurrence", occurrenceId: target.occurrenceId, expectedVersion: target.occurrenceVersion, operation: "skip" };
 }
 

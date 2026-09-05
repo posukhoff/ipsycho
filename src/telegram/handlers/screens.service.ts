@@ -30,7 +30,6 @@ import {
   screenFooterKeyboard,
   settingsKeyboard,
   settingsText,
-  startedTaskKeyboard,
   taskCardText,
   taskDetailKeyboard,
   taskGroupKeyboard,
@@ -232,9 +231,7 @@ export class ScreensService {
     const { access, locale } = activeState(ctx);
     const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
     if (!context) return false;
-    await ctx
-      .editMessageText(await this.taskCard(access.workspaceId, context, locale), { reply_markup: taskDetailKeyboard(occurrenceId, context.occurrence.status, locale) })
-      .catch(() => undefined);
+    await ctx.editMessageText(await this.taskCard(access.workspaceId, context, locale), { reply_markup: taskDetailKeyboard(occurrenceId, locale) }).catch(() => undefined);
     return true;
   }
 
@@ -259,8 +256,7 @@ export class ScreensService {
   /** The card's own keyboard for its current state, optionally with an Undo row for what just happened. */
   occurrenceKeyboard(ctx: AppContext, context: OccurrenceContext, undoGroupId?: string, undoLabel: "undo_button" | "undo_reschedule_button" = "undo_button"): InlineKeyboard {
     const { locale } = activeState(ctx);
-    const keyboard =
-      context.occurrence.status === "in_progress" ? startedTaskKeyboard(context.occurrence.id, locale) : taskKeyboard(context.occurrence.id, context.occurrence.status, locale);
+    const keyboard = taskKeyboard(context.occurrence.id, locale);
     if (undoGroupId) keyboard.row().text(t(locale, undoLabel), `act:undo:${undoGroupId}`);
     return keyboard;
   }

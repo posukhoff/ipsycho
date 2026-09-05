@@ -65,12 +65,10 @@ test("task, fuzzy and reminder cards are rendered in the user's language", () =>
 
 test("keyboards, labels and the applied report follow the locale", () => {
   const labels = (keyboard) => keyboard.inline_keyboard.flat().map((button) => button.text);
-  assert.deepEqual(labels(taskKeyboard("11111111-1111-1111-1111-111111111111", "open", "en", { snooze: true, mute: true })).slice(0, 2), ["▶️ Start", "✅ Done"]);
-  assert.ok(labels(taskKeyboard("11111111-1111-1111-1111-111111111111", "open", "en", { snooze: true, mute: true })).includes("🔕 Enough for this task"));
+  assert.deepEqual(labels(taskKeyboard("11111111-1111-1111-1111-111111111111", "en", { snooze: true, mute: true })).slice(0, 1), ["✅ Done"]);
+  assert.ok(labels(taskKeyboard("11111111-1111-1111-1111-111111111111", "en", { snooze: true, mute: true })).includes("🔕 Enough for this task"));
   assert.ok(labels(taskMoreKeyboard("11111111-1111-1111-1111-111111111111", true, "22222222-2222-2222-2222-222222222222", "uk")).includes("❌ Скасувати завдання"));
-  assert.ok(
-    labels(settingsKeyboard("en", { morningDigestEnabled: true, eveningDigestEnabled: false, weeklyReviewEnabled: true, quietHoursEnabled: false })).includes("☀️ Morning: on"),
-  );
+  assert.ok(labels(settingsKeyboard("en", { morningDigestEnabled: true, weeklyReviewEnabled: true, quietHoursEnabled: false })).includes("☀️ Morning: on"));
   assert.equal(recurrenceLabel("FREQ=MONTHLY;BYMONTHDAY=1,15", "2026-12-31", "en"), "every month, 1st, 15th until 31.12.2026");
   const report = renderAppliedReport(
     [

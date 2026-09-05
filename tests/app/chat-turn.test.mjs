@@ -43,7 +43,6 @@ function taskBody(over = {}) {
     when: { mode: "date", date: "2026-09-05" },
     recurrence: null,
     reminder: null,
-    habit: null,
     timezone: null,
     ...over,
   };
@@ -244,7 +243,7 @@ const DIALOGS = [
     },
   },
   {
-    label: "four tasks where the last one is a habit pass through as four actions without a re-ask",
+    label: "four tasks in one message pass through as four actions without a re-ask",
     text: "Добавь сразу четыре дела: 1) в понедельник в 14:00 забрать документы; 2) во вторник до 17:00 отправить бухгалтеру выписку; 3) в четверг с 10:00 до 11:00 подготовиться к сложному разговору; 4) по будням в 8:00 до 30 сентября 10 минут планировать день — это именно повторяющаяся привычка, минимум открыть план и выбрать одно главное дело, желаемый вариант — расписать три приоритета.",
     turn: turn("Завёл все четыре, последнее — как привычку по будням в 8:00.", [
       createTask({ title: "Забрать документы", when: { mode: "exact", date: "2026-09-07", time: "14:00", durationMinutes: null } }),
@@ -254,13 +253,11 @@ const DIALOGS = [
         title: "Планировать день",
         when: { mode: "exact", date: "2026-09-07", time: "08:00", durationMinutes: 10 },
         recurrence: weekdayHabit,
-        habit: { minimumAction: "Открыть план и выбрать одно главное дело", desiredAction: "Расписать три приоритета", trigger: null },
       }),
     ]),
     check: (result, harness) => {
       assert.equal(harness.handled.length, 1);
       assert.equal(harness.handled[0].resolved.length, 4);
-      assert.equal(harness.handled[0].resolved[3].habit.minimumAction, "Открыть план и выбрать одно главное дело");
       assert.equal(result.appliedCount, 4);
     },
   },
@@ -407,7 +404,6 @@ test("an unrelated explicit command leaves the live card on its buttons", async 
       when: { mode: "date", date: "2026-09-05" },
       recurrence: null,
       reminder: null,
-      habit: null,
       timezone: null,
       goal: null,
     },

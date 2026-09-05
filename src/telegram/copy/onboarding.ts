@@ -16,7 +16,7 @@ export function deterministicCopy(locale: TelegramLocale) {
       saved: "Saved",
       done: "Done",
       quietPrompt: "Turn on quiet hours? Defaults: weekdays 22:00–08:00, weekends 23:00–09:00.",
-      weeklyPrompt: "Would you like a weekly review of goals and habits every Sunday at 20:00?",
+      weeklyPrompt: "Would you like a week card every Sunday at 20:00, to pick the coming week?",
       onboardingDone: "Setup is complete. Write naturally, for example: “remind me to call the doctor tomorrow at 16:00”.",
     };
   return locale === "uk"

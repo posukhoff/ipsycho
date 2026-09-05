@@ -47,7 +47,7 @@ export type AppliedReportItem =
   | { kind: "generic"; title: string };
 
 export interface TaskFieldChange {
-  field: "title" | "why" | "nextAction" | "context" | "importance" | "checklist" | "habitMode" | "minimumAction" | "desiredAction" | "habitTrigger";
+  field: "title" | "why" | "nextAction" | "context" | "importance" | "checklist";
   before: string | null;
   after: string | null;
 }
@@ -62,10 +62,6 @@ const FIELD_LABELS: Record<ReportLocale, Record<TaskFieldChange["field"], string
     context: "Контекст",
     importance: "Важность",
     checklist: "Чеклист",
-    habitMode: "Режим привычки",
-    minimumAction: "Минимальное действие",
-    desiredAction: "Желаемое действие",
-    habitTrigger: "Триггер привычки",
   },
   uk: {
     title: "Назва",
@@ -74,10 +70,6 @@ const FIELD_LABELS: Record<ReportLocale, Record<TaskFieldChange["field"], string
     context: "Контекст",
     importance: "Важливість",
     checklist: "Чекліст",
-    habitMode: "Режим звички",
-    minimumAction: "Мінімальна дія",
-    desiredAction: "Бажана дія",
-    habitTrigger: "Тригер звички",
   },
   en: {
     title: "Title",
@@ -86,10 +78,6 @@ const FIELD_LABELS: Record<ReportLocale, Record<TaskFieldChange["field"], string
     context: "Context",
     importance: "Importance",
     checklist: "Checklist",
-    habitMode: "Habit mode",
-    minimumAction: "Minimum action",
-    desiredAction: "Desired action",
-    habitTrigger: "Habit trigger",
   },
 };
 
@@ -170,8 +158,6 @@ const COPY: Record<
     atStart: string;
     removed: string;
     itemsDone: string;
-    habitOn: string;
-    habitOff: string;
   }
 > = {
   ru: {
@@ -201,8 +187,6 @@ const COPY: Record<
     atStart: "в момент начала",
     removed: "убрано",
     itemsDone: "выполнено",
-    habitOn: "включён",
-    habitOff: "выключен",
   },
   uk: {
     tasksCreated: "✅ Створено завдань: {n}",
@@ -231,8 +215,6 @@ const COPY: Record<
     atStart: "у момент початку",
     removed: "прибрано",
     itemsDone: "виконано",
-    habitOn: "увімкнено",
-    habitOff: "вимкнено",
   },
   en: {
     tasksCreated: "✅ Tasks created: {n}",
@@ -261,8 +243,6 @@ const COPY: Record<
     atStart: "at the start",
     removed: "removed",
     itemsDone: "done",
-    habitOn: "on",
-    habitOff: "off",
   },
 };
 
@@ -291,7 +271,6 @@ function describeFieldValue(field: TaskFieldChange["field"], value: unknown): st
     const done = value.filter((item) => item && typeof item === "object" && (item as { done?: boolean }).done).length;
     return value.length ? `checklist:${value.length}:${done}` : null;
   }
-  if (field === "habitMode") return value === true ? "on" : value === false ? "off" : null;
   if (field === "importance") return typeof value === "string" ? value : String(value);
   if (typeof value === "string") return value.trim() || null;
   return String(value);
@@ -423,7 +402,6 @@ function renderChange(change: TaskFieldChange, locale: ReportLocale): string {
 function renderValue(field: TaskFieldChange["field"], value: string, locale: ReportLocale): string {
   const copy = COPY[locale];
   if (field === "importance" && value in IMPORTANCE_LABELS[locale]) return IMPORTANCE_LABELS[locale][value as Importance];
-  if (field === "habitMode") return value === "on" ? copy.habitOn : value === "off" ? copy.habitOff : value;
   if (field === "checklist") {
     const match = /^checklist:(\d+):(\d+)$/u.exec(value);
     if (match) {

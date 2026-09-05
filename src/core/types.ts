@@ -22,10 +22,6 @@ export interface TaskDefinition {
   recurrenceEndLocalDate?: string;
   recurrenceExcludedLocalDates?: readonly string[];
   missPolicy?: MissPolicy;
-  habitMode?: boolean;
-  minimumAction?: string;
-  desiredAction?: string;
-  habitTrigger?: string;
 }
 
 export interface QuietHours {

@@ -48,14 +48,6 @@ export const ReminderSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const ChecklistSchema = z.array(z.object({ text: z.string().min(1).max(300), done: z.boolean() }).strict()).max(20);
-export const HabitSchema = z
-  .object({
-    minimumAction: z.string().min(1).max(300),
-    desiredAction: z.string().min(1).max(300),
-    trigger: NullableText(300),
-  })
-  .strict();
-
 export const TaskBodySchema = z
   .object({
     title: z.string().min(1).max(500),
@@ -68,7 +60,6 @@ export const TaskBodySchema = z
     when: WhenSchema,
     recurrence: RecurrenceSchema.nullable(),
     reminder: ReminderSchema.nullable(),
-    habit: HabitSchema.nullable(),
     /** Only when the user named a zone other than their own. */
     timezone: z.string().nullable(),
   })
@@ -90,7 +81,6 @@ export const UpdateTaskPatchSchema = z
     context: NullableText(1000),
     checklist: ChecklistSchema.nullable(),
     importance: z.enum(["normal", "required", "critical"]).nullable(),
-    habit: z.union([HabitSchema, z.object({ enabled: z.literal(false) }).strict()]).nullable(),
     /**
      * Fields to empty. `null` in the fields above means "leave it alone", so without this there is
      * no way to take back a step or a checklist the user did not want.
@@ -118,7 +108,7 @@ export const SetTaskStateActionSchema = z
     type: z.literal("set_task_state"),
     ...ActionBase,
     task: RefSchema,
-    state: z.enum(["done", "started", "skipped", "cancelled"]),
+    state: z.enum(["done", "skipped", "cancelled"]),
     scope: TaskScopeSchema.nullable(),
   })
   .strict();

@@ -145,7 +145,6 @@ test("every resolver and conversion code has user-facing copy in all three langu
     "reason_required",
     "date_only_offset",
     "terminal_occurrence",
-    "habit_not_eligible",
     "settings_stale",
     "series_time_mode",
     "timezone",

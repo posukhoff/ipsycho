@@ -83,7 +83,7 @@ import { DomainRuleError } from "../core/errors.js";
 export type ActionGroupStep =
   | { kind: "create_task"; plan: PersistedTaskPlan; goalLink: { goalId: string; goalVersion: number; source: LinkSource; confidence: number } | null }
   | { kind: "update_task"; taskId: string; expectedVersion: number; patch: UpdateTaskPatch }
-  | { kind: "update_occurrence"; occurrenceId: string; expectedVersion: number; operation: "start" | "skip" | "cancel" }
+  | { kind: "update_occurrence"; occurrenceId: string; expectedVersion: number; operation: "skip" | "cancel" }
   | { kind: "complete_task"; taskId: string; expectedVersion: number }
   | { kind: "complete_occurrence"; occurrenceId: string; expectedVersion: number }
   | { kind: "cancel_task"; taskId: string; expectedVersion: number }

@@ -296,15 +296,6 @@ export class TasksRepository {
     return row?.count ?? 0;
   }
 
-  async markHabitOfferSent(workspaceId: string, taskId: string, now = new Date()): Promise<boolean> {
-    const [row] = await this.database.db
-      .update(tasks)
-      .set({ habitOfferSentAt: now })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), sql`${tasks.habitOfferSentAt} IS NULL`))
-      .returning({ id: tasks.id });
-    return Boolean(row);
-  }
-
   async countOccurrenceEvents(workspaceId: string, occurrenceId: string, eventType: string): Promise<number> {
     const [row] = await this.database.db
       .select({ count: sql<number>`count(*)::int` })

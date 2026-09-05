@@ -12,7 +12,7 @@ import { SettingsService } from "../../settings/settings.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
 import { t } from "../copy/index.js";
 import { activeState, type ActiveAccess, type AppContext } from "../telegram-context.js";
-import { quickRescheduleReasonKeyboard, quickRescheduleReasonText, startedTaskKeyboard, taskKeyboard, type QuickRescheduleReasonCode } from "../telegram-ui.js";
+import { quickRescheduleReasonKeyboard, quickRescheduleReasonText, taskKeyboard, type QuickRescheduleReasonCode } from "../telegram-ui.js";
 import { ScreensService } from "./screens.service.js";
 
 const UUID = "[0-9a-f-]{36}";
@@ -173,11 +173,7 @@ export class RescheduleCallbacksService {
       if (!scheduled) return this.stale(ctx, "task_unavailable_toast");
       await ctx.answerCallbackQuery({ text: t(locale, "snooze_reminder_toast") });
       const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
-      const keyboard = context
-        ? context.occurrence.status === "in_progress"
-          ? startedTaskKeyboard(occurrenceId, locale)
-          : taskKeyboard(occurrenceId, context.occurrence.status, locale)
-        : new InlineKeyboard();
+      const keyboard = context ? taskKeyboard(occurrenceId, locale) : new InlineKeyboard();
       await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => undefined);
     } catch (error) {
       logger.error("snooze callback failed", { occurrenceId, error: safeError(error) });

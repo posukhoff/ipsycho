@@ -110,11 +110,6 @@ const BY_CODE: Record<string, Copy> = {
     uk: "Це повторення вже завершене або скасоване — змінювати нічого.",
     en: "That occurrence is already finished or cancelled, so there is nothing to change.",
   },
-  habit_not_eligible: {
-    ru: "Режим привычки здесь не подходит: он только для повторяющихся задач и предлагается один раз.",
-    uk: "Режим звички тут не підходить: він лише для повторюваних завдань і пропонується один раз.",
-    en: "Habit mode does not apply here: it is only for recurring tasks and is offered once.",
-  },
   settings_stale: {
     ru: "Не сохранил: настройки изменились после того, как я их прочитал. Повтори команду.",
     uk: "Не зберіг: налаштування змінилися після того, як я їх прочитав. Повтори команду.",
@@ -230,7 +225,6 @@ const BY_MESSAGE: ReadonlyArray<{ test: RegExp; code: string }> = [
   { test: /quiet hours/i, code: "quiet_hours" },
   { test: /reason is required/i, code: "reason_required" },
   { test: /terminal occurrence/i, code: "terminal_occurrence" },
-  { test: /habit mode is not eligible|already offered|already a habit|habit mode requires a recurring/i, code: "habit_not_eligible" },
   { test: /settings are stale/i, code: "settings_stale" },
 ];
 

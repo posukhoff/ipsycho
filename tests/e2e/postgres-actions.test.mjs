@@ -216,7 +216,9 @@ async function createOccurrence(workspaceId, userId) {
 
 test("task-card lifecycle and action journal commit in one transaction and undo cleanly", async () => {
   const { workspaceId, userId } = await fixture();
-  const { occurrenceId } = await createOccurrence(workspaceId, userId);
+  const { taskId, occurrenceId } = await createOccurrence(workspaceId, userId);
+  // Skipping one date is a recurring-task operation, so this fixture is a series.
+  await database.pool.query("update tasks set recurrence_rule='FREQ=DAILY', recurrence_timezone='Europe/Kyiv' where id=$1", [taskId]);
   const groupId = randomUUID();
   const now = new Date();
   await groups.apply({
@@ -226,11 +228,11 @@ test("task-card lifecycle and action journal commit in one transaction and undo 
     groupExists: false,
     now,
     undoExpiresAt: new Date(now.getTime() + 60_000),
-    steps: [{ kind: "update_occurrence", occurrenceId, expectedVersion: 1, operation: "start" }],
+    steps: [{ kind: "update_occurrence", occurrenceId, expectedVersion: 1, operation: "skip" }],
   });
   let [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
   let [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
-  assert.equal(occurrence?.status, "in_progress");
+  assert.equal(occurrence?.status, "skipped");
   assert.equal(occurrence?.version, 2);
   assert.equal(group?.status, "applied");
   const claimed = await actions.claimUndo(workspaceId, userId, groupId, new Date(now.getTime() + 1_000));
@@ -604,7 +606,7 @@ test("a fuzzy task given a time gets its first occurrence and default reminders,
         expectedVersion: 1,
         occurrenceStatus: "scheduled",
         reason: "нашлось время",
-        definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt, habitMode: false },
+        definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt },
       },
     ],
   });
@@ -1089,7 +1091,7 @@ test("an explicit reminder on a new task is persisted instead of the default one
     recipientUserId: userId,
     title: "Вакцинация",
     now,
-    definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-08-23T15:00:00Z"), habitMode: false },
+    definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-08-23T15:00:00Z") },
     explicitReminder: { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -1800, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" },
   });
   const rules = (

@@ -19,7 +19,6 @@ test("AI prompt protects user autonomy and prevents needless clarification", () 
 });
 
 test("AI prompt keeps its support practical and non-clinical", () => {
-  assert.match(prompt, /propose habit mode once, as an experiment/);
   assert.match(prompt, /Do not diagnose, label personality/);
   assert.match(prompt, /immediate danger/);
   assert.match(prompt, /Never store your own interpretation of the user/);
@@ -65,7 +64,7 @@ test("AI prompt names every action array, the intent field and the task-as-targe
   assert.match(prompt, /«это одна задача»[^\n]*plus a setTaskStates entry cancelling/);
   assert.match(prompt, /return the action itself instead of describing it and waiting for a yes/);
   assert.match(prompt, /tasks that do not exist yet/);
-  assert.match(prompt, /with its own when, reminder, recurrence, habit and goal/);
+  assert.match(prompt, /with its own when, reminder, recurrence and goal/);
 });
 
 test("AI prompt explains When, recurrence and the context hints", () => {
@@ -77,7 +76,6 @@ test("AI prompt explains When, recurrence and the context hints", () => {
   assert.match(prompt, /tasksNote/);
   assert.match(prompt, /pendingProposal/);
   assert.match(prompt, /reschedule_requested/);
-  assert.match(prompt, /habit_offer/);
   assert.match(prompt, /Anything not listed does not exist/);
 });
 

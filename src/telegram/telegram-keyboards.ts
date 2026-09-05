@@ -2,7 +2,7 @@ import { InlineKeyboard } from "grammy";
 import { t } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 import type { TaskScope } from "../core/task-list-view.js";
-import type { TelegramGroupCard, TelegramOccurrenceStatus } from "./telegram-format.js";
+import type { TelegramGroupCard } from "./telegram-format.js";
 
 /** Every inline keyboard the bot builds. Each payload must match a handler pattern and fit 64 bytes. */
 export interface TaskKeyboardOptions {
@@ -12,10 +12,9 @@ export interface TaskKeyboardOptions {
   mute?: boolean;
 }
 
-export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
+export function taskKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  if (status === "in_progress") return startedTaskKeyboard(occurrenceId, locale, options);
-  keyboard.text(label(locale, "start"), `occ:start:${occurrenceId}`).text(label(locale, "done"), `occ:done:${occurrenceId}`).row();
+  keyboard.text(label(locale, "done"), `occ:done:${occurrenceId}`).row();
   if (options.snooze)
     keyboard.text(t(locale, "snooze_15m_button"), `follow:snooze:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:snooze:1h:${occurrenceId}`).row();
   keyboard.text(label(locale, "later"), `occ:resched:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
@@ -23,20 +22,12 @@ export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceSta
   return keyboard;
 }
 
-export function startedTaskKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
-  const keyboard = new InlineKeyboard().text(label(locale, "done"), `occ:done:${occurrenceId}`).text(label(locale, "later"), `occ:resched:${occurrenceId}`).row();
-  if (options.snooze)
-    keyboard.text(t(locale, "snooze_15m_button"), `follow:snooze:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:snooze:1h:${occurrenceId}`).row();
-  keyboard.text(label(locale, "more"), `occ:more:${occurrenceId}`);
-  if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
-  return keyboard;
-}
-
 /** The destructive actions live one tap deeper, behind an explicit label rather than "•••". */
-export function taskMoreKeyboard(occurrenceId: string, recurring = false, taskId?: string, locale: TelegramLocale = "ru"): InlineKeyboard {
+export function taskMoreKeyboard(occurrenceId: string, recurring = false, taskId?: string, locale: TelegramLocale = "ru", endless = false): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (recurring) keyboard.text(label(locale, "skip"), `occ:skip:${occurrenceId}`).row();
-  if (recurring && taskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${taskId}`).row();
+  // Pausing a series that already has an end date only loses dates: it is offered for endless repeats.
+  if (recurring && endless && taskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${taskId}`).row();
   return keyboard.text(label(locale, "cancel"), `occ:cancel:${occurrenceId}`).row().text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
@@ -74,7 +65,6 @@ export function quickRescheduleReasonText(code: QuickRescheduleReasonCode, local
 
 const BUTTON_LABELS = {
   ru: {
-    start: "▶️ Начать",
     done: "✅ Готово",
     later: "🕒 Позже",
     more: "⚙️ Ещё",
@@ -95,7 +85,6 @@ const BUTTON_LABELS = {
     noCheck: "Без проверки",
   },
   uk: {
-    start: "▶️ Почати",
     done: "✅ Готово",
     later: "🕒 Пізніше",
     more: "⚙️ Ще",
@@ -116,7 +105,6 @@ const BUTTON_LABELS = {
     noCheck: "Без перевірки",
   },
   en: {
-    start: "▶️ Start",
     done: "✅ Done",
     later: "🕒 Later",
     more: "⚙️ More",
@@ -347,8 +335,8 @@ export function screenFooterKeyboard(locale: TelegramLocale = "ru"): InlineKeybo
   return appendFooter(new InlineKeyboard(), locale);
 }
 
-export function taskDetailKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, locale: TelegramLocale = "ru"): InlineKeyboard {
-  return taskKeyboard(occurrenceId, status, locale).row().text(t(locale, "to_tasks_button"), "nav:tasks");
+export function taskDetailKeyboard(occurrenceId: string, locale: TelegramLocale = "ru"): InlineKeyboard {
+  return taskKeyboard(occurrenceId, locale).row().text(t(locale, "to_tasks_button"), "nav:tasks");
 }
 
 /** The three languages plus "follow Telegram", so the value is a tap and not a command. */
@@ -374,8 +362,8 @@ export function taskGroupKeyboard(group: TelegramGroupCard, source: GroupSource,
     const target = row.occurrence ? `view:occ:${row.occurrence.id}` : `view:task:${row.task.id}`;
     keyboard.text(`${index + 1}. ${row.task.title.length > 26 ? `${row.task.title.slice(0, 25)}…` : row.task.title}`, target).row();
   }
-  const seriesTaskId = group.recurrenceRule ? group.lead.task.id : null;
-  if (seriesTaskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${seriesTaskId}`).row();
+  const endlessSeriesTaskId = group.recurrenceRule && !group.lead.task.recurrenceEndLocalDate ? group.lead.task.id : null;
+  if (endlessSeriesTaskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${endlessSeriesTaskId}`).row();
   keyboard.text(t(locale, "back_button"), source === "today" ? "tdy:0" : "tsk:week:0").row();
   return appendFooter(keyboard, locale);
 }

@@ -19,7 +19,6 @@ const EXPECT_KEYS = new Set([
   "occurrencesDone",
   "tasksCancelled",
   "activeTasks",
-  "habitTasks",
   "recurrenceMatches",
   "recurrenceEnds",
   "exclusions",

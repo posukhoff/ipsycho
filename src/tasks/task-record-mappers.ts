@@ -21,10 +21,6 @@ export function taskDefinitionFromRow(row: typeof tasks.$inferSelect, recurrence
     ...(row.recurrenceEndLocalDate ? { recurrenceEndLocalDate: row.recurrenceEndLocalDate } : {}),
     ...(recurrenceExcludedLocalDates.length ? { recurrenceExcludedLocalDates } : {}),
     ...(row.missPolicy ? { missPolicy: row.missPolicy } : {}),
-    habitMode: row.habitMode,
-    ...(row.minimumAction ? { minimumAction: row.minimumAction } : {}),
-    ...(row.desiredAction ? { desiredAction: row.desiredAction } : {}),
-    ...(row.habitTrigger ? { habitTrigger: row.habitTrigger } : {}),
   };
 }
 

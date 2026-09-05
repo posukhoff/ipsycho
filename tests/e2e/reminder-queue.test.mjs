@@ -60,7 +60,7 @@ async function dueDelivery({ workspaceId, userId }) {
     recipientUserId: userId,
     title: "Позвонить врачу",
     now,
-    definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date(now.getTime() + 20 * 60_000), habitMode: false },
+    definition: { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: new Date(now.getTime() + 20 * 60_000) },
     explicitReminder: { triggerKind: "relative_timestamp", anchor: "planned_start", offsetSeconds: -1200, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" },
   });
   const { rows } = await database.pool.query("select id, scheduled_for from reminder_deliveries where task_id=$1", [result.taskId]);

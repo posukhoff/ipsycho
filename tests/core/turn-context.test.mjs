@@ -26,8 +26,6 @@ const task = (id, overrides = {}) => ({
   reviewAt: null,
   recurrenceRule: null,
   recurrenceEndLocalDate: null,
-  habitMode: false,
-  habitOfferSentAt: null,
   ...overrides,
 });
 const occurrence = (taskId, overrides = {}) => ({
@@ -172,10 +170,7 @@ test("goal, checklist and focus collapse onto the task line and hints", () => {
     ],
   });
   assert.deepEqual(model.goals, [{ id: "g1", title: "Запустить продукт", why: "чтобы", targetDate: "2026-10-01", tasks: ["t2"] }]);
-  assert.deepEqual(model.hints, [
-    { task: "t2", kind: "habit_offer" },
-    { task: "t1", kind: "reschedule_requested" },
-  ]);
+  assert.deepEqual(model.hints, [{ task: "t1", kind: "reschedule_requested" }]);
   assert.deepEqual(refs.tasks.get("t2"), { id: "call", version: 1, title: "Задача call", timeMode: "point", recurring: true, status: "active" });
   assert.deepEqual(refs.goals.get("g1"), { id: "goal-1", version: 2, title: "Запустить продукт" });
 });

@@ -178,7 +178,6 @@ test("pending confirmation describes the concrete change", () => {
     when: { mode: "exact", date: "2026-08-25", time: "09:30", durationMinutes: null },
     recurrence: null,
     reminder: null,
-    habit: null,
     timezone: null,
   };
   const target = {
@@ -196,7 +195,7 @@ test("pending confirmation describes the concrete change", () => {
       type: "update_task",
       taskId: target.taskId,
       taskVersion: 1,
-      patch: { title: "Ежегодная вакцинация", why: null, nextAction: null, context: "раз в год", importance: null, checklist: null, habit: null },
+      patch: { title: "Ежегодная вакцинация", why: null, nextAction: null, context: "раз в год", importance: null, checklist: null },
     }),
     "Изменить задачу: название → «Ежегодная вакцинация», контекст",
   );

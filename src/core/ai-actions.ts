@@ -29,11 +29,11 @@ export function disposition(action: ResolvedAction): ActionDisposition {
 function alwaysConfirm(action: ResolvedAction): boolean {
   switch (action.type) {
     case "create_task":
-      return action.body.importance === "critical" || action.body.habit !== null || action.body.reminder?.quiet === "bypass";
+      return action.body.importance === "critical" || action.body.reminder?.quiet === "bypass";
     case "plan":
-      return action.tasks.some((task) => task.importance === "critical" || task.habit !== null || task.reminder?.quiet === "bypass");
+      return action.tasks.some((task) => task.importance === "critical" || task.reminder?.quiet === "bypass");
     case "update_task":
-      return action.patch.importance === "critical" || (action.patch.habit !== null && "minimumAction" in action.patch.habit);
+      return action.patch.importance === "critical";
     case "set_task_state":
       return action.state === "cancelled" || action.state === "skipped";
     case "set_reminder":

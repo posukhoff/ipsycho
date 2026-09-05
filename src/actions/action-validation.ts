@@ -1,5 +1,4 @@
 import type { ResolvedAction, ResolvedActionOf } from "../core/ai-contract.js";
-import { habitOfferEligible } from "../core/habit-policy.js";
 import { normalizeLanguageTag } from "../core/language.js";
 import { rescheduledDefinition, rescheduledOccurrenceStatus } from "../core/reschedule.js";
 import { validateOneTimeTaskTiming } from "../core/task-policy.js";
@@ -63,17 +62,6 @@ export async function validateResolvedAction(action: ResolvedAction, scope: Vali
       validateUpdateTaskPatch(action.patch);
       const task = await deps.tasks.getTask(scope.workspaceId, action.taskId);
       if (!task || task.version !== action.taskVersion) throw new InvalidAiActionError("target task is missing or stale", "stale");
-      const enablesHabit = action.patch.habit !== null && "minimumAction" in action.patch.habit;
-      if (enablesHabit) {
-        if (!task.recurrenceRule) throw new InvalidAiActionError("habit mode requires a recurring task", "habit_not_eligible");
-        if (task.habitMode) throw new InvalidAiActionError("task is already a habit", "habit_not_eligible");
-        if (
-          action.intent === "inferred" &&
-          !habitOfferEligible({ recurring: true, kind: task.kind, alreadyHabit: task.habitMode, offeredBefore: Boolean(task.habitOfferSentAt), behavioral: true })
-        ) {
-          throw new InvalidAiActionError("habit mode is not eligible or was already offered for this task", "habit_not_eligible");
-        }
-      }
       return;
     }
     case "set_task_state": {

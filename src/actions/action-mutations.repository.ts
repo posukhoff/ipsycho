@@ -92,7 +92,7 @@ export interface UpdateSettingsInput extends GroupScope {
 export interface UpdateOccurrenceInput extends GroupScope {
   occurrenceId: string;
   expectedVersion: number;
-  operation: "start" | "skip" | "cancel";
+  operation: "skip" | "cancel";
   now: Date;
 }
 export interface UpdateTaskInput extends GroupScope {
@@ -160,7 +160,7 @@ export interface UpdateOccurrenceStepResult {
   taskId: string;
   occurrenceId: string;
   title: string;
-  operation: "start" | "skip" | "cancel";
+  operation: "skip" | "cancel";
 }
 export interface UpdateTaskStepResult {
   kind: "update_task";
@@ -276,7 +276,7 @@ export async function updateSettingsInTx(tx: DbTransaction, input: UpdateSetting
 export async function updateOccurrenceInTx(tx: DbTransaction, input: UpdateOccurrenceInput): Promise<InTx<UpdateOccurrenceStepResult>> {
   const row = await loadOccurrence(tx, input.workspaceId, input.occurrenceId, input.expectedVersion);
   const touched: TouchedVersion[] = [];
-  const nextStatus = input.operation === "start" ? "in_progress" : input.operation === "skip" ? "skipped" : "cancelled";
+  const nextStatus = input.operation === "skip" ? "skipped" : "cancelled";
   const transition = validateOccurrenceTransition(row.occurrence.status, nextStatus, {
     kind: row.task.kind,
     recurring: Boolean(row.task.recurrenceRule),
@@ -299,21 +299,6 @@ export async function updateOccurrenceInTx(tx: DbTransaction, input: UpdateOccur
     .returning();
   if (!afterOccurrence) throw new DomainRuleError("occurrence is stale or missing");
   touched.push({ entity: "occurrence", id: input.occurrenceId, version: afterOccurrence.version });
-  const activeSystemFollowUps =
-    input.operation === "start"
-      ? await tx
-          .select({ id: reminderRules.id })
-          .from(reminderRules)
-          .where(
-            and(
-              eq(reminderRules.workspaceId, input.workspaceId),
-              eq(reminderRules.occurrenceId, input.occurrenceId),
-              eq(reminderRules.purpose, "follow_up"),
-              eq(reminderRules.origin, "system"),
-              eq(reminderRules.active, true),
-            ),
-          )
-      : [];
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId,
     groupId: input.groupId,
@@ -321,7 +306,7 @@ export async function updateOccurrenceInTx(tx: DbTransaction, input: UpdateOccur
     entityType: "occurrence",
     entityId: input.occurrenceId,
     postVersion: afterOccurrence.version,
-    beforeState: { ...occurrenceMutableState(row.occurrence), systemFollowUpRuleIds: activeSystemFollowUps.map((item) => item.id) },
+    beforeState: occurrenceMutableState(row.occurrence),
     afterState: occurrenceMutableState(afterOccurrence),
   });
   if (input.operation === "cancel" && !row.task.recurrenceRule) {
@@ -343,28 +328,8 @@ export async function updateOccurrenceInTx(tx: DbTransaction, input: UpdateOccur
       afterState: taskMutableState(afterTask),
     });
   }
-  if (input.operation === "start") {
-    const ids = activeSystemFollowUps.map((item) => item.id);
-    if (ids.length) {
-      await tx
-        .update(reminderDeliveries)
-        .set({ status: "cancelled", suppressedReason: "superseded" })
-        .where(
-          and(
-            eq(reminderDeliveries.workspaceId, input.workspaceId),
-            eq(reminderDeliveries.occurrenceId, input.occurrenceId),
-            inArray(reminderDeliveries.reminderRuleId, ids),
-            inArray(reminderDeliveries.status, ["pending", "processing"]),
-          ),
-        );
-      await tx
-        .update(reminderRules)
-        .set({ active: false })
-        .where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, ids)));
-    }
-  } else {
-    await suppressOccurrenceDeliveries(tx, input.workspaceId, input.occurrenceId);
-  }
+  // Skipping or cancelling a date closes it, so its pending deliveries have nothing left to say.
+  await suppressOccurrenceDeliveries(tx, input.workspaceId, input.occurrenceId);
   await tx.insert(taskEvents).values({
     workspaceId: input.workspaceId,
     taskId: row.task.id,

@@ -15,7 +15,6 @@ const create = (title, extra = {}) => ({
   when: { mode: "date", date: "2026-09-05" },
   recurrence: null,
   reminder: null,
-  habit: null,
   timezone: null,
   goal: null,
   ...extra,
@@ -46,7 +45,7 @@ test("n2 names the second create_task; an update and a reschedule rewrite its fi
       type: "update_task",
       intent: "explicit",
       task: { id: "n2" },
-      patch: { title: null, why: "потому что", nextAction: null, context: null, checklist: null, importance: "critical", habit: null },
+      patch: { title: null, why: "потому что", nextAction: null, context: null, checklist: null, importance: "critical" },
     },
     {
       type: "reschedule",

@@ -12,9 +12,6 @@ test("fuzzy task requires reviewAt", () =>
   assert.equal(validateTaskDefinition({ ...base, timeMode: "fuzzy", plannedStartAt: undefined, fuzzyHorizonText: "на следующей неделе" }).ok, false));
 test("fuzzy task does not create occurrence", () =>
   assert.equal(taskCreatesOccurrence({ ...base, timeMode: "fuzzy", plannedStartAt: undefined, fuzzyHorizonText: "к осени", reviewAt: new Date() }), false));
-test("habit requires recurring task and minimum/desired actions", () =>
-  assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=DAILY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "expire", habitMode: true }).ok, false));
-
 test("unsupported recurrence frequency is rejected", () =>
   assert.equal(validateTaskDefinition({ ...base, recurrenceRule: "FREQ=YEARLY", recurrenceTimezone: "Europe/Kyiv", missPolicy: "carry_over" }).ok, false));
 test("miss policy without recurrence is rejected", () => assert.equal(validateTaskDefinition({ ...base, missPolicy: "carry_over" }).ok, false));

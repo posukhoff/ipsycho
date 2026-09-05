@@ -116,6 +116,5 @@ function patchToBody(patch: Extract<AiAction, { type: "update_task" }>["patch"])
   if (patch.context !== null) body.context = patch.context;
   if (patch.checklist !== null) body.checklist = patch.checklist;
   if (patch.importance !== null) body.importance = patch.importance;
-  if (patch.habit !== null) body.habit = "enabled" in patch.habit ? null : patch.habit;
   return body;
 }

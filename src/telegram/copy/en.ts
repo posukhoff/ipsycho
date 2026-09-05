@@ -219,7 +219,6 @@ export const en: Record<keyof typeof ru, string> = {
   cancel_what_toast: "Cancel what?",
   cancel_one_button: "Only this one",
   cancel_series_button: "The whole series",
-  started_toast: "Started",
   done_occurrence_toast: "Done ✓",
   skipped_toast: "Skipped",
   cancelled_occurrence_toast: "Cancelled",
@@ -241,7 +240,6 @@ export const en: Record<keyof typeof ru, string> = {
   resched_failed_text: "Could not move it. Say the new time again, for example “tomorrow at 10” or “Fri 15:00–16:00”.",
   reason_too_short: "Could not move it. Write briefly why you are moving it, once more.",
   repeated_reschedule: "This is a repeated move. If the problem is not only the time, you can record what is stopping you from starting.",
-  started_button: "Started",
 
   followup_custom_toast: "Send the time",
   followup_custom_prompt: "Send: a number of minutes (at least 15), HH:MM or YYYY-MM-DD HH:MM.",

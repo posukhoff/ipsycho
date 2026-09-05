@@ -103,7 +103,7 @@ const goalAction = (over = {}) => ({
   reviewEnabled: null,
   ...over,
 });
-const emptyPatch = () => ({ title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null });
+const emptyPatch = () => ({ title: null, why: null, nextAction: null, context: null, checklist: null, importance: null });
 const createTask = (over = {}) => ({
   type: "create_task",
   intent: "explicit",
@@ -117,7 +117,6 @@ const createTask = (over = {}) => ({
   when: { mode: "exact", date: "2026-09-10", time: "15:00", durationMinutes: null },
   recurrence: null,
   reminder: null,
-  habit: null,
   timezone: null,
   goal: null,
   ...over,

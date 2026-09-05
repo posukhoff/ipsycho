@@ -14,7 +14,7 @@ const body = {
   when: { mode: "exact", date: "2026-09-10", time: "10:30", durationMinutes: null },
   recurrence: null,
   reminder: null,
-  habit: null,
+
   timezone: null,
 };
 const target = {
@@ -35,7 +35,7 @@ test("explicit reversible actions apply immediately, inferred ones wait for conf
       type: "update_task",
       taskId: target.taskId,
       taskVersion: 1,
-      patch: { title: "Новое", why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null },
+      patch: { title: "Новое", why: null, nextAction: null, context: null, checklist: null, importance: null },
     },
     { type: "set_task_state", target, state: "done", note: null },
     { type: "set_task_state", target, state: "started", note: null },
@@ -98,26 +98,19 @@ test("explicit reversible actions apply immediately, inferred ones wait for conf
   }
 });
 
-test("destructive, critical, habit, sensitive and quiet-hours-bypass actions always confirm", () => {
+test("destructive, critical, sensitive and quiet-hours-bypass actions always confirm", () => {
   const rows = [
     { type: "create_task", body: { ...body, importance: "critical" }, goal: null },
-    { type: "create_task", body: { ...body, habit: { minimumAction: "открыть план", desiredAction: "три приоритета", trigger: null } }, goal: null },
     { type: "create_task", body: { ...body, reminder: { kind: "offset", anchor: "start", minutes: 0, quiet: "bypass" } }, goal: null },
     { type: "plan", goal: { title: "Цель", why: null, targetDate: null }, tasks: [body, { ...body, importance: "critical" }] },
     {
       type: "update_task",
       taskId: target.taskId,
       taskVersion: 1,
-      patch: { title: null, why: null, nextAction: null, context: null, checklist: null, importance: "critical", habit: null },
+      patch: { title: null, why: null, nextAction: null, context: null, checklist: null, importance: "critical", clear: null },
     },
-    {
-      type: "update_task",
-      taskId: target.taskId,
-      taskVersion: 1,
-      patch: { title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, habit: { minimumAction: "a", desiredAction: "b", trigger: null } },
-    },
-    { type: "set_task_state", target, state: "cancelled", note: null },
-    { type: "set_task_state", target, state: "skipped", note: null },
+    { type: "set_task_state", target, state: "cancelled" },
+    { type: "set_task_state", target, state: "skipped" },
     { type: "set_reminder", target, mode: "add", reminder: { kind: "at", date: "2026-09-10", time: "23:30", quiet: "bypass" } },
     {
       type: "goal",
@@ -139,19 +132,9 @@ test("destructive, critical, habit, sensitive and quiet-hours-bypass actions alw
   for (const row of rows) assert.equal(disposition(explicit(row)), "confirm", `${row.type} ${row.op ?? row.state ?? ""}`);
 });
 
-test("disabling habit mode is an ordinary explicit edit", () => {
-  const action = explicit({
-    type: "update_task",
-    taskId: target.taskId,
-    taskVersion: 1,
-    patch: { title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, habit: { enabled: false } },
-  });
-  assert.equal(disposition(action), "apply");
-});
-
 test("one message is one package: any confirm-level action holds the whole group", () => {
   const create = explicit({ type: "create_task", body, goal: null });
-  const cancel = explicit({ type: "set_task_state", target, state: "cancelled", note: null });
+  const cancel = explicit({ type: "set_task_state", target, state: "cancelled" });
   assert.equal(groupDisposition([create, create]), "apply");
   assert.equal(groupDisposition([create, cancel]), "confirm");
   assert.equal(groupDisposition([]), "apply");

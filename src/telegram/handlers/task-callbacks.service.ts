@@ -16,7 +16,7 @@ import { logger } from "../../observability/logger.js";
 
 const UUID = "[0-9a-f-]{36}";
 const VIEW_CALLBACK = new RegExp(`^view:(occ|task):(${UUID})$`);
-const OCCURRENCE_CALLBACK = new RegExp(`^occ:(start|done|skip|cancel|cancel_one|resched|more|back):(${UUID})$`);
+const OCCURRENCE_CALLBACK = new RegExp(`^occ:(done|skip|cancel|cancel_one|resched|more|back):(${UUID})$`);
 const SERIES_CALLBACK = new RegExp(`^series:(pause|resume|cancel):(${UUID})$`);
 const REMINDER_CALLBACK = new RegExp(`^rem:(cancel|mute):(${UUID})$`);
 const ACTION_CALLBACK = new RegExp(`^act:(confirm|cancel|undo):(${UUID})$`);
@@ -67,7 +67,9 @@ export class TaskCallbacksService {
 
       if (action === "more") {
         await ctx.answerCallbackQuery();
-        await ctx.editMessageReplyMarkup({ reply_markup: taskMoreKeyboard(occurrenceId, recurring, context.task.id, locale) }).catch(() => undefined);
+        await ctx
+          .editMessageReplyMarkup({ reply_markup: taskMoreKeyboard(occurrenceId, recurring, context.task.id, locale, !context.task.recurrenceEndLocalDate) })
+          .catch(() => undefined);
         return;
       }
       if (action === "back") {
@@ -82,19 +84,11 @@ export class TaskCallbacksService {
         await ctx.editMessageReplyMarkup({ reply_markup: quickRescheduleKeyboard(occurrenceId, locale) }).catch(() => undefined);
         return;
       }
-      const state = action === "start" ? "started" : action === "done" ? "done" : action === "skip" ? "skipped" : "cancelled";
+      const state = action === "done" ? "done" : action === "skip" ? "skipped" : "cancelled";
       const applied = await this.applyState(access, context, state);
       await ctx.answerCallbackQuery({
-        text: t(locale, action === "start" ? "started_toast" : action === "done" ? "done_occurrence_toast" : action === "skip" ? "skipped_toast" : "cancelled_occurrence_toast"),
+        text: t(locale, action === "done" ? "done_occurrence_toast" : action === "skip" ? "skipped_toast" : "cancelled_occurrence_toast"),
       });
-      if (state === "started") {
-        const current = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
-        if (current)
-          await ctx
-            .editMessageText(await this.screens.taskCard(access.workspaceId, current, locale), { reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId) })
-            .catch(() => undefined);
-        return;
-      }
       // A one-tap terminal change keeps its way back on the card itself.
       await ctx
         .editMessageText(terminalTaskText(context.task, state === "done" ? "done" : state === "skipped" ? "skipped" : "cancelled", new Date(), locale), {
@@ -108,7 +102,7 @@ export class TaskCallbacksService {
   }
 
   /** The button is an explicit instruction; it is journaled like the same change typed in chat, with Undo. */
-  private async applyState(access: ActiveAccess, context: OccurrenceContext, state: "started" | "done" | "skipped" | "cancelled") {
+  private async applyState(access: ActiveAccess, context: OccurrenceContext, state: "done" | "skipped" | "cancelled") {
     const settings = await this.settings.get(access.user.id);
     const action: ResolvedAction = {
       type: "set_task_state",

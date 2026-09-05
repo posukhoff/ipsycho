@@ -234,7 +234,6 @@ export const ru = {
   cancel_what_toast: "Что отменить?",
   cancel_one_button: "Только это",
   cancel_series_button: "Всю серию",
-  started_toast: "Начато",
   done_occurrence_toast: "Готово ✓",
   skipped_toast: "Пропущено",
   cancelled_occurrence_toast: "Отменено",
@@ -257,7 +256,6 @@ export const ru = {
   resched_failed_text: "Не удалось перенести. Скажи новое время ещё раз, например «завтра в 10» или «пт 15:00–16:00».",
   reason_too_short: "Не удалось перенести. Напиши коротко, почему переносишь, ещё раз.",
   repeated_reschedule: "Это уже повторный перенос. Если проблема не только во времени, можно зафиксировать, что именно мешает начать.",
-  started_button: "Начал",
 
   // Follow-ups / snooze
   followup_custom_toast: "Напиши время",

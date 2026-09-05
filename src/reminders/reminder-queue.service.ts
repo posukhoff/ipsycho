@@ -252,7 +252,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         locale,
         header,
       });
-      const telegramMessageId = await this.telegram.sendReminder(row.telegramUserId, text, row.delivery.occurrenceId ?? undefined, row.occurrence?.status ?? "open", locale, {
+      const telegramMessageId = await this.telegram.sendReminder(row.telegramUserId, text, row.delivery.occurrenceId ?? undefined, locale, {
         mute: escalation >= 2,
       });
       const sentAt = new Date();

@@ -1,5 +1,4 @@
 import { assignShortIds, buildRefMap, type RefMap } from "./ai-refs.js";
-import { habitOfferEligible } from "./habit-policy.js";
 import { recurrenceLabel } from "./recurrence-label.js";
 import { formatLocalDateTime, formatWhenForModel, type PresentationLocale } from "./time-presentation.js";
 import { startOfLocalDateUtc } from "./timezone.js";
@@ -52,7 +51,7 @@ export interface ModelSettings {
   };
 }
 
-export type ModelHint = { task: string; kind: "habit_offer" } | { task: string; kind: "reschedule_requested" };
+export type ModelHint = { task: string; kind: "reschedule_requested" };
 
 export interface ModelContext {
   tasks: ModelTaskLine[];
@@ -88,8 +87,6 @@ export interface ContextTaskRow {
   reviewAt: Date | null;
   recurrenceRule: string | null;
   recurrenceEndLocalDate?: string | null;
-  habitMode?: boolean;
-  habitOfferSentAt?: Date | null;
 }
 
 export interface ContextOccurrenceRow {
@@ -341,16 +338,6 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
     if (goal) line.goal = goal;
     const checklist = input.checklistByTask?.get(task.id);
     if (checklist?.length) line.checklist = checklist.map((item) => ({ text: item.text, done: item.done }));
-    if (
-      habitOfferEligible({
-        recurring: Boolean(task.recurrenceRule),
-        kind: task.kind,
-        alreadyHabit: Boolean(task.habitMode),
-        offeredBefore: Boolean(task.habitOfferSentAt),
-        behavioral: true, // semantic suitability is the model's call; this gate enforces frequency/type rules.
-      })
-    )
-      hints.push({ task: task.shortId, kind: "habit_offer" });
     return line;
   });
   if (input.focus) {

@@ -143,10 +143,6 @@ export class TasksService {
       ...(definition.recurrenceTimezone ? { recurrenceTimezone: definition.recurrenceTimezone } : {}),
       ...(definition.recurrenceEndLocalDate ? { recurrenceEndLocalDate: definition.recurrenceEndLocalDate } : {}),
       ...(definition.missPolicy ? { missPolicy: definition.missPolicy } : {}),
-      ...(definition.habitMode !== undefined ? { habitMode: definition.habitMode } : {}),
-      ...(definition.minimumAction ? { minimumAction: definition.minimumAction } : {}),
-      ...(definition.desiredAction ? { desiredAction: definition.desiredAction } : {}),
-      ...(definition.habitTrigger ? { habitTrigger: definition.habitTrigger } : {}),
     };
 
     const occurrenceRows: Array<typeof taskOccurrences.$inferInsert> = projections.map((projection, index) => ({
@@ -373,10 +369,6 @@ export class TasksService {
 
   countActiveCritical(workspaceId: string): Promise<number> {
     return this.repository.countActiveCritical(workspaceId);
-  }
-
-  markHabitOfferSent(workspaceId: string, taskId: string, now = new Date()): Promise<boolean> {
-    return this.repository.markHabitOfferSent(workspaceId, taskId, now);
   }
 
   reconcileRecurringTask(workspaceId: string, taskId: string, now = new Date()): Promise<void> {

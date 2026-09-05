@@ -26,8 +26,6 @@ const taskRow = {
   reviewAt: null,
   recurrenceRule: null,
   recurrenceEndLocalDate: null,
-  habitMode: false,
-  habitOfferSentAt: null,
 };
 const occurrenceRow = {
   id: "00000000-0000-4000-8000-00000000000b",

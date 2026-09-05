@@ -52,7 +52,6 @@ const body = (overrides = {}) => ({
   when: exact,
   recurrence: null,
   reminder: null,
-  habit: null,
   timezone: null,
   ...overrides,
 });
@@ -199,7 +198,7 @@ test("reminderRuleFromReminder maps at, offset and day reminders", () => {
 });
 
 test("validateUpdateTaskPatch rejects an empty patch and blank fields", () => {
-  const empty = { title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null };
+  const empty = { title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, clear: null };
   assert.throws(() => validateUpdateTaskPatch(empty), withCode("empty_patch"));
   assert.throws(() => validateUpdateTaskPatch({ ...empty, title: "   " }), withCode("blank_field"));
   assert.throws(
@@ -214,7 +213,6 @@ test("validateUpdateTaskPatch rejects an empty patch and blank fields", () => {
     withCode("checklist"),
   );
   assert.doesNotThrow(() => validateUpdateTaskPatch({ ...empty, importance: "required" }));
-  assert.doesNotThrow(() => validateUpdateTaskPatch({ ...empty, habit: { enabled: false } }));
 });
 
 test("whenFromRescheduleFields round-trips every When mode", () => {
@@ -278,7 +276,6 @@ test("an offset reminder on a day without a clock time becomes a morning reminde
       when: { mode: "date", date: "2026-09-05" },
       recurrence: null,
       reminder: { kind: "offset", anchor: "start", minutes: -60, quiet: "respect" },
-      habit: null,
       timezone: null,
     },
     { workspaceId: "ws", actorUserId: "u", recipientUserId: "u", now: new Date("2026-09-04T09:00:00Z") },
@@ -308,7 +305,6 @@ test("a day reminder anchored to the wrong end of the task falls back to the day
       when: { mode: "date", date: "2026-09-05" },
       recurrence: null,
       reminder: { kind: "day", anchor: "due", daysOffset: 0, time: "12:00", quiet: "respect" },
-      habit: null,
       timezone: null,
     },
     { workspaceId: "ws", actorUserId: "u", recipientUserId: "u", now: new Date("2026-09-04T09:00:00Z") },
