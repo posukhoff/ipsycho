@@ -7,6 +7,10 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    // src/core imports nothing, so no dependency's .d.ts drags the node types in the way they
+    // arrive in the server build. `init-data.ts` needs `node:crypto` for the initData HMAC; that is
+    // the only reason this list exists, and it should stay a list of one.
+    "types": ["node"],
     "outDir": ".core-dist",
     "rootDir": "src/core"
   },

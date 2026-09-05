@@ -1,18 +1,40 @@
 import { Module } from "@nestjs/common";
+import { AccessModule } from "../../access/access.module.js";
+import { AiModule } from "../../ai/ai.module.js";
+import { ChatModule } from "../../chat/chat.module.js";
+import { ConfigModule } from "../../config.module.js";
+import { SettingsModule } from "../../settings/settings.module.js";
+import { MeController } from "./me.controller.js";
+import { InitDataGuard } from "./init-data.guard.js";
+import { ApiIpRateLimiter, ApiUserRateLimiter } from "./rate-limiter.js";
 
 /**
- * Group 1: `initData` authentication.
+ * `initData` authentication, and the infrastructure the other API modules consume.
  *
- * Reserved endpoints:
- * - `GET /api/v1/me` — the bootstrap call (`ENDPOINTS.me`).
+ * It owns `GET /api/v1/me` and, more importantly, the guard. Groups 2–4 use it like this:
  *
- * Everything else this module owns is infrastructure the other three modules consume: the guard
- * that verifies the Telegram signature and resolves the user through `AccessService`, the two
- * rate limiters, and whatever request-scoped state (`{ access, settings, locale }`) the presenters
- * read. Exporting those is this module's job — `ApiModule` imports it first for that reason.
+ * ```ts
+ * @Module({ imports: [WebAuthModule, TasksModule], controllers: [WebTasksController] })
+ * export class WebTasksModule {}
  *
- * Empty on purpose: `api.module.ts` is group 0's file and imports this from the start, so group 1
- * never edits it.
+ * @Controller(apiRoute("tasks"))
+ * @UseGuards(InitDataGuard)
+ * export class WebTasksController {
+ *   @Get() list(@CurrentUser() user: WebAuthContext) { … }
+ * }
+ * ```
+ *
+ * A guard named in `@UseGuards` is instantiated from the enclosing module's injector, which is why
+ * `InitDataGuard` and both limiters are exported: a module that imports this one can use the guard
+ * without re-providing it, and there is then exactly one limiter instance per process.
+ *
+ * The limiters are stateful singletons on purpose. Providing them again in another module would
+ * give that module its own counters, and the flood would be permitted once per module.
  */
-@Module({})
+@Module({
+  imports: [ConfigModule, AccessModule, SettingsModule, AiModule, ChatModule],
+  controllers: [MeController],
+  providers: [InitDataGuard, ApiIpRateLimiter, ApiUserRateLimiter],
+  exports: [InitDataGuard, ApiIpRateLimiter, ApiUserRateLimiter],
+})
 export class WebAuthModule {}
