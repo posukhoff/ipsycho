@@ -8,9 +8,10 @@ Current package version: `1.0.0-rc.4`. The product contract is defined by [Imple
 
 - Private, allowlisted multi-user bot with isolated workspaces. Access is resolved once per update in one middleware; an unknown user gets the same refusal on every command and button, a group chat is told the bot is private, and a message type without a handler gets a sentence instead of silence.
 - Interface in Russian, Ukrainian and English: every handler string, card, keyboard, digest, applied report and confirmation title follows the pinned or Telegram language (`src/telegram/copy/`; a key missing in one dictionary does not compile).
-- Tasks and events with structured local point, window, date-only, deadline and fuzzy scheduling; checklists, importance, next actions and optimistic versions.
-- Daily, weekly and monthly recurrence with timezone/DST-aware materialization, optional inclusive end date and finite excluded local dates; occurrence-level start, completion, skip, cancel, reschedule, Seen and blocker states. A paused series keeps its own list on the task screen, because its dates are gone from every window until it is resumed.
-- Durable reminders, quiet hours, snooze, escalation, morning/evening digests and weekly reviews.
+- Tasks and events with structured local point, window, date-only, deadline and fuzzy scheduling; checklists, importance, next actions and optimistic versions. A task described as an outcome («разобраться с налогами») comes back with its first concrete step and three to five steps inside the same task; a task that already names an act is left alone.
+- Daily, weekly and monthly recurrence with timezone/DST-aware materialization, optional inclusive end date and finite excluded local dates; occurrence-level start, completion, skip, cancel and reschedule. A paused series keeps its own list on the task screen, because its dates are gone from every window until it is resumed.
+- A pool of undated tasks, picked once a week for the coming week by tapping, and given a day from the morning card by one more tap. The mark is the Monday of that week, so a pick that was never taken still reads as unfinished next time.
+- Durable reminders, quiet hours, snooze, escalation, a morning card with the day's plan and a weekly card with the past week and the pool.
 - Goals, task-goal links, conversational topics, profile context and PostgreSQL full-text memory.
 - OpenAI, Gemini and DeepSeek adapters with one explicitly configured active provider and no automatic cross-provider fallback.
 - Bounded OpenAI voice transcription and multilingual RU/UK/EN AI contracts.
@@ -20,9 +21,9 @@ Current package version: `1.0.0-rc.4`. The product contract is defined by [Imple
 
 Ordinary natural-language messages go to the agent. The agent answers with nine kinds of action, every one addressed to an entity by the short id the context assigned this turn (`t1`, `g2`, `m3`):
 
-- `create_task`, `update_task`, `set_task_state` (done, started, seen with an optional blocker note, skipped, cancelled), `reschedule`, `set_reminder`;
+- `create_task`, `update_task`, `set_task_state` (done, started, skipped, cancelled), `reschedule`, `set_reminder`;
 - `goal` (create, update, link, unlink) and `plan` (a new goal with its first tasks);
-- `memory` (save, update, delete) and `settings` (timezone, language, digests, weekly review, quiet hours, snooze, reminder defaults).
+- `memory` (save, update, delete) and `settings` (timezone, language, the morning card, the weekly card's day, quiet hours, snooze, reminder defaults).
 
 The action names only the task; the server decides whether it means the current occurrence, the whole series (`scope`) or the task itself. Time is one `when` shape (exact, date-only day, deadline, fuzzy horizon with a review day) in the user's timezone; ids, versions and the current occurrence are resolved on the server.
 
@@ -36,7 +37,7 @@ A task created in the same message can be referenced by another action as `n1`, 
 
 The confirmation card the user still sees is cancelled only when a later turn answers it (the same change about the same thing) or a new proposal replaces it, and only after the new package succeeded; an unrelated command or a rejected turn leaves the card on its buttons.
 
-First run: `/start` asks for the timezone (buttons or a typed city), then digests, quiet hours and the weekly review, and ends on the settings card. Consent for the AI provider is asked on the first free-text message; granting it processes that message instead of asking to retype it. A reminder card offers to repeat itself in 15 minutes or an hour without moving the task; a reminder pushed out of quiet hours says so; a critical escalation names its number and can be muted for that occurrence.
+First run: `/start` asks for the timezone (buttons or a typed city), then the morning card, quiet hours and the weekly card, and ends on the settings card. Consent for the AI provider is asked on the first free-text message; granting it processes that message instead of asking to retype it. A reminder card offers to repeat itself in 15 minutes or an hour without moving the task; a reminder pushed out of quiet hours says so; a critical escalation names its number and can be muted for that occurrence.
 
 ## Safety and reliability
 

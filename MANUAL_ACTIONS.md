@@ -24,6 +24,11 @@ This file contains only checks that cannot be proven by the local automated suit
 - [ ] Pause a recurring series, open `/tasks` and verify the «⏸ На паузе» button lists it; resume it and verify the future dates come back, the row disappears and no Undo is offered for the resume (pausing again is the way back).
 - [ ] With the provider unreachable, send a message and verify the bot answers that it will try again, retries twice, and then writes once more with a quote of the message and `/retry_ai`.
 - [ ] Ask for a reminder on a task with no date («к осени разберусь с гаражом, напомни») and verify one contact on its review day, not two.
+- [ ] Describe a task as an outcome («надо бы разобраться с налогами до конца сентября») and verify one task with a first concrete step and three to five steps, the report showing them, and Undo taking the whole thing back. Then say «не дроби» and verify the step and the list are emptied. Repeat with «завтра в 10:30 позвонить в клинику» and verify no steps are invented.
+- [ ] Tick one checklist item, then have the model restate the steps (ask it to add one) and verify the tick survived.
+- [ ] Open `/week`: verify the past week's line, the pool ordered with last week's untaken pick first, that a tap takes a task for the week and the same tap releases it, and that the eighth pick is refused with a toast.
+- [ ] On the morning card, verify the day's plan, the «взято на неделю» block, and that one tap sets a task for today, removes its row and leaves the others.
+- [ ] Verify the weekly card arrives on its configured day with the pool count and a button to `/week`, and that no review conversation starts anywhere.
 - [ ] Test quiet hours, snooze, morning/evening digests, weekly review and notification defaults. (DST boundaries are covered by the property tests in `tests/core/time-properties.test.mjs` across nine zones.)
 - [ ] Send the nine real-dialog phrasings from `docs/AGENT_FLOW.md` §2.7 (create with a reminder, "напомни через четыре часа …", two reschedules in one message, reschedule + create + goal link, every-second-Monday recurrence, weekly recurrence with a skipped first date, four tasks with a habit, "завтра после обеда" without a time). Verify each ends in one applied group, one confirmation card or one meaningful question, with exactly one provider call per message in `ai_usage`.
 - [ ] Test every-second-week cadence end to end in Telegram. (Inclusive end dates, excluded dates and DST boundaries are covered by the property tests.)
@@ -46,3 +51,4 @@ This file contains only checks that cannot be proven by the local automated suit
 
 - [ ] Deploy migration `0023_message_pending_group.sql` with the application. On startup, pending confirmation cards stored under the previous action contract are expired with a `legacy_contract_expired` audit event; verify the count in the log matches the pending rows before deploy.
 - [ ] Send a bare "да" to a card the bot sent last and verify it confirms; send "да" after a model question with no card and verify it goes to the model; press Reschedule on a task and type "завтра в 10" and verify the move.
+- [ ] Deploy migration `0028_week_pool.sql` with the application. Existing tasks have no week mark, so the pool starts empty of picks; verify `/week` lists the undated tasks and that picking one writes this week's Monday.
