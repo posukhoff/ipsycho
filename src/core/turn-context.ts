@@ -2,11 +2,9 @@ import { assessAvoidance, deriveAvoidanceSignals } from "./avoidance.js";
 import { assignShortIds, buildRefMap, type RefMap } from "./ai-refs.js";
 import { habitOfferEligible } from "./habit-policy.js";
 import { recurrenceLabel } from "./recurrence-label.js";
-import { reviewQuestionLimit, type ReviewKind } from "./review-policy.js";
 import { formatLocalDateTime, formatWhenForModel, type PresentationLocale } from "./time-presentation.js";
 import { startOfLocalDateUtc } from "./timezone.js";
 import type { Importance, OccurrenceStatus, TaskKind, TaskStatus, TimeMode } from "./types.js";
-import type { WeeklyReviewState } from "./weekly-review-state.js";
 
 /**
  * Everything the model reads about the workspace on one turn. Short ids only, local
@@ -62,14 +60,6 @@ export interface ModelSettings {
 
 export type ModelHint = { task: string; kind: "avoidance" } | { task: string; kind: "habit_offer" } | { task: string; kind: "reschedule_requested" | "blocker_recorded" };
 
-export interface ModelReview {
-  kind: ReviewKind;
-  questionsAsked: number;
-  questionLimit: number;
-  snapshot?: string;
-  state?: Omit<WeeklyReviewState, "version">;
-}
-
 export interface ModelContext {
   tasks: ModelTaskLine[];
   tasksNote?: string;
@@ -77,12 +67,11 @@ export interface ModelContext {
   memory: ModelMemoryLine[];
   settings: ModelSettings | null;
   topic: {
-    active: { title: string; summary: string; review?: ReviewKind } | null;
+    active: { title: string; summary: string } | null;
     recent: Array<{ title: string; summary: string }>;
   };
   pendingProposal?: { askedAt: string; items: string[] };
   hints?: ModelHint[];
-  review?: ModelReview;
 }
 
 /** The subset of a persisted task row the context reads; database rows satisfy it structurally. */
@@ -294,7 +283,6 @@ export interface TurnContextInput {
   blockers?: ReadonlyArray<{ taskId: string; details: string | null }>;
   pendingProposal?: { createdAt: Date; titles: readonly string[] } | null;
   focus?: { taskId: string; action: "reschedule" | "blocker" } | null;
-  review?: { kind: ReviewKind; questionsAsked: number; snapshot?: string; state?: WeeklyReviewState | null } | null;
   /** The user's interface language; the context's own words (weekdays, notes) follow it so the payload does not pull the model toward Russian. */
   locale?: PresentationLocale;
 }
@@ -425,7 +413,6 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
         ? {
             title: active.title,
             summary: active.summary,
-            ...(active.reviewKind === "evening" || active.reviewKind === "weekly" ? { review: active.reviewKind } : {}),
           }
         : null,
       recent,
@@ -436,7 +423,6 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
         }
       : {}),
     ...(hints.length ? { hints } : {}),
-    ...(input.review ? { review: modelReview(input.review) } : {}),
   };
 
   const refs = buildRefMap({
@@ -494,16 +480,6 @@ function modelSettings(settings: ContextSettingsRow, now: Date, locale: Presenta
       seenCriticalMinutes: settings.seenCriticalMinutes,
     },
   };
-}
-
-function modelReview(review: NonNullable<TurnContextInput["review"]>): ModelReview {
-  const result: ModelReview = { kind: review.kind, questionsAsked: review.questionsAsked, questionLimit: reviewQuestionLimit(review.kind) };
-  if (review.snapshot?.trim()) result.snapshot = review.snapshot;
-  if (review.state) {
-    const { version: _version, ...state } = review.state;
-    result.state = state;
-  }
-  return result;
 }
 
 /** Characters of serialized context one turn may carry; roughly 6k tokens. */

@@ -185,7 +185,7 @@ export const SettingsActionSchema = z
     timezone: z.string().nullable(),
     applyTimezoneTo: z.enum(["profile_only", "all"]).nullable(),
     language: z.string().nullable(),
-    digestKind: z.enum(["morning", "evening"]).nullable(),
+    digestKind: z.literal("morning").nullable(),
     enabled: z.boolean().nullable(),
     time: LocalTimeSchema.nullable(),
     weekday: z.number().int().min(1).max(7).nullable(),

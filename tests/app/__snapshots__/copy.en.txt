@@ -26,6 +26,7 @@ What you can write
 View and manage
 • /today — today’s plan
 • /tasks or /task — all active tasks
+• /week — the pool of undated tasks and the week plan
 • /goals — goals and linked tasks
 • /reminders — upcoming reminders
 • /settings — notification and chat settings
@@ -51,7 +52,7 @@ For a multi-step job, list the steps and AI can propose a checklist. Unchecked i
 
 A goal answers “why”: it connects related tasks and helps choose priorities. You can change its title, why, and context in an ordinary message.
 
-Linked tasks appear in /goals. During the weekly review, AI discusses progress and helps plan the next week — without hidden automatic changes.
+Linked tasks appear in /goals. A goal changes nothing by itself: it helps choose what to take for the week in /week.
 
 ### guide: reminders
 🔔 Reminders
@@ -61,11 +62,13 @@ An event is contacted before it starts and at the start; an all-day event is con
 Quiet hours and rescheduling are respected. Cancel or move any reminder in a normal message; a reminder is never created in the past.
 
 ### guide: reports
-🗓 Briefings and reviews
+🗓 The day and the week
 
-The morning briefing gathers the day's plan. The evening review helps close the day and decide what to move. The weekly review is a conversation about goals, habits, blockers, and the next week's plan.
+The morning card shows what is planned for today, and below it the tasks taken for this week: one tap sets a task for today.
 
-Change morning, evening, and weekly review times in /settings using ordinary language. A review never creates or changes tasks without clear agreement.
+Once a week a week card arrives: what closed, what was taken and not started, and an invitation to pick the next week in /week. Picking is taps; the bot changes nothing on its own.
+
+The morning time and the weekly day are set in /settings in ordinary language.
 
 ### guide: ai
 🤖 AI processing
@@ -83,7 +86,6 @@ Time and language
 
 Briefings
 ☀️ Morning briefing: 08:30
-🌙 Evening briefing: off
 📅 Weekly review: Sun 18:00
 
 Quiet hours and data

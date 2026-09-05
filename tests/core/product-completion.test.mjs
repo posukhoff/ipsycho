@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { morningDigestSections, eveningDigestSections, shouldBundleWeeklyReview, briefingStillUseful } from "../../.core-dist/digest-policy.js";
+import { morningDigestSections, briefingStillUseful } from "../../.core-dist/digest-policy.js";
 import { defaultResultCheckChoice, resultCheckDelayMinutes } from "../../.core-dist/result-check.js";
 import { habitOfferEligible } from "../../.core-dist/habit-policy.js";
 import { estimateAiCostUsd, aiBurstAllowed, shouldWarnMonthlySpend } from "../../.core-dist/ai-usage-policy.js";
 import { seriesOperationState } from "../../.core-dist/series-policy.js";
 
-test("digest separates priority from normal and evening decisions", () => {
+test("the morning digest separates priority from normal, and a briefing is never replayed on another day", () => {
   const items = [
     { id: "1", title: "n", importance: "normal", status: "open" },
     { id: "2", title: "r", importance: "required", status: "overdue" },
@@ -15,21 +15,6 @@ test("digest separates priority from normal and evening decisions", () => {
   assert.deepEqual(
     morningDigestSections(items).priority.map((x) => x.id),
     ["2", "3"],
-  );
-  assert.deepEqual(
-    eveningDigestSections(items).decisions.map((x) => x.id),
-    ["2", "3"],
-  );
-});
-
-test("weekly review bundles only on same enabled schedule", () => {
-  assert.equal(
-    shouldBundleWeeklyReview({ eveningDigestEnabled: true, eveningTime: "20:00", weeklyReviewEnabled: true, weeklyTime: "20:00", localWeekday: 7, weeklyWeekday: 7 }),
-    true,
-  );
-  assert.equal(
-    shouldBundleWeeklyReview({ eveningDigestEnabled: true, eveningTime: "20:00", weeklyReviewEnabled: true, weeklyTime: "19:00", localWeekday: 7, weeklyWeekday: 7 }),
-    false,
   );
   assert.equal(briefingStillUseful("weekly", "2026-08-09", "2026-08-09"), true);
   assert.equal(briefingStillUseful("morning", "2026-08-09", "2026-08-10"), false);

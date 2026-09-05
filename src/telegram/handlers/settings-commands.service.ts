@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import { InlineKeyboard, type Bot, type CallbackQueryContext, type CommandContext } from "grammy";
 import { ActionsService } from "../../actions/actions.service.js";
 import { BriefingContentService } from "../../briefings/briefing-content.service.js";
-import { ChatService } from "../../chat/chat.service.js";
 import type { ResolvedActionOf } from "../../core/ai-contract.js";
 import { renderAppliedReport } from "../../core/applied-report.js";
 import { isDomainRuleError } from "../../core/errors.js";
@@ -13,13 +12,12 @@ import { resolveTimezoneInput } from "../../core/timezone-lookup.js";
 import { safeError } from "../../observability/safe-error.js";
 import { SettingsService } from "../../settings/settings.service.js";
 import { t } from "../copy/index.js";
-import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { ScreensService } from "./screens.service.js";
 import { logger } from "../../observability/logger.js";
 
 const TIMEZONE_APPLY_CALLBACK = /^tzapply:(digests|quiet|both|keep)$/;
-const PREFS_CALLBACK = /^prefs:(morning|evening|weekly|quiet|snooze):(toggle|morning)$/;
+const PREFS_CALLBACK = /^prefs:(morning|weekly|quiet|snooze):(toggle|morning)$/;
 const LANGUAGE_CALLBACK = /^prefs:lang:(open|auto|ru|uk|en)$/;
 const TIMEZONE_OPEN_CALLBACK = "prefs:tz:open";
 
@@ -29,8 +27,6 @@ export class SettingsCommandsService {
   constructor(
     private readonly settings: SettingsService,
     private readonly briefings: BriefingContentService,
-    private readonly chat: ChatService,
-    private readonly chatReply: TelegramChatReplyService,
     private readonly screens: ScreensService,
     private readonly actions: ActionsService,
   ) {}
@@ -105,7 +101,6 @@ export class SettingsCommandsService {
     bot.command("timezone", (ctx) => this.timezone(ctx));
     bot.command("language", (ctx) => this.language(ctx));
     bot.command("morning", (ctx) => this.digest(ctx, "morning"));
-    bot.command("evening", (ctx) => this.digest(ctx, "evening"));
     bot.command("weekly", (ctx) => this.weekly(ctx));
     bot.command("quiet", (ctx) => this.quiet(ctx));
     bot.command("snooze", (ctx) => this.snooze(ctx));
@@ -145,7 +140,7 @@ export class SettingsCommandsService {
     await this.applySettings(ctx, "language", { language: automatic ? null : value }, automatic ? "language_auto" : null);
   }
 
-  private async digest(ctx: CommandContext<AppContext>, kind: "morning" | "evening"): Promise<void> {
+  private async digest(ctx: CommandContext<AppContext>, kind: "morning"): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
     const parts = commandArgs(ctx.msg.text ?? "")
       .split(/\s+/u)
@@ -165,12 +160,7 @@ export class SettingsCommandsService {
     }
     const enabled = parts[0] === "on";
     if ((enabled && parts.length !== 2) || (!enabled && (parts[0] !== "off" || parts.length !== 1))) return void (await ctx.reply(t(locale, "digest_usage", { kind })));
-    await this.applySettings(
-      ctx,
-      "digest",
-      { digestKind: kind, enabled, time: enabled ? parts[1]! : null },
-      enabled ? (kind === "morning" ? "digest_on_morning" : "digest_on_evening") : "digest_off",
-    );
+    await this.applySettings(ctx, "digest", { digestKind: kind, enabled, time: enabled ? parts[1]! : null }, enabled ? "digest_on_morning" : "digest_off");
   }
 
   private async weekly(ctx: CommandContext<AppContext>): Promise<void> {
@@ -189,19 +179,6 @@ export class SettingsCommandsService {
         locale,
       });
       await ctx.reply(briefing.text);
-      return;
-    }
-    if (parts[0] === "review") {
-      const result = await this.chat.startReview({
-        workspaceId: access.workspaceId,
-        userId: access.user.id,
-        aiStatus: access.user.aiStatus,
-        timezone: settings.timezone,
-        digestTimezone: settings.digestTimezone,
-        language: settings.pinnedLanguage,
-        kind: "weekly",
-      });
-      await this.chatReply.reply(ctx, access, result);
       return;
     }
     const enabled = parts[0] === "on";
@@ -322,7 +299,6 @@ export class SettingsCommandsService {
     if (!key || !action) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     try {
       if (key === "morning") await this.settings.setDigest({ userId: access.user.id, kind: "morning", enabled: !settings.morningDigestEnabled });
-      else if (key === "evening") await this.settings.setDigest({ userId: access.user.id, kind: "evening", enabled: !settings.eveningDigestEnabled });
       else if (key === "weekly") await this.settings.setWeekly({ userId: access.user.id, enabled: !settings.weeklyReviewEnabled });
       else if (key === "quiet")
         await this.settings.setQuietHours(access.user.id, {

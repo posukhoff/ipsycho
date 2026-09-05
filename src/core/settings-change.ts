@@ -11,7 +11,7 @@ import { parseLocalTime } from "./timezone.js";
 export type SettingsChange =
   | { operation: "timezone"; timezone: string; applyTo: "profile_only" | "all" }
   | { operation: "language"; language: string | null }
-  | { operation: "digest"; kind: "morning" | "evening"; enabled: boolean; time?: string | null }
+  | { operation: "digest"; kind: "morning"; enabled: boolean; time?: string | null }
   | { operation: "digest_preset"; enabled: boolean }
   | { operation: "weekly_review"; enabled: boolean; weekday?: number | null; time?: string | null }
   | { operation: "weekly_preset"; enabled: boolean }
@@ -41,7 +41,6 @@ export interface SettingsPatchFields {
   morningReferenceTime?: string;
   eveningReferenceTime?: string;
   morningDigestEnabled?: boolean;
-  eveningDigestEnabled?: boolean;
   weeklyReviewEnabled?: boolean;
   weeklyReviewWeekday?: number;
   weeklyReviewTime?: string;
@@ -54,7 +53,7 @@ export interface SettingsPatchFields {
 }
 
 export const DEFAULT_QUIET_HOURS = { weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" } as const;
-export const DEFAULT_DIGEST_TIMES = { morning: "09:00", evening: "20:00" } as const;
+export const DEFAULT_DIGEST_TIMES = { morning: "09:00" } as const;
 export const DEFAULT_WEEKLY_REVIEW = { weekday: 7, time: "20:00" } as const;
 
 function time(value: string | null | undefined, field: string): string | undefined {
@@ -93,16 +92,12 @@ export function buildSettingsPatch(change: SettingsChange, current: { timezone: 
       return { pinnedLanguage: change.language === null ? null : normalizeLanguageTag(change.language) };
     case "digest": {
       const reference = time(change.time, "digest time");
-      return change.kind === "morning"
-        ? { morningDigestEnabled: change.enabled, digestTimezone: current.timezone, ...(reference ? { morningReferenceTime: reference } : {}) }
-        : { eveningDigestEnabled: change.enabled, digestTimezone: current.timezone, ...(reference ? { eveningReferenceTime: reference } : {}) };
+      return { morningDigestEnabled: change.enabled, digestTimezone: current.timezone, ...(reference ? { morningReferenceTime: reference } : {}) };
     }
     case "digest_preset":
       return {
         morningDigestEnabled: change.enabled,
-        eveningDigestEnabled: change.enabled,
         morningReferenceTime: DEFAULT_DIGEST_TIMES.morning,
-        eveningReferenceTime: DEFAULT_DIGEST_TIMES.evening,
         digestTimezone: current.timezone,
       };
     case "weekly_review": {

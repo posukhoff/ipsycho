@@ -63,7 +63,7 @@ export class SettingsService {
     return normalized;
   }
 
-  setDigest(input: { userId: string; kind: "morning" | "evening"; enabled: boolean; time?: string }): Promise<void> {
+  setDigest(input: { userId: string; kind: "morning"; enabled: boolean; time?: string }): Promise<void> {
     return this.apply(input.userId, { operation: "digest", kind: input.kind, enabled: input.enabled, time: input.time ?? null });
   }
 

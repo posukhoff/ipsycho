@@ -5,7 +5,7 @@ export function deterministicCopy(locale: TelegramLocale) {
     return {
       startOnboarding:
         "Hi, I’m IPsycho — a personal assistant for tasks and plans. Write naturally: I can save a task, remind you, or break a goal into steps.\n\nA few quick questions first; everything can be changed later in /settings.",
-      digestsPrompt: "Would you like morning and evening briefings? The default times are 09:00 and 20:00.",
+      digestsPrompt: "Would you like a morning card with the day's plan? The default time is 09:00.",
       ready:
         "Hi — I help you remember, plan, and follow through on what matters.\n\nWrite naturally or send a voice message. For example: “Remind me to call the doctor tomorrow at 16:00” or “I want to prepare for a half marathon by October”.\n\nYour plan: /today · tasks: /tasks · goals: /goals\nFull guide: /help.",
       yes: "Yes",
@@ -23,7 +23,7 @@ export function deterministicCopy(locale: TelegramLocale) {
     ? {
         startOnboarding:
           "Привіт, я IPsycho — особистий помічник для справ і планів. Пиши звичайними словами: я допоможу зберегти задачу, нагадати або розкласти мету на кроки.\n\nСпочатку кілька коротких питань; усе можна змінити пізніше в /settings.",
-        digestsPrompt: "Потрібні ранкове й вечірнє зведення? Типовий час — 09:00 і 20:00.",
+        digestsPrompt: "Потрібна ранкова картка з планом дня? Типовий час — 09:00.",
         ready:
           "Привіт — я допомагаю пам'ятати, планувати й доводити важливе до результату.\n\nПиши як людині або надсилай голосове повідомлення. Наприклад: «нагадай завтра о 16:00 зателефонувати лікарю» або «хочу підготуватися до напівмарафону до жовтня».\n\nПлан: /today · завдання: /tasks · цілі: /goals\nПовний гід: /help.",
         yes: "Так",
@@ -40,7 +40,7 @@ export function deterministicCopy(locale: TelegramLocale) {
     : {
         startOnboarding:
           "Привет, я IPsycho — личный помощник для дел и планов. Пиши обычными словами: я помогу сохранить задачу, напомнить или разложить цель на шаги.\n\nСначала пара коротких вопросов; всё можно изменить позже в /settings.",
-        digestsPrompt: "Нужны утренняя и вечерняя сводки? Обычное время — 09:00 и 20:00.",
+        digestsPrompt: "Нужна утренняя карточка с планом дня? Обычное время — 09:00.",
         ready:
           "Привет — я помогаю помнить, планировать и доводить важное до результата.\n\nПиши как человеку или отправляй голосовое сообщение. Например: «напомни завтра в 16:00 позвонить врачу» или «хочу подготовиться к полумарафону к октябрю».\n\nПлан: /today · задачи: /tasks · цели: /goals\nПолный гид: /help.",
         yes: "Да",

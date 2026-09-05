@@ -4,13 +4,12 @@ import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../../dist/database/database.service.js";
 import { ActionsRepository } from "../../dist/actions/actions.repository.js";
 import { ContextRepository } from "../../dist/context/context.repository.js";
-import { ContextService } from "../../dist/context/context.service.js";
 import { ActionGroupRepository } from "../../dist/actions/action-group.repository.js";
 import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
 import { TasksRepository } from "../../dist/tasks/tasks.repository.js";
 import { TasksService } from "../../dist/tasks/tasks.service.js";
-import { actionEvents, actionGroups, conversationTopics, memoryItems, messages, taskEvents, taskGoals, taskOccurrences, tasks, userSettings } from "../../dist/database/schema.js";
+import { actionEvents, actionGroups, memoryItems, messages, taskEvents, taskGoals, taskOccurrences, tasks, userSettings } from "../../dist/database/schema.js";
 import { composeTurnContext } from "../../dist/core/turn-context.js";
 import { and, eq } from "drizzle-orm";
 
@@ -22,7 +21,6 @@ const actions = new ActionsRepository(database);
 const groups = new ActionGroupRepository(database);
 const tasksRepository = new TasksRepository(database);
 const contextRepository = new ContextRepository(database);
-const context = new ContextService(contextRepository);
 const access = new AccessService(database);
 const messageRepository = new MessagesRepository(database);
 let telegramUserSequence = Date.now();
@@ -161,22 +159,6 @@ test("stale chat settings cannot overwrite a newer settings version", async () =
   const results = await Promise.allSettled([attempt("08:00"), attempt("08:30")]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected").length, 1);
-});
-
-test("weekly review topics satisfy the production database constraint", async () => {
-  const { workspaceId, userId } = await fixture();
-  const topic = await context.beginWeeklyReview({ workspaceId, userId });
-  const [stored] = await database.db.select().from(conversationTopics).where(eq(conversationTopics.id, topic.id));
-  assert.equal(stored?.reviewKind, "weekly");
-  assert.equal(stored?.status, "active");
-  assert.equal(stored?.reviewState?.version, 1);
-  const state = await context.mergeWeeklyReviewProgress({
-    workspaceId,
-    userId,
-    topicId: topic.id,
-    progress: { outcome: { status: "provided", summary: "Пять интервью" }, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
-  });
-  assert.equal(state.outcome.summary, "Пять интервью");
 });
 
 test("one Telegram message can seed at most one active action group", async () => {

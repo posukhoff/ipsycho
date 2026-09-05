@@ -1,6 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import type { ChatProcessResult } from "../chat/chat.service.js";
-import { MODEL_REPLY_MAX, REVIEW_REPLY_MAX, compactText } from "../core/telegram-ux.js";
+import { MODEL_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 import { t } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 
@@ -17,25 +17,21 @@ export function renderChatResult(result: Extract<ChatProcessResult, { kind: "ok"
   const suffix = actionSummary(result.pendingCount, result.pendingTitles, result.appliedCount, locale);
   const warningText = result.warnings.length ? `\n\n${result.warnings.join("\n")}` : "";
   // Only the model's prose is capped; the deterministic report must stay complete.
-  const body = compactText(result.text, result.review ? REVIEW_REPLY_MAX : MODEL_REPLY_MAX);
+  const body = compactText(result.text, MODEL_REPLY_MAX);
   const reportText = result.report ? `\n\n${result.report}` : "";
   const persistedText = compactText(`${body}${reportText}${suffix ? `\n\n${suffix}` : ""}${warningText}`, MAX_REPLY_LENGTH);
-  const header = reviewHeader(result.review, locale);
-  const responseText = header ? `${header}\n\n${persistedText}` : persistedText;
-  const keyboard = chatResultKeyboard(result.appliedGroupId, result.pendingGroupId, result.checkpointTopicId, result.topicId, result.review, locale);
-  return { responseText, persistedText, keyboard };
+  const keyboard = chatResultKeyboard(result.appliedGroupId, result.pendingGroupId, result.checkpointTopicId, result.topicId, locale);
+  return { responseText: persistedText, persistedText, keyboard };
 }
 
 export function chatResultKeyboard(
   appliedGroupId?: string,
   pendingGroupId?: string,
   _checkpointTopicId?: string,
-  topicId?: string,
-  review?: { kind: "evening" | "weekly"; step?: number; totalSteps?: number; completed: boolean },
+  _topicId?: string,
   locale: TelegramLocale = "ru",
 ): InlineKeyboard | undefined {
-  const activeReview = review && !review.completed && topicId;
-  if (!appliedGroupId && !pendingGroupId && !activeReview) return undefined;
+  if (!appliedGroupId && !pendingGroupId) return undefined;
   const keyboard = new InlineKeyboard();
   let hasRow = false;
   if (pendingGroupId) {
@@ -45,20 +41,8 @@ export function chatResultKeyboard(
   if (appliedGroupId) {
     if (hasRow) keyboard.row();
     keyboard.text(t(locale, "undo_button"), `act:undo:${appliedGroupId}`);
-    hasRow = true;
-  }
-  if (activeReview) {
-    if (hasRow) keyboard.row();
-    keyboard.text(t(locale, review.kind === "weekly" ? "review_end_weekly_button" : "review_end_evening_button"), `topic:end:${topicId}`);
   }
   return keyboard;
-}
-
-function reviewHeader(review: { kind: "evening" | "weekly"; step?: number; totalSteps?: number; completed: boolean } | undefined, locale: TelegramLocale): string {
-  if (!review) return "";
-  const title = t(locale, review.kind === "weekly" ? "review_header_weekly" : "review_header_evening");
-  if (review.completed) return `${title} · ${t(locale, "review_header_done")}`;
-  return `${title} · ${review.step ?? 1}/${review.totalSteps ?? 3}`;
 }
 
 const SUMMARY_COPY: Record<TelegramLocale, { nothingOne: string; nothingMany: string; one: string; many: string; more: string }> = {

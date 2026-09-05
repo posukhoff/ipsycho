@@ -45,15 +45,9 @@ export class BriefingSchedulingService extends PeriodicService {
   private async materializeDate(workspaceId: string, userId: string, settings: typeof userSettings.$inferSelect, localDate: string, now: Date): Promise<void> {
     parseLocalDate(localDate);
     const weekday = localWeekday(localDate);
-    const bundle =
-      settings.eveningDigestEnabled && settings.weeklyReviewEnabled && weekday === settings.weeklyReviewWeekday && settings.eveningReferenceTime === settings.weeklyReviewTime;
-    const expected: Array<{ kind: "morning" | "evening" | "weekly" | "evening_weekly"; time: string }> = [];
+    const expected: Array<{ kind: "morning" | "weekly"; time: string }> = [];
     if (settings.morningDigestEnabled) expected.push({ kind: "morning", time: settings.morningReferenceTime });
-    if (bundle) expected.push({ kind: "evening_weekly", time: settings.eveningReferenceTime });
-    else {
-      if (settings.eveningDigestEnabled) expected.push({ kind: "evening", time: settings.eveningReferenceTime });
-      if (settings.weeklyReviewEnabled && weekday === settings.weeklyReviewWeekday) expected.push({ kind: "weekly", time: settings.weeklyReviewTime });
-    }
+    if (settings.weeklyReviewEnabled && weekday === settings.weeklyReviewWeekday) expected.push({ kind: "weekly", time: settings.weeklyReviewTime });
 
     const expectedItems = expected.map((item) => ({
       ...item,

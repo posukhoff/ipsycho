@@ -161,17 +161,13 @@ function label(locale: TelegramLocale, key: keyof (typeof BUTTON_LABELS)["ru"]):
 }
 
 /** Every toggle the settings card shows is one tap; free text remains for values (times, days). */
-export function settingsKeyboard(
-  locale: TelegramLocale = "ru",
-  row?: { morningDigestEnabled: boolean; eveningDigestEnabled: boolean; weeklyReviewEnabled: boolean; quietHoursEnabled: boolean },
-): InlineKeyboard {
+export function settingsKeyboard(locale: TelegramLocale = "ru", row?: { morningDigestEnabled: boolean; weeklyReviewEnabled: boolean; quietHoursEnabled: boolean }): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (row) {
     keyboard
       .text(t(locale, row.morningDigestEnabled ? "prefs_morning_on" : "prefs_morning_off"), "prefs:morning:toggle")
-      .text(t(locale, row.eveningDigestEnabled ? "prefs_evening_on" : "prefs_evening_off"), "prefs:evening:toggle")
-      .row()
       .text(t(locale, row.weeklyReviewEnabled ? "prefs_weekly_on" : "prefs_weekly_off"), "prefs:weekly:toggle")
+      .row()
       .text(t(locale, row.quietHoursEnabled ? "prefs_quiet_on" : "prefs_quiet_off"), "prefs:quiet:toggle")
       .row();
   }
@@ -180,7 +176,7 @@ export function settingsKeyboard(
     .text(t(locale, "settings_language_button"), "prefs:lang:open")
     .row()
     .text(t(locale, "prefs_snooze_morning"), "prefs:snooze:morning")
-    .text(t(locale, "prefs_weekly_start"), "review:weekly:start")
+    .text(t(locale, "week_plan_button"), "nav:week")
     .row()
     .text(t(locale, "prefs_context"), "profile:open")
     .text(t(locale, "prefs_clear_history"), "history:clear")

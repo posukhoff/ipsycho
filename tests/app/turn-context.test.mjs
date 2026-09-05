@@ -114,62 +114,6 @@ test("profile facts reach the model under short memory ids and sensitive facts a
   assert.equal(calls.briefings.length, 0);
 });
 
-test("an analysis topic keeps its own frame and a weekly review adds the review snapshot", async () => {
-  const analysis = makeService({
-    topics: [
-      {
-        id: "topic-1",
-        title: "Стратегия",
-        summary: "думаем о годе",
-        status: "active",
-        mode: "analysis",
-        reviewKind: null,
-        clarificationCount: 2,
-        reviewState: null,
-        lastMessageAt: now,
-      },
-    ],
-  });
-  const deep = await analysis.service.build({ workspaceId: "workspace", userId: "user", timezone, query: "что дальше", now });
-  assert.deepEqual(deep.activeTopic, { topicId: "topic-1", reviewKind: null, clarificationCount: 2, reviewState: null, mode: "analysis" });
-  assert.deepEqual(deep.model.topic.active, { title: "Стратегия", summary: "думаем о годе" });
-
-  const weekly = makeService({
-    topics: [
-      {
-        id: "topic-2",
-        title: "Планирование недели",
-        summary: "…",
-        status: "active",
-        mode: "normal",
-        reviewKind: "weekly",
-        clarificationCount: 1,
-        reviewState: {
-          version: 1,
-          outcome: { status: "provided", summary: "релиз" },
-          capacityEnergy: null,
-          risks: null,
-          minimumSuccess: null,
-          commitments: null,
-          conclusionRequested: false,
-        },
-        lastMessageAt: now,
-      },
-    ],
-  });
-  const review = await weekly.service.build({ workspaceId: "workspace", userId: "user", timezone, query: "давай", now });
-  assert.equal(review.activeTopic.reviewKind, "weekly");
-  assert.deepEqual(weekly.calls.briefings, [{ workspaceId: "workspace", kind: "weekly", localDate: "2026-09-04", timezone, now, locale: "ru" }]);
-  assert.deepEqual(review.model.review, {
-    kind: "weekly",
-    questionsAsked: 1,
-    questionLimit: 5,
-    snapshot: "СНИМОК НЕДЕЛИ",
-    state: { outcome: { status: "provided", summary: "релиз" }, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
-  });
-  assert.deepEqual(review.model.topic.active, { title: "Планирование недели", summary: "…", review: "weekly" });
-});
-
 test("a card focus and a pending proposal are rendered under the task's short id, never its UUID", async () => {
   const { service } = makeService();
   const result = await service.build({

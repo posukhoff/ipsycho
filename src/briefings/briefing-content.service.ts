@@ -7,7 +7,7 @@ import { todayLine } from "../telegram/telegram-ui.js";
 import type { TelegramLocale } from "../telegram/telegram-locale.js";
 import { compactText } from "../core/telegram-ux.js";
 import { currentWeekStart, previousWeekRange } from "../core/week-plan.js";
-import { briefingDeliveries, taskOccurrences, tasks } from "../database/schema.js";
+import { taskOccurrences, tasks } from "../database/schema.js";
 
 const NONTERMINAL = ["scheduled", "open", "in_progress"] as const;
 /** Telegram's hard limit is 4096; a weekly review with many goals and habits must stay under it. */
@@ -128,7 +128,7 @@ const COPY = {
 export class BriefingContentService {
   constructor(private readonly database: DatabaseService) {}
 
-  async build(input: { workspaceId: string; kind: "morning" | "evening" | "weekly" | "evening_weekly"; localDate: string; timezone: string; now?: Date; locale?: TelegramLocale }) {
+  async build(input: { workspaceId: string; kind: "morning" | "weekly"; localDate: string; timezone: string; now?: Date; locale?: TelegramLocale }) {
     const locale: TelegramLocale = input.locale ?? "ru";
     const c = COPY[locale];
     const bounded = <T extends { text: string }>(result: T): T => ({ ...result, text: compactText(result.text, BRIEFING_MAX_CHARS) });
@@ -153,8 +153,8 @@ export class BriefingContentService {
       const weekLines = pickedForWeek.length ? ["", c.takenThisWeek, ...pickedForWeek.slice(0, 8).map((task) => `▸ ${task.title}`)] : [];
       const weekTasks = pickedForWeek.slice(0, 8).map((task) => ({ id: task.id, title: task.title }));
       if (!ordered.length) {
-        if (!weekLines.length) return { text: c.morningEmpty, hasContent: false, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[], weekTasks };
-        return { text: [c.morning, ...weekLines].join("\n"), hasContent: true, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[], weekTasks };
+        if (!weekLines.length) return { text: c.morningEmpty, hasContent: false, weekTasks };
+        return { text: [c.morning, ...weekLines].join("\n"), hasContent: true, weekTasks };
       }
       const main = ordered.find(({ task }) => task.importance !== "normal") ?? ordered[0];
       const lines = [`${c.morning} · ${c.tasks(ordered.length)}`];
@@ -163,38 +163,7 @@ export class BriefingContentService {
       for (const row of ordered.slice(0, 6)) lines.push(todayLine(row.task, row.occurrence, input.localDate, locale, input.now ?? new Date()));
       if (ordered.length > 6) lines.push(c.more(ordered.length - 6));
       lines.push(...weekLines);
-      return { text: lines.join("\n"), hasContent: true, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[], weekTasks };
-    };
-
-    const evening = () => {
-      const decisions = relevant.filter(({ task, occurrence }) => task.importance !== "normal" && ["open", "in_progress", "scheduled"].includes(occurrence.status));
-      const normal = relevant.filter(({ task }) => task.importance === "normal");
-      if (!decisions.length && !normal.length)
-        return {
-          text: c.eveningEmpty,
-          hasContent: false,
-          reviewKinds: [] as Array<"evening" | "weekly">,
-          decisionOccurrenceIds: [] as string[],
-          weekTasks: [] as Array<{ id: string; title: string }>,
-        };
-      const lines = [c.evening, `\n${c.left}: ${decisions.length + normal.length}`];
-      if (decisions.length) {
-        lines.push(`\n${c.decide}`);
-        // The importance icon stays: it is exactly what "needs a decision" is about.
-        decisions.slice(0, 3).forEach((row, index) => lines.push(`${index + 1}. ${todayLine(row.task, row.occurrence, input.localDate, locale, input.now ?? new Date())}`));
-      }
-      if (normal.length) {
-        lines.push(`\n${c.rest}`);
-        for (const row of normal.slice(0, Math.max(0, 5 - decisions.length))) lines.push(todayLine(row.task, row.occurrence, input.localDate, locale, input.now ?? new Date()));
-      }
-      if (decisions.length + normal.length > 6) lines.push(c.more(decisions.length + normal.length - 6));
-      return {
-        text: lines.join("\n"),
-        hasContent: true,
-        reviewKinds: ["evening"] as Array<"evening" | "weekly">,
-        decisionOccurrenceIds: decisions.slice(0, 3).map((row) => row.occurrence.id),
-        weekTasks: [] as Array<{ id: string; title: string }>,
-      };
+      return { text: lines.join("\n"), hasContent: true, weekTasks };
     };
 
     /**
@@ -235,40 +204,7 @@ export class BriefingContentService {
       };
     };
 
-    if (input.kind === "morning") return bounded(morning());
-    if (input.kind === "evening") return bounded(evening());
-    if (input.kind === "weekly") return bounded(await weekly());
-    const [eveningPart, weeklyPart] = await Promise.all([Promise.resolve(evening()), weekly()]);
-    const parts = [eveningPart, weeklyPart].filter((part) => part.hasContent);
-    return bounded({
-      text: parts.map((part) => part.text).join("\n\n"),
-      hasContent: parts.length > 0,
-      reviewKinds: parts.flatMap((part) => part.reviewKinds),
-      decisionOccurrenceIds: eveningPart.hasContent ? eveningPart.decisionOccurrenceIds : [],
-      weekTasks: [] as Array<{ id: string; title: string }>,
-    });
-  }
-
-  async isCurrentReviewDelivery(input: {
-    workspaceId: string;
-    userId: string;
-    deliveryId: string;
-    kind: "evening" | "weekly";
-    telegramMessageId: number;
-    localDate: string;
-  }): Promise<boolean> {
-    const [delivery] = await this.database.db
-      .select({
-        kind: briefingDeliveries.kind,
-        status: briefingDeliveries.status,
-        localDate: briefingDeliveries.localDate,
-        telegramMessageId: briefingDeliveries.telegramMessageId,
-      })
-      .from(briefingDeliveries)
-      .where(and(eq(briefingDeliveries.id, input.deliveryId), eq(briefingDeliveries.workspaceId, input.workspaceId), eq(briefingDeliveries.recipientUserId, input.userId)))
-      .limit(1);
-    if (!delivery || delivery.status !== "sent" || delivery.localDate !== input.localDate || delivery.telegramMessageId !== input.telegramMessageId) return false;
-    return input.kind === "evening" ? ["evening", "evening_weekly"].includes(delivery.kind) : ["weekly", "evening_weekly"].includes(delivery.kind);
+    return input.kind === "morning" ? bounded(morning()) : bounded(await weekly());
   }
 }
 

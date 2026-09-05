@@ -165,14 +165,16 @@ test("registration deep links and invitation authority stay deterministic", asyn
   await assert.rejects(() => telegram.registrationLink(token), /username/i);
 });
 
-test("guide pages explain reports and external AI processing without exposing sensitive capabilities", () => {
+test("guide pages explain the day and week cards and external AI processing without exposing sensitive capabilities", () => {
   const reports = guideText("reports", "ru");
-  assert.match(reports, /Утренний обзор/);
-  assert.match(reports, /Еженедельный обзор/);
+  assert.match(reports, /Утренняя карточка/);
+  assert.match(reports, /карточка недели/);
+  assert.match(reports, /\/week/);
+  assert.doesNotMatch(reports, /Вечерн/);
   const ai = guideText("ai", "en");
   assert.match(ai, /requires consent/);
   assert.match(ai, /cannot access other users/);
-  assert.match(guideText("goals", "uk"), /щотижневому огляді/);
+  assert.match(guideText("goals", "uk"), /\/week/);
 });
 
 test("status reports the deployed build so a deploy can be verified from Telegram", () => {

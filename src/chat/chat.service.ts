@@ -6,25 +6,16 @@ import { AiStructuredOutputError } from "../ai/ai-provider.js";
 import type { AiTurn, ResolvedAction } from "../core/ai-contract.js";
 import { answersProposal, type ActionIssue } from "../core/ai-actions.js";
 import { aiBurstAllowed } from "../core/ai-usage-policy.js";
-import { reviewClarificationDecision, reviewCorrection, reviewPresentation, reviewQuestionLimit, type ReviewKind } from "../core/review-policy.js";
 import { budgetHistory } from "../core/ai-history.js";
 import { isDomainRuleError } from "../core/errors.js";
 import { withTaskCandidates } from "../core/reference-candidates.js";
-import { MODEL_REPLY_MAX, REVIEW_REPLY_MAX, compactText } from "../core/telegram-ux.js";
+import { MODEL_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
 import { renderAppliedReport } from "../core/applied-report.js";
 import { bareConfirmationDecision, detectConversationControl, isClearConversationRequest } from "../core/conversation-control.js";
-import {
-  emptyWeeklyReviewState,
-  weeklyReviewLifecycle,
-  weeklyReviewProgressFromText,
-  questionForMissingWeeklyDimension,
-  type WeeklyReviewState,
-} from "../core/weekly-review-state.js";
 import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
-import { ensureAssumptionsLabel, normalizeReviewPresentation, removeDanglingContinuation, reviewTopicDirective } from "./review-turn.js";
 import { TurnContextService, type TurnContext } from "./turn-context.service.js";
 import { hasExplanation, issueCode, renderValidationReply, unclearReply } from "./turn-errors.js";
 import { logger } from "../observability/logger.js";
@@ -52,7 +43,6 @@ export type ChatProcessResult =
       warnings: string[];
       topicId?: string;
       checkpointTopicId?: string;
-      review?: { kind: ReviewKind; step?: number; totalSteps?: number; completed: boolean };
       /** The acknowledgement itself must not re-create a just-cleared AI history. */
       skipAssistantHistory?: boolean;
     };
@@ -61,8 +51,6 @@ export interface ChatFocus {
   occurrenceId: string;
   action: "reschedule" | "blocker";
 }
-
-type ReviewUi = { kind: ReviewKind; step?: number; totalSteps?: number; completed: boolean } | undefined;
 
 interface TurnScope {
   workspaceId: string;
@@ -128,8 +116,6 @@ export class ChatService {
     text: string;
     telegramChatId: number;
     telegramMessageId: number;
-    review?: ReviewKind;
-    reviewTopicId?: string;
     /** A task card button the user pressed just before typing this text. */
     focus?: ChatFocus;
   }): Promise<ChatProcessResult> {
@@ -174,39 +160,9 @@ export class ChatService {
       userId: input.userId,
       timezone: input.timezone,
       ...(input.language !== undefined ? { language: input.language } : {}),
-      ...(input.review ? { review: input.review } : {}),
-      ...(input.reviewTopicId ? { reviewTopicId: input.reviewTopicId } : {}),
       ...(input.focus ? { focus: input.focus } : {}),
       inbound,
     });
-  }
-
-  async startReview(input: {
-    workspaceId: string;
-    userId: string;
-    aiStatus: "enabled" | "suspended";
-    timezone: string;
-    digestTimezone?: string;
-    language?: string | null;
-    kind: ReviewKind;
-  }): Promise<ChatProcessResult> {
-    if (input.aiStatus !== "enabled") return { kind: "ai_suspended" };
-    if (!this.ai.isConfigured()) return { kind: "ai_unavailable" };
-    if (!(await this.ai.hasConsent(input.userId))) return { kind: "consent_required", provider: this.ai.providerName, consentVersion: this.ai.consentVersion };
-    if (!(await this.withinAiLimits(input.userId))) return { kind: "rate_limited" };
-
-    const topic =
-      input.kind === "evening"
-        ? await this.context.beginEveningReview({ workspaceId: input.workspaceId, userId: input.userId })
-        : await this.context.beginWeeklyReview({ workspaceId: input.workspaceId, userId: input.userId });
-    try {
-      const result = await this.processReviewStart({ ...input, topicId: topic.id });
-      if (result.kind !== "ok") await this.context.resolveTopic(input.workspaceId, input.userId, topic.id).catch(() => undefined);
-      return result;
-    } catch (error) {
-      await this.context.resolveTopic(input.workspaceId, input.userId, topic.id).catch(() => undefined);
-      throw error;
-    }
   }
 
   async startProfile(input: { workspaceId: string; userId: string }): Promise<ChatProcessResult> {
@@ -294,7 +250,6 @@ export class ChatService {
         pendingCount: 0,
         warnings: [],
         topicId: topic.id,
-        ...(topic.reviewKind === "evening" || topic.reviewKind === "weekly" ? { review: { kind: topic.reviewKind, completed: true } } : {}),
       };
     };
 
@@ -390,62 +345,6 @@ export class ChatService {
     });
   }
 
-  private async processReviewStart(input: {
-    workspaceId: string;
-    userId: string;
-    timezone: string;
-    digestTimezone?: string;
-    language?: string | null;
-    kind: ReviewKind;
-    topicId: string;
-  }): Promise<ChatProcessResult> {
-    const initialGate = await this.currentAiAccessGate(input.userId);
-    if (initialGate) return initialGate;
-    const now = new Date();
-    const scope: TurnScope = {
-      workspaceId: input.workspaceId,
-      userId: input.userId,
-      timezone: input.timezone,
-      ...(input.language !== undefined ? { language: input.language } : {}),
-      now,
-    };
-    const ctx = await this.turnContext.build({ ...scope, query: "", review: input.kind });
-    const opening =
-      input.kind === "weekly"
-        ? "Начни совместное планирование следующей недели по этому обзору. Сначала кратко назови главные незавершённые или рискованные пункты и задай один вопрос о приоритетах. Ничего не меняй без моего явного выбора."
-        : "Начни вечерний обзор по текущим незавершённым делам.";
-    const domainContext = ctx.model;
-
-    const providerGate = await this.currentAiAccessGate(input.userId);
-    if (providerGate) return providerGate;
-    const modelTurn = await this.runModelTurn({
-      scope,
-      history: [{ role: "user", content: opening }],
-      domainContext,
-      correction: `${reviewCorrection(input.kind)}${input.kind === "weekly" ? " This is the opening turn: leave every action array empty and ask one planning question." : ""}`,
-    });
-    if (modelTurn.kind === "unparseable") {
-      await this.context.resolveTopic(input.workspaceId, input.userId, input.topicId, now).catch(() => undefined);
-      return { kind: "ok", text: "Не смог безопасно собрать обзор. Попробуй ещё раз позже.", appliedCount: 0, pendingCount: 0, warnings: [] };
-    }
-    const turn = normalizeReviewPresentation(modelTurn.turn, input.kind);
-    // The opening turn of a review never changes state: it only frames the conversation.
-    const askedQuestion = Boolean(turn.question?.trim());
-    const decision = reviewClarificationDecision({ kind: input.kind, clarificationCountBeforeTurn: 0, askedQuestion });
-    await this.context.updateClarificationCount({ workspaceId: input.workspaceId, userId: input.userId, topicId: input.topicId, askedQuestion, now }).catch(() => 0);
-    if (decision.resolveAfterTurn) await this.context.resolveTopic(input.workspaceId, input.userId, input.topicId, now).catch(() => undefined);
-    return {
-      kind: "ok",
-      text: renderTurn(turn.reply, turn.question),
-      appliedCount: 0,
-      pendingCount: 0,
-      warnings: [],
-      topicId: input.topicId,
-      ...(decision.checkpoint ? { checkpointTopicId: input.topicId } : {}),
-      review: reviewPresentation({ kind: input.kind, clarificationCountBeforeTurn: 0, askedQuestion }),
-    };
-  }
-
   /**
    * One user message = one model call. Repair of a malformed structured output happens
    * inside the provider; every other failure is answered deterministically without a
@@ -456,8 +355,6 @@ export class ChatService {
     userId: string;
     timezone: string;
     language?: string | null;
-    review?: ReviewKind;
-    reviewTopicId?: string;
     focus?: ChatFocus;
     inbound: { id: string; content: string };
   }): Promise<ChatProcessResult> {
@@ -479,39 +376,24 @@ export class ChatService {
       const cardReply = await this.resolveCardReply(input, liveCard, now);
       if (cardReply) return cardReply;
 
-      // Domain context, the recent history and the topic hint do not depend on each other.
-      const [activeTopicHint, ctx, historyRows] = await Promise.all([
-        input.reviewTopicId ? this.context.findTopic(input.workspaceId, input.userId, input.reviewTopicId) : null,
+      // The domain context and the recent history do not depend on each other.
+      const [ctx, historyRows] = await Promise.all([
         this.turnContext.build({
           ...scope,
           query: input.inbound.content,
-          ...(input.review ? { review: input.review } : {}),
           ...(input.focus ? { focus: input.focus } : {}),
           pendingGroup: liveCard,
         }),
         this.messages.listRecentForAi(input.workspaceId, input.userId, 19),
       ]);
-      const activeTopic =
-        ctx.activeTopic ??
-        (activeTopicHint
-          ? {
-              topicId: activeTopicHint.id,
-              reviewKind: activeTopicHint.reviewKind ?? null,
-              clarificationCount: activeTopicHint.clarificationCount ?? 0,
-              reviewState: activeTopicHint.reviewState ?? null,
-              mode: activeTopicHint.mode,
-            }
-          : null);
-      const currentTopicId = input.reviewTopicId ?? activeTopic?.topicId;
-      const review = input.review ?? (activeTopic?.reviewKind === "evening" || activeTopic?.reviewKind === "weekly" ? activeTopic.reviewKind : undefined);
+      const activeTopic = ctx.activeTopic;
+      const currentTopicId = activeTopic?.topicId;
       const clarificationCountBeforeTurn = activeTopic?.clarificationCount ?? 0;
-      const forceReviewConclusion = review ? reviewClarificationDecision({ kind: review, clarificationCountBeforeTurn, askedQuestion: false }).forceConclusion : false;
       const history: AiMessage[] = [...budgetHistory(historyRows.map((row) => ({ role: row.role, content: row.content }))), { role: "user", content: input.inbound.content }];
       const domainContext = ctx.model;
       const control = detectConversationControl(input.inbound.content);
-      const correction = review
-        ? reviewCorrection(review, forceReviewConclusion)
-        : control === "no_persist"
+      const correction =
+        control === "no_persist"
           ? "The user explicitly said not to save anything from this turn. Leave every action array empty; ordinary conversational reply is allowed."
           : undefined;
 
@@ -520,9 +402,8 @@ export class ChatService {
         await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed").catch(() => undefined);
         return { kind: "ok", text: unclearReply(input.language), appliedCount: 0, pendingCount: 0, warnings: [] };
       }
-      let turn = normalizeReviewPresentation(modelTurn.turn, review, forceReviewConclusion);
+      let turn = modelTurn.turn;
       if (control === "no_persist") turn = { ...turn, actions: [] };
-      if (review && currentTopicId) turn = { ...turn, topic: reviewTopicDirective(turn.topic, input.inbound.content, review) };
 
       const actionScope = { workspaceId: input.workspaceId, actorUserId: input.userId, recipientUserId: input.userId, now, language: input.language ?? null };
       const prepared = turn.actions.length ? await this.actions.prepare(turn.actions, ctx.refs, actionScope) : { resolved: [] as ResolvedAction[], issues: [] as ActionIssue[] };
@@ -592,7 +473,6 @@ export class ChatService {
       });
 
       let checkpoint = false;
-      let reviewUi: ReviewUi;
       if (topicId && control !== "no_persist") {
         const askedQuestion = Boolean(turn.question?.trim());
         const count = await this.context
@@ -604,32 +484,7 @@ export class ChatService {
             now,
           })
           .catch(() => clarificationCountBeforeTurn);
-        if (review === "weekly") {
-          const weekly = await this.advanceWeeklyReview({
-            workspaceId: input.workspaceId,
-            userId: input.userId,
-            topicId,
-            text: input.inbound.content,
-            now,
-            fallbackState: activeTopic?.reviewState ?? null,
-          });
-          const lifecycle = weeklyReviewLifecycle(weekly, clarificationCountBeforeTurn);
-          if (lifecycle.complete) {
-            turn = { ...turn, question: null, reply: lifecycle.assumptionsRequired ? ensureAssumptionsLabel(turn.reply) : removeDanglingContinuation(turn.reply) };
-          } else if (!turn.question?.trim()) {
-            turn = { ...turn, question: questionForMissingWeeklyDimension(weekly) };
-          }
-          const totalSteps = reviewQuestionLimit("weekly");
-          const asked = Boolean(turn.question?.trim());
-          checkpoint = !lifecycle.complete && asked && clarificationCountBeforeTurn + 1 >= totalSteps;
-          reviewUi = { kind: "weekly", ...(asked ? { step: Math.min(totalSteps, clarificationCountBeforeTurn + 1), totalSteps } : {}), completed: lifecycle.complete };
-          if (lifecycle.complete) await this.context.resolveTopic(input.workspaceId, input.userId, topicId, now).catch(() => undefined);
-        } else if (review) {
-          const decision = reviewClarificationDecision({ kind: review, clarificationCountBeforeTurn, askedQuestion });
-          checkpoint = decision.checkpoint;
-          reviewUi = reviewPresentation({ kind: review, clarificationCountBeforeTurn, askedQuestion });
-          if (decision.resolveAfterTurn) await this.context.resolveTopic(input.workspaceId, input.userId, topicId, now).catch(() => undefined);
-        } else if (askedQuestion && count >= 5) {
+        if (askedQuestion && count >= 5) {
           checkpoint = true;
           await this.context.resetClarificationCount(input.workspaceId, input.userId, topicId, now).catch(() => undefined);
         }
@@ -637,7 +492,7 @@ export class ChatService {
       const report = actionResult.applied?.items?.length ? renderAppliedReport(actionResult.applied.items, now) : "";
       return {
         kind: "ok",
-        text: renderTurn(turn.reply, turn.question, review ? REVIEW_REPLY_MAX : MODEL_REPLY_MAX),
+        text: renderTurn(turn.reply, turn.question, MODEL_REPLY_MAX),
         ...(report ? { report } : {}),
         ...(actionResult.applied && actionResult.applied.undoable !== false ? { appliedGroupId: actionResult.applied.groupId } : {}),
         ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId, pendingTitles: actionResult.pending.titles } : {}),
@@ -647,7 +502,6 @@ export class ChatService {
         warnings: actionResult.warnings ?? [],
         ...(topicId ? { topicId } : {}),
         ...(checkpoint && topicId ? { checkpointTopicId: topicId } : {}),
-        ...(reviewUi ? { review: reviewUi } : {}),
       };
     } catch (error) {
       if (error instanceof ActionStateUncertainError) {
@@ -742,23 +596,6 @@ export class ChatService {
       logger.error("topic update failed after successful turn", { messageId: input.inbound.id, message: safeMessageMetadata(input.inbound.content), error: safeError(error) });
       return currentTopicId ?? null;
     }
-  }
-
-  private async advanceWeeklyReview(input: { workspaceId: string; userId: string; topicId: string; text: string; now: Date; fallbackState: unknown }): Promise<WeeklyReviewState> {
-    const state = await this.context
-      .mergeWeeklyReviewProgress({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        topicId: input.topicId,
-        progress: weeklyReviewProgressFromText(input.text),
-        now: input.now,
-      })
-      .catch(() => (input.fallbackState as WeeklyReviewState | null) ?? emptyWeeklyReviewState());
-    logger.info("weekly review progress", {
-      topicId: input.topicId,
-      providedCount: [state.outcome, state.capacityEnergy, state.risks, state.minimumSuccess, state.commitments].filter(Boolean).length,
-    });
-    return state;
   }
 
   private logRejectedTurn(messageId: string, turn: AiTurn, issues: readonly ActionIssue[], ctx: TurnContext, timezone: string, now: Date): void {

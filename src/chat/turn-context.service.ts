@@ -1,13 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { BriefingContentService } from "../briefings/briefing-content.service.js";
 import { ContextRepository } from "../context/context.repository.js";
 import type { RefMap } from "../core/ai-refs.js";
-import type { ReviewKind } from "../core/review-policy.js";
 import { interfaceLocale } from "../core/language.js";
-import { localDateAt } from "../core/timezone.js";
 import { budgetModelContext, composeTurnContext, selectTasksForContext, type ModelContext } from "../core/turn-context.js";
-import { stripPresentation } from "../core/telegram-ux.js";
-import { parseWeeklyReviewState, type WeeklyReviewState } from "../core/weekly-review-state.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TasksService } from "../tasks/tasks.service.js";
 
@@ -18,8 +13,6 @@ export interface TurnContextInput {
   language?: string | null;
   query: string;
   now: Date;
-  /** Forces a review frame; otherwise the active topic's `reviewKind` decides. */
-  review?: ReviewKind;
   /** The user pressed a card button and then typed free text: the model sees which task it was about. */
   focus?: { occurrenceId: string; action: "reschedule" | "blocker" };
   /** The live confirmation card, summarised by the caller (the chat layer owns ActionsService). */
@@ -28,9 +21,7 @@ export interface TurnContextInput {
 
 export interface ActiveTopicState {
   topicId: string;
-  reviewKind: ReviewKind | null;
   clarificationCount: number;
-  reviewState: WeeklyReviewState | null;
   mode: "normal" | "analysis";
 }
 
@@ -53,7 +44,6 @@ export class TurnContextService {
     private readonly tasks: TasksService,
     private readonly context: ContextRepository,
     private readonly settings: SettingsService,
-    private readonly briefings: BriefingContentService,
   ) {}
 
   async build(input: TurnContextInput): Promise<TurnContext> {
@@ -89,33 +79,7 @@ export class TurnContextService {
     }
 
     const activeRow = topics.find((topic) => topic.status === "active") ?? null;
-    const activeTopic: ActiveTopicState | null = activeRow
-      ? {
-          topicId: activeRow.id,
-          reviewKind: activeRow.reviewKind === "evening" || activeRow.reviewKind === "weekly" ? activeRow.reviewKind : null,
-          clarificationCount: activeRow.clarificationCount,
-          reviewState: activeRow.reviewKind === "weekly" ? parseWeeklyReviewState(activeRow.reviewState) : null,
-          mode: activeRow.mode,
-        }
-      : null;
-    const reviewKind = input.review ?? activeTopic?.reviewKind ?? null;
-    const snapshot =
-      reviewKind === "weekly"
-        ? (
-            await this.briefings.build({
-              workspaceId,
-              kind: "weekly",
-              localDate: localDateAt(now, input.timezone),
-              timezone: input.timezone,
-              now,
-              locale: interfaceLocale(input.language),
-            })
-          ).text
-        : null;
-    // The model reads the same weekly numbers, without the emoji and bullets that only mean
-    // something on a phone screen.
-    const modelSnapshot = snapshot === null ? null : stripPresentation(snapshot);
-
+    const activeTopic: ActiveTopicState | null = activeRow ? { topicId: activeRow.id, clarificationCount: activeRow.clarificationCount, mode: activeRow.mode } : null;
     const locale = interfaceLocale(input.language);
     const composed = composeTurnContext({
       now,
@@ -136,14 +100,6 @@ export class TurnContextService {
       blockers,
       pendingProposal: input.pendingGroup ? { createdAt: input.pendingGroup.createdAt, titles: input.pendingGroup.titles } : null,
       focus: focusTaskId && input.focus ? { taskId: focusTaskId, action: input.focus.action } : null,
-      review: reviewKind
-        ? {
-            kind: reviewKind,
-            questionsAsked: activeTopic?.reviewKind === reviewKind ? activeTopic.clarificationCount : 0,
-            ...(modelSnapshot ? { snapshot: modelSnapshot } : {}),
-            ...(reviewKind === "weekly" && activeTopic?.reviewState ? { state: activeTopic.reviewState } : {}),
-          }
-        : null,
     });
 
     return {

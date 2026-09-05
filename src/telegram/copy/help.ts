@@ -39,11 +39,11 @@ export function guideText(section: GuideSection, locale: TelegramLocale): string
     tasks:
       "📋 Задачи\n\nЗадача может быть точной по времени, с окном, с дедлайном или с примерным горизонтом. Сразу добавляй «зачем», ограничения, людей, материалы и следующий шаг — это контекст задачи. Он попадёт в планирование и еженедельный обзор.\n\nЕсли дело состоит из шагов, перечисли их: AI предложит чек-лист. Незакрытые пункты не отмечаются автоматически при выполнении задачи.\n\n/tasks по умолчанию показывает просроченное и ближайшие 7 дней; кнопками под списком можно переключиться на сегодня, месяц, все или задачи без даты. Одинаковые дела собираются в одну строку — стрелка ▸ раскрывает все её даты.",
     goals:
-      "🎯 Цели\n\nЦель отвечает на «зачем»: она связывает задачи и помогает выбирать, чему уделить внимание. У неё можно менять название, формулировку «зачем» и контекст обычным сообщением.\n\nСвязанные задачи показываются в /goals. На еженедельном обзоре AI обсуждает прогресс и помогает спланировать следующую неделю — без скрытых автоматических изменений.",
+      "🎯 Цели\n\nЦель отвечает на «зачем»: она связывает задачи и помогает выбирать, чему уделить внимание. У неё можно менять название, формулировку «зачем» и контекст обычным сообщением.\n\nСвязанные задачи показываются в /goals. Цель ничего не меняет сама: она помогает выбрать, что взять на неделю в /week.",
     reminders:
       "🔔 Напоминания\n\nДля события приходят сообщения до начала и в момент старта; у события на весь день — утром этого дня. Задача с точным временем напоминается в запланированный момент. У важных дедлайнов есть дополнительные планировочные касания до и около срока.\n\nТихие часы и перенос учитываются. Любое напоминание можно отменить или перенести обычным сообщением; новое напоминание не создаётся в прошлом.",
     reports:
-      "🗓 Отчёты и обзоры\n\nУтренний обзор собирает план дня. Вечерний помогает коротко подвести итог и решить, что перенести. Еженедельный обзор — разговор о целях, привычках, блокерах и плане следующей недели.\n\nНастрой время утреннего, вечернего и еженедельного обзора в /settings обычным сообщением. Обзор не создаёт и не меняет задачи без понятного согласования.",
+      "🗓 План дня и недели\n\nУтренняя карточка показывает, что запланировано на сегодня, и ниже — задачи, взятые на эту неделю: тап ставит задачу на сегодня.\n\nРаз в неделю приходит карточка недели: что закрыто, что взято и не начато, и приглашение выбрать задачи на следующую неделю в /week. Выбор — это тапы, бот ничего не меняет сам.\n\nВремя утренней карточки и день недельной настраиваются в /settings обычным сообщением.",
     ai: "🤖 AI-обработка\n\nAI читает только ограниченный релевантный контекст твоего личного workspace: текущий диалог, задачи, цели и несекретный профиль. Он не получает данные других пользователей, доступ к базе или ключам.\n\nНе присылай пароли и ключи. Для внешней AI-обработки требуется согласие; голосовое сначала расшифровывается, аудио не сохраняется. «Очистить AI-историю» удаляет только историю, используемую AI, а не задачи, цели или профиль.",
   };
   if (locale === "ru") return ru[section];
@@ -51,22 +51,22 @@ export function guideText(section: GuideSection, locale: TelegramLocale): string
     tasks:
       "📋 Завдання\n\nЗавдання може мати точний час, проміжок, дедлайн або приблизний горизонт. Одразу додавай «навіщо», обмеження, людей, матеріали й наступний крок — це контекст завдання для планування та щотижневого огляду.\n\nЯкщо справа складається з кроків, переліч їх: AI запропонує чекліст. Незакриті пункти не відмічаються автоматично разом із завданням.\n\n/tasks типово показує прострочене та найближчі 7 днів; кнопками під списком можна перемкнутися на сьогодні, місяць, усі або завдання без дати. Однакові справи збираються в один рядок — стрілка ▸ розкриває всі його дати.",
     goals:
-      "🎯 Цілі\n\nЦіль відповідає на «навіщо»: вона пов'язує завдання й допомагає обирати пріоритет. Назву, «навіщо» та контекст можна змінювати звичайним повідомленням.\n\nПов'язані завдання видно в /goals. На щотижневому огляді AI обговорює прогрес і допомагає спланувати наступний тиждень — без прихованих автоматичних змін.",
+      "🎯 Цілі\n\nЦіль відповідає на «навіщо»: вона пов'язує завдання й допомагає обирати пріоритет. Назву, «навіщо» та контекст можна змінювати звичайним повідомленням.\n\nПов'язані завдання видно в /goals. Ціль нічого не змінює сама: вона допомагає вибрати, що взяти на тиждень у /week.",
     reminders:
       "🔔 Нагадування\n\nДля події приходять повідомлення до початку й у момент старту; для події на весь день — ранку того дня. Завдання з точним часом нагадується у запланований момент. Важливі дедлайни мають додаткові планувальні нагадування до та біля строку.\n\nТихі години й перенесення враховуються. Будь-яке нагадування можна скасувати або перенести звичайним повідомленням; минуле не створюється.",
     reports:
-      "🗓 Зведення й огляди\n\nРанкове зведення збирає план дня. Вечірнє допомагає коротко підбити підсумок і вирішити, що перенести. Щотижневий огляд — розмова про цілі, звички, блокери й план наступного тижня.\n\nЧас ранкового, вечірнього та щотижневого огляду змінюється в /settings звичайним повідомленням. Огляд не створює й не змінює завдання без зрозумілого погодження.",
+      "🗓 План дня і тижня\n\nРанкова картка показує, що заплановано на сьогодні, а нижче — завдання, узяті на цей тиждень: тап ставить завдання на сьогодні.\n\nРаз на тиждень приходить картка тижня: що закрито, що взято й не почато, і запрошення вибрати завдання на наступний тиждень у /week. Вибір — це тапи, бот нічого не змінює сам.\n\nЧас ранкової картки і день тижневої налаштовуються в /settings звичайним повідомленням.",
     ai: "🤖 AI-обробка\n\nAI бачить лише обмежений релевантний контекст твого особистого workspace: поточний діалог, завдання, цілі та несекретний профіль. Він не отримує дані інших користувачів, доступ до бази чи ключів.\n\nНе надсилай паролі та ключі. Для зовнішньої AI-обробки потрібна згода; голосове спершу розшифровується, аудіо не зберігається. «Очистити AI-історію» видаляє лише історію для AI, а не завдання, цілі чи профіль.",
   };
   const en: Record<GuideSection, string> = {
     tasks:
       "📋 Tasks\n\nA task can have an exact time, time window, deadline, or deliberately approximate horizon. Include why it matters, constraints, people, materials, and a next step — that becomes task context for planning and the weekly review.\n\nFor a multi-step job, list the steps and AI can propose a checklist. Unchecked items are never silently completed with the task.\n\n/tasks shows overdue work and the next 7 days by default; the buttons under the list switch to today, the month, everything, or tasks without a date. Identical items collapse into one line — the ▸ arrow opens all of its dates.",
     goals:
-      "🎯 Goals\n\nA goal answers “why”: it connects related tasks and helps choose priorities. You can change its title, why, and context in an ordinary message.\n\nLinked tasks appear in /goals. During the weekly review, AI discusses progress and helps plan the next week — without hidden automatic changes.",
+      "🎯 Goals\n\nA goal answers “why”: it connects related tasks and helps choose priorities. You can change its title, why, and context in an ordinary message.\n\nLinked tasks appear in /goals. A goal changes nothing by itself: it helps choose what to take for the week in /week.",
     reminders:
       "🔔 Reminders\n\nAn event is contacted before it starts and at the start; an all-day event is contacted that morning. A task with an exact time is contacted at its planned time. Important deadlines receive additional planning contacts before and around the due date.\n\nQuiet hours and rescheduling are respected. Cancel or move any reminder in a normal message; a reminder is never created in the past.",
     reports:
-      "🗓 Briefings and reviews\n\nThe morning briefing gathers the day's plan. The evening review helps close the day and decide what to move. The weekly review is a conversation about goals, habits, blockers, and the next week's plan.\n\nChange morning, evening, and weekly review times in /settings using ordinary language. A review never creates or changes tasks without clear agreement.",
+      "🗓 The day and the week\n\nThe morning card shows what is planned for today, and below it the tasks taken for this week: one tap sets a task for today.\n\nOnce a week a week card arrives: what closed, what was taken and not started, and an invitation to pick the next week in /week. Picking is taps; the bot changes nothing on its own.\n\nThe morning time and the weekly day are set in /settings in ordinary language.",
     ai: "🤖 AI processing\n\nAI receives only limited relevant context from your personal workspace: the current conversation, tasks, goals, and non-sensitive profile. It cannot access other users' data, the database, or credentials.\n\nDo not send passwords or access keys. External AI processing requires consent; voice is transcribed first and audio is not stored. “Clear AI history” removes only history used by AI, not tasks, goals, or your profile.",
   };
   return locale === "uk" ? uk[section] : en[section];
@@ -89,7 +89,7 @@ export function helpText(config: AppConfig, locale: TelegramLocale): string {
       "",
       "View and manage",
       "• /today — today’s plan",
-      "• /tasks or /task — all active tasks",
+      "• /tasks or /task — all active tasks\n• /week — the pool of undated tasks and the week plan",
       "• /goals — goals and linked tasks",
       "• /reminders — upcoming reminders",
       "• /settings — notification and chat settings",
@@ -116,7 +116,7 @@ export function helpText(config: AppConfig, locale: TelegramLocale): string {
       "",
       "Перегляд і керування",
       "• /today — план на сьогодні",
-      "• /tasks або /task — усі активні завдання",
+      "• /tasks або /task — усі активні завдання\n• /week — пул завдань без дати і план тижня",
       "• /goals — цілі та пов'язані завдання",
       "• /reminders — найближчі нагадування",
       "• /settings — налаштування повідомлень і чату",
@@ -142,7 +142,7 @@ export function helpText(config: AppConfig, locale: TelegramLocale): string {
     "",
     "Просмотр и управление",
     "• /today — план на сегодня",
-    "• /tasks или /task — все активные задачи",
+    "• /tasks или /task — все активные задачи\n• /week — пул задач без даты и план недели",
     "• /goals — цели и связанные задачи",
     "• /reminders — ближайшие напоминания",
     "• /settings — настройки уведомлений и чата",

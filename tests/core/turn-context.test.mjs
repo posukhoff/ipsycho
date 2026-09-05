@@ -239,12 +239,6 @@ test("settings are human-readable without a version and the context carries no I
       { id: "t-resolved", title: "Закрыто", summary: "всё", status: "resolved", reviewKind: null, clarificationCount: 0, lastMessageAt: now },
     ],
     pendingProposal: { createdAt: new Date("2026-09-04T10:00:00Z"), titles: ["Создать задачу «Позвонить»"] },
-    review: {
-      kind: "weekly",
-      questionsAsked: 2,
-      snapshot: "снимок недели",
-      state: { version: 1, outcome: null, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
-    },
   });
   assert.deepEqual(model.settings, {
     timezone,
@@ -265,20 +259,14 @@ test("settings are human-readable without a version and the context carries no I
   });
   assert.equal("version" in model.settings, false);
   assert.deepEqual(model.topic, {
-    active: { title: "Отпуск", summary: "Планируем отпуск", review: "evening" },
+    active: { title: "Отпуск", summary: "Планируем отпуск" },
     recent: [
       { title: "Недавнее", summary: "вчера" },
       { title: "Старое", summary: "давно" },
     ],
   });
   assert.deepEqual(model.pendingProposal, { askedAt: "04.09, 13:00", items: ["Создать задачу «Позвонить»"] });
-  assert.deepEqual(model.review, {
-    kind: "weekly",
-    questionsAsked: 2,
-    questionLimit: 5,
-    snapshot: "снимок недели",
-    state: { outcome: null, capacityEnergy: null, risks: null, minimumSuccess: null, commitments: null, conclusionRequested: false },
-  });
+  assert.equal("review" in model, false, "a review frame is no longer part of the model context");
   assert.doesNotMatch(JSON.stringify(model), /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
 });
 

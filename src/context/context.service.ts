@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { normalizeTopicDirective, type TopicDirective } from "../core/context-policy.js";
 import { ContextRepository } from "./context.repository.js";
-import { emptyWeeklyReviewState, mergeWeeklyReviewProgress, type WeeklyReviewProgress } from "../core/weekly-review-state.js";
 import { DomainRuleError } from "../core/errors.js";
 
 const TOPIC_RETENTION_MS = 90 * 24 * 60 * 60_000;
@@ -74,14 +73,6 @@ export class ContextService {
     return updated.id;
   }
 
-  async beginEveningReview(input: { workspaceId: string; userId: string; now?: Date }): Promise<{ id: string }> {
-    return this.beginReview({ ...input, kind: "evening" });
-  }
-
-  async beginWeeklyReview(input: { workspaceId: string; userId: string; now?: Date }): Promise<{ id: string }> {
-    return this.beginReview({ ...input, kind: "weekly" });
-  }
-
   async beginProfile(input: { workspaceId: string; userId: string; now?: Date }): Promise<{ id: string }> {
     const now = input.now ?? new Date();
     return this.repository.createTopic({
@@ -100,41 +91,8 @@ export class ContextService {
     return this.repository.listProfile(workspaceId, userId);
   }
 
-  private async beginReview(input: { workspaceId: string; userId: string; kind: "evening" | "weekly"; now?: Date }): Promise<{ id: string }> {
-    const now = input.now ?? new Date();
-    return this.repository.createTopic({
-      workspaceId: input.workspaceId,
-      userId: input.userId,
-      title: input.kind === "evening" ? "Вечерний разбор" : "Планирование недели",
-      summary:
-        input.kind === "evening"
-          ? "Разбор незавершённых дел за текущий вечер."
-          : "Совместное планирование следующей недели: приоритеты, незавершённые задачи и реалистичные сроки. Ничего не переносить без явного выбора пользователя.",
-      mode: "normal",
-      reviewKind: input.kind,
-      ...(input.kind === "weekly" ? { reviewState: emptyWeeklyReviewState() } : {}),
-      now,
-      summaryExpiresAt: new Date(now.getTime() + TOPIC_RETENTION_MS),
-    });
-  }
-
   updateClarificationCount(input: { workspaceId: string; userId: string; topicId: string; askedQuestion: boolean; now?: Date }): Promise<number> {
     return this.repository.updateClarificationCount({ ...input, now: input.now ?? new Date() });
-  }
-
-  async mergeWeeklyReviewProgress(input: { workspaceId: string; userId: string; topicId: string; progress: WeeklyReviewProgress | null | undefined; now?: Date }) {
-    const topic = await this.repository.findTopic(input.workspaceId, input.userId, input.topicId);
-    if (!topic || topic.reviewKind !== "weekly") throw new DomainRuleError("weekly review topic is missing");
-    const state = mergeWeeklyReviewProgress(topic.reviewState, input.progress);
-    const updated = await this.repository.updateReviewState({
-      workspaceId: input.workspaceId,
-      userId: input.userId,
-      topicId: input.topicId,
-      reviewState: state,
-      now: input.now ?? new Date(),
-    });
-    if (!updated) throw new DomainRuleError("weekly review state changed");
-    return state;
   }
 
   resetClarificationCount(workspaceId: string, userId: string, topicId: string, now = new Date()): Promise<void> {

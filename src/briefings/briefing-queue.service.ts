@@ -119,9 +119,6 @@ export class BriefingQueueService implements OnApplicationBootstrap {
         row.user.telegramUserId,
         row.delivery.kind as BriefingKind,
         built.text,
-        built.decisionOccurrenceIds,
-        built.reviewKinds,
-        row.delivery.id,
         telegramLocale(row.settings.pinnedLanguage),
         built.weekTasks,
       );

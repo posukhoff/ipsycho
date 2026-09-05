@@ -2,11 +2,9 @@ import { Injectable } from "@nestjs/common";
 import { InlineKeyboard, type Bot, type CallbackQueryContext, type Filter } from "grammy";
 import { VOICE_DOWNLOAD_TIMEOUT_MS } from "../ai/ai-client.js";
 import { TranscriptionService } from "../ai/transcription.service.js";
-import { BriefingContentService } from "../briefings/briefing-content.service.js";
 import { ChatService } from "../chat/chat.service.js";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { Inject } from "@nestjs/common";
-import { localDateAt } from "../core/timezone.js";
 import { compactText } from "../core/telegram-ux.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
 import { t } from "./copy/index.js";
@@ -14,8 +12,6 @@ import { TelegramChatReplyService } from "./telegram-chat-reply.service.js";
 import { activeState, type AppContext } from "./telegram-context.js";
 import { TelegramService } from "./telegram.service.js";
 import { logger } from "../observability/logger.js";
-
-const REVIEW_CALLBACK = /^review:(evening|weekly):([0-9a-f-]{36}|start)$/;
 
 /** Voice messages and the review buttons on digests. */
 @Injectable()
@@ -25,7 +21,6 @@ export class TelegramConversationHandlersService {
     private readonly telegram: TelegramService,
     private readonly chat: ChatService,
     private readonly transcription: TranscriptionService,
-    private readonly briefings: BriefingContentService,
     private readonly chatReply: TelegramChatReplyService,
   ) {}
 
@@ -36,7 +31,6 @@ export class TelegramConversationHandlersService {
       await ctx.answerCallbackQuery({ text: t(ctx.state.locale, "voice_consent_declined_toast") });
       await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
     });
-    bot.callbackQuery(REVIEW_CALLBACK, (ctx) => this.review(ctx));
   }
 
   private async voice(ctx: Filter<AppContext, "message:voice">): Promise<void> {
@@ -123,49 +117,6 @@ export class TelegramConversationHandlersService {
     await ctx.answerCallbackQuery({ text: t(locale, "consent_granted_toast") });
     await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
     await ctx.reply(t(locale, "voice_consent_granted"));
-  }
-
-  /** A digest button starts the review for that delivery; `review:weekly:start` starts it on demand from settings. */
-  private async review(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { access, settings, locale } = activeState(ctx);
-    const match = REVIEW_CALLBACK.exec(ctx.callbackQuery.data);
-    const kind = match?.[1] as "evening" | "weekly" | undefined;
-    const deliveryId = match?.[2];
-    if (!kind || !deliveryId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    const messageId = ctx.callbackQuery.message?.message_id;
-    if (deliveryId !== "start") {
-      const current =
-        messageId !== undefined &&
-        (await this.briefings.isCurrentReviewDelivery({
-          workspaceId: access.workspaceId,
-          userId: access.user.id,
-          deliveryId,
-          kind,
-          telegramMessageId: messageId,
-          localDate: localDateAt(new Date(), settings.digestTimezone),
-        }));
-      if (!current) {
-        await ctx.answerCallbackQuery({ text: t(locale, "review_stale_toast") });
-        await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
-        return;
-      }
-    }
-    try {
-      await ctx.answerCallbackQuery({ text: t(locale, kind === "evening" ? "review_start_evening_toast" : "review_start_weekly_toast") });
-      const result = await this.chat.startReview({
-        workspaceId: access.workspaceId,
-        userId: access.user.id,
-        aiStatus: access.user.aiStatus,
-        timezone: settings.timezone,
-        digestTimezone: settings.digestTimezone,
-        language: settings.pinnedLanguage,
-        kind,
-      });
-      await this.chatReply.reply(ctx, access, result);
-    } catch (error) {
-      logger.error("review callback failed", { userId: access.user.id, error: safeError(error) });
-      await ctx.reply(t(locale, "review_failed"));
-    }
   }
 
   private async replyVoiceConsent(ctx: AppContext): Promise<void> {

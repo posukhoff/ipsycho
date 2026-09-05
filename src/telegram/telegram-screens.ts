@@ -29,7 +29,6 @@ export interface SettingsRow {
   timezone: string;
   morningDigestEnabled: boolean;
   morningReferenceTime: string;
-  eveningDigestEnabled: boolean;
   eveningReferenceTime: string;
   weeklyReviewEnabled: boolean;
   weeklyReviewWeekday: number;
@@ -57,7 +56,6 @@ export function settingsText(row: SettingsRow, now = new Date(), historyMessageC
     "",
     t(locale, "settings_section_digests"),
     `☀️ ${words.morning}: ${row.morningDigestEnabled ? row.morningReferenceTime : words.off}`,
-    `🌙 ${words.evening}: ${row.eveningDigestEnabled ? row.eveningReferenceTime : words.off}`,
     `📅 ${words.weekly}: ${row.weeklyReviewEnabled ? `${weekdayLabel(row.weeklyReviewWeekday, locale)} ${row.weeklyReviewTime}` : words.off}`,
     "",
     t(locale, "settings_section_quiet"),
