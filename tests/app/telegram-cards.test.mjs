@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fuzzyTaskCardText, reminderCardText, settingsText, taskCardText, tasksOverviewText, todayText } from "../../dist/telegram/telegram-ui.js";
+import { groupTaskRows } from "../../dist/core/task-list-view.js";
 import { describeAction } from "../../dist/actions/actions.service.js";
 
 const now = new Date("2026-08-23T07:40:00Z"); // 10:40 Kyiv
@@ -127,29 +128,36 @@ test("today and task lists always show when, including deadlines and other days"
     },
     { task: { id: "4", title: "Гараж", importance: "normal", timezone: "Europe/Kyiv", fuzzyHorizonText: "на неделе" }, occurrence: null },
   ];
+  const groups = groupTaskRows(rows, "2026-08-23");
+  // Today is the day itself: yesterday's unclosed occurrence is counted below, not listed here.
   assert.equal(
-    todayText(rows, "2026-08-23", "ru", 1, 6, now),
+    todayText(
+      groups.filter((group) => group.title !== "Вчерашнее"),
+      "2026-08-23",
+      { locale: "ru", completedCount: 1, staleCount: 1, now },
+    ),
     [
-      "☀️ Сегодня · 4 дела",
+      "☀️ Сегодня · 3 дела",
       "",
       "Главное: Созвон",
       "",
-      "🟡 Созвон · 11:00–11:30",
-      "• Отчёт · до 18:00",
-      "• Вчерашнее · 22.08, 18:00 · просрочено",
-      "🫧 Гараж",
+      "1. 🟡 Созвон · 11:00–11:30",
+      "2. • Отчёт · до 18:00",
+      "3. 🫧 Гараж",
       "",
       "✅ Выполнено сегодня: 1",
+      "",
+      "⚠️ Просрочено раньше: 1",
     ].join("\n"),
   );
   assert.equal(
-    tasksOverviewText(rows, "ru", now),
+    tasksOverviewText(groups, { scope: "week", locale: "ru", now }),
     [
-      "📋 Задачи",
+      "📋 Задачи · неделя (4)",
       "",
-      "1. 🟡 Созвон · 23.08, 11:00–11:30",
-      "2. • Отчёт · до 23.08, 18:00",
-      "3. • Вчерашнее · 22.08, 18:00 · просрочено",
+      "1. • Вчерашнее · 22.08, 18:00 · просрочено",
+      "2. 🟡 Созвон · 23.08, 11:00–11:30",
+      "3. • Отчёт · до 23.08, 18:00",
       "4. 🫧 Гараж · 🫧 на неделе",
       "",
       "Чтобы изменить, завершить или перенести задачу, напиши это обычным сообщением.",

@@ -14,14 +14,35 @@ import {
   startedTaskKeyboard,
   taskDetailKeyboard,
   taskKeyboard,
+  taskGroupKeyboard,
   taskListKeyboard,
   taskMoreKeyboard,
+  taskScopeKeyboard,
 } from "../../dist/telegram/telegram-ui.js";
 import { buttonsOf, callbackContext, lastButtons } from "./helpers/telegram-harness.mjs";
 
 const OCCURRENCE_ID = randomUUID();
+const SECOND_OCCURRENCE_ID = randomUUID();
 const TASK_ID = randomUUID();
 const GROUP_ID = randomUUID();
+
+const listRow = (title, occurrenceId) => ({
+  task: { id: TASK_ID, title, importance: "normal", timezone: "Europe/Kyiv" },
+  occurrence: occurrenceId ? { id: occurrenceId, status: "open", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-09-06T09:00:00Z") } : null,
+});
+const groupOf = (rows, extra = {}) => ({
+  key: rows[0].occurrence?.id ?? rows[0].task.id,
+  title: rows[0].task.title,
+  importance: "normal",
+  recurrenceRule: null,
+  rows,
+  lead: rows[0],
+  pastCount: 0,
+  ...extra,
+});
+const SINGLE_GROUP = groupOf([listRow("Позвонить клиенту очень длинным заголовком, который придётся обрезать", OCCURRENCE_ID)]);
+const FUZZY_GROUP = groupOf([listRow("Задача без occurrence", null)]);
+const MULTI_GROUP = groupOf([listRow("Позвонить маме", OCCURRENCE_ID), listRow("Позвонить маме", SECOND_OCCURRENCE_ID)], { recurrenceRule: "FREQ=DAILY" });
 
 // Every pattern the bot registers. A generated payload that matches none of them is a dead button.
 const ROUTES = [
@@ -44,7 +65,9 @@ const ROUTES = [
   /^history:clear$/,
   /^profile:open$/,
   /^review:weekly:start$/,
-  /^nav:today_all$/,
+  /^tsk:(overdue|today|week|month|all|nodate):\d{1,3}$/,
+  /^tdy:\d{1,3}$/,
+  /^grp:(t|d):[0-9a-f-]{36}$/,
 ];
 
 const KEYBOARDS = {
@@ -59,14 +82,16 @@ const KEYBOARDS = {
   remindersKeyboard: remindersKeyboard([{ deliveryId: OCCURRENCE_ID, title: "Позвонить", when: "сегодня 10:00" }], "ru"),
   screenFooterKeyboard: screenFooterKeyboard("ru"),
   settingsKeyboard: settingsKeyboard("ru", { morningDigestEnabled: true, eveningDigestEnabled: false, weeklyReviewEnabled: true, quietHoursEnabled: true }),
-  taskListKeyboard: taskListKeyboard(
-    [
-      { task: { id: TASK_ID, title: "Позвонить клиенту очень длинным заголовком, который придётся обрезать" }, occurrence: { id: OCCURRENCE_ID } },
-      { task: { id: TASK_ID, title: "Задача без occurrence" }, occurrence: null },
-    ],
-    "ru",
-    { expanded: true, showAll: true, allCount: 9, visibleCount: 2 },
-  ),
+  taskListKeyboard: taskListKeyboard([SINGLE_GROUP, FUZZY_GROUP, MULTI_GROUP], "ru", {
+    source: "tasks",
+    page: 0,
+    pages: 3,
+    rest: 9,
+    pageCallback: (page) => `tsk:week:${page}`,
+  }),
+  todayListKeyboard: taskListKeyboard([MULTI_GROUP], "ru", { source: "today", page: 1, pages: 2, rest: 0, pageCallback: (page) => `tdy:${page}` }),
+  taskScopeKeyboard: taskScopeKeyboard("week", { overdue: 3, today: 4, week: 9, month: 12, all: 20, nodate: 2 }, "ru"),
+  taskGroupKeyboard: taskGroupKeyboard(MULTI_GROUP, "tasks", "ru"),
 };
 
 test("every generated callback payload fits Telegram's 64-byte limit and is routed by a registered handler", () => {

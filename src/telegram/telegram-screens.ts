@@ -1,17 +1,21 @@
 import { compactText } from "../core/telegram-ux.js";
 import { selectCardDetails } from "../core/card-details.js";
+import type { TaskScope } from "../core/task-list-view.js";
+import { t, type CopyKey } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 import { todayLine } from "./telegram-cards.js";
 import {
+  cardCopy,
   formatLocal,
+  groupWhenLabel,
   importanceIcon,
   messageWord,
-  overviewWhen,
+  occurrenceWhen,
   quietHoursLabel,
   taskWord,
   weekdayLabel,
-  type TelegramOccurrenceCard,
-  type TelegramTaskCard,
+  type TelegramGroupCard,
+  type TelegramTaskListRow,
 } from "./telegram-format.js";
 
 /** The full-screen views: settings, the task list, today and goals. */
@@ -77,76 +81,103 @@ export function settingsText(
 
 /** Every toggle the settings card shows is one tap; free text remains for values (times, days). */
 
+/**
+ * The task list for one filter. Every line is a group: the recurring series, the three task rows
+ * the model created under the same title and the two times of one day each read as one thing, so
+ * each shows once with a count of what it hides. `▸` marks a line that opens into that list.
+ */
 export function tasksOverviewText(
-  rows: Array<{ task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null }>,
-  locale: TelegramLocale = "ru",
-  now: Date = new Date(),
+  groups: ReadonlyArray<TelegramGroupCard>,
+  options: { scope: TaskScope; total?: number; offset?: number; locale?: TelegramLocale; now?: Date },
 ): string {
-  // The overview is task-oriented: a recurring task may have many future
-  // occurrences, but it must appear only once here. The Today screen below is
-  // occurrence-oriented and intentionally keeps every same-day instance.
-  const uniqueRows = rows.filter((row, index) => rows.findIndex((candidate) => candidate.task.id === row.task.id) === index);
-  if (locale === "en") {
-    if (!uniqueRows.length) return "📋 Tasks\n\nNo active tasks.";
-    const lines = ["📋 Tasks", ""];
-    for (const [index, row] of uniqueRows.slice(0, 8).entries()) {
-      const icon = importanceIcon(row.task.importance) || (row.task.recurrenceRule ? "🔁" : row.occurrence ? "•" : "🫧");
-      const state = row.occurrence?.overdue ? " · overdue" : row.occurrence?.status === "in_progress" ? " · in progress" : "";
-      lines.push(`${index + 1}. ${icon} ${row.task.title}${overviewWhen(row.task, row.occurrence, now, locale)}${state}`);
-    }
-    if (uniqueRows.length > 8) lines.push(`+ ${uniqueRows.length - 8} more`);
-    lines.push("", "To change, complete, or reschedule a task, just write it in a message.");
-    return lines.join("\n");
-  }
-  const uk = locale === "uk";
-  if (!uniqueRows.length) return uk ? "📋 Завдання\n\nАктивних завдань немає." : "📋 Задачи\n\nАктивных задач нет.";
-  const lines = [uk ? "📋 Завдання" : "📋 Задачи", ""];
-  for (const [index, row] of uniqueRows.slice(0, 8).entries()) {
-    const icon = importanceIcon(row.task.importance) || (row.task.recurrenceRule ? "🔁" : row.occurrence ? "•" : "🫧");
-    const state = row.occurrence?.overdue ? (uk ? " · прострочено" : " · просрочено") : row.occurrence?.status === "in_progress" ? (uk ? " · у роботі" : " · в работе") : "";
-    lines.push(`${index + 1}. ${icon} ${row.task.title}${overviewWhen(row.task, row.occurrence, now, locale)}${state}`);
-  }
-  if (uniqueRows.length > 8) lines.push(uk ? `+ ще ${uniqueRows.length - 8}` : `+ ещё ${uniqueRows.length - 8}`);
-  lines.push(
-    "",
-    uk ? "Щоб змінити, завершити або перенести завдання, напиши це звичайним повідомленням." : "Чтобы изменить, завершить или перенести задачу, напиши это обычным сообщением.",
-  );
-  return lines.join("\n");
+  const locale = options.locale ?? "ru";
+  const now = options.now ?? new Date();
+  const total = options.total ?? groups.length;
+  const offset = options.offset ?? 0;
+  const header = t(locale, "tasks_header", { scope: t(locale, SCOPE_COPY[options.scope]), count: total });
+  if (!groups.length) return `${header}\n\n${t(locale, "tasks_scope_empty")}`;
+  const lines = [header, ""];
+  for (const [index, group] of groups.entries()) lines.push(`${offset + index + 1}. ${groupLine(group, now, locale)}`);
+  lines.push("", t(locale, "tasks_hint"));
+  return compactText(lines.join("\n"), 3_800);
 }
+
+/** One group opened up: what hid behind the collapsed line, oldest first. */
+export function taskGroupText(group: TelegramGroupCard, locale: TelegramLocale = "ru", now: Date = new Date()): string {
+  const icon = importanceIcon(group.importance) || (group.recurrenceRule ? "🔁" : "•");
+  const lines = [`${icon} ${group.title}`, ""];
+  for (const [index, row] of group.rows.entries()) {
+    const when = row.occurrence ? occurrenceWhen(row.occurrence, now, locale) : (row.task.fuzzyHorizonText ?? "");
+    lines.push(`${index + 1}. ${when || t(locale, "scope_nodate")}${rowState(row, locale)}`);
+  }
+  lines.push("", t(locale, "tasks_hint"));
+  return compactText(lines.join("\n"), 3_800);
+}
+
+function groupLine(group: TelegramGroupCard, now: Date, locale: TelegramLocale): string {
+  const { lead } = group;
+  const icon = importanceIcon(group.importance) || (group.recurrenceRule ? "🔁" : lead.occurrence ? "•" : "🫧");
+  const expandable = group.rows.length > 1 ? " ▸" : "";
+  return `${icon} ${group.title}${groupWhenLabel(group, now, locale)}${rowState(lead, locale)}${expandable}`;
+}
+
+function rowState(row: TelegramTaskListRow, locale: TelegramLocale): string {
+  if (row.occurrence?.overdue) return ` · ${t(locale, "scope_overdue")}`;
+  if (row.occurrence?.status === "in_progress")
+    return ` · ${cardCopy(locale)
+      .inProgress.replace(/^\S+\s/u, "")
+      .toLowerCase()}`;
+  return "";
+}
+
+const SCOPE_COPY = {
+  overdue: "scope_overdue",
+  today: "scope_today",
+  week: "scope_week",
+  month: "scope_month",
+  all: "scope_all",
+  nodate: "scope_nodate",
+} as const satisfies Record<TaskScope, CopyKey>;
 
 /** Opens the numbered item shown in a compact overview. */
 
+/**
+ * Today is the day itself. Work dated before it is counted at the bottom and opened through the
+ * overdue filter: an occurrence stays overdue until it is closed, so weeks of unclosed work used
+ * to sit here as if it were planned for today.
+ */
 export function todayText(
-  rows: Array<{ task: TelegramTaskCard; occurrence: TelegramOccurrenceCard | null }>,
+  groups: ReadonlyArray<TelegramGroupCard>,
   localDate: string,
-  locale: TelegramLocale = "ru",
-  completedCount = 0,
-  visibleLimit = 6,
-  now: Date = new Date(),
+  options: { locale?: TelegramLocale; completedCount?: number; staleCount?: number; total?: number; offset?: number; now?: Date } = {},
 ): string {
-  if (locale === "en") {
-    if (!rows.length) return "☀️ Today\n\nNothing is planned.";
-    const top = rows.slice(0, visibleLimit);
-    const main = top.find(({ task }) => task.importance !== "normal") ?? top[0];
-    const lines = [`☀️ Today · ${rows.length} ${taskWord(rows.length, locale)}`];
-    if (main) lines.push(`\nMain: ${main.task.title}`);
-    lines.push("");
-    for (const { task, occurrence } of top) lines.push(todayLine(task, occurrence, localDate, locale, now));
-    if (rows.length > top.length) lines.push(`+ ${rows.length - top.length} more`);
-    if (completedCount) lines.push(`\n✅ Completed today: ${completedCount}`);
-    return lines.join("\n");
+  const locale = options.locale ?? "ru";
+  const now = options.now ?? new Date();
+  const completedCount = options.completedCount ?? 0;
+  const staleCount = options.staleCount ?? 0;
+  const total = options.total ?? groups.length;
+  const offset = options.offset ?? 0;
+  const title = locale === "en" ? "☀️ Today" : locale === "uk" ? "☀️ Сьогодні" : "☀️ Сегодня";
+  const footer: string[] = [];
+  if (completedCount) footer.push(`\n✅ ${locale === "en" ? "Completed today" : locale === "uk" ? "Виконано сьогодні" : "Выполнено сегодня"}: ${completedCount}`);
+  if (staleCount) footer.push(`\n${t(locale, "today_stale", { count: staleCount })}`);
+  if (!groups.length) {
+    const empty = locale === "en" ? "Nothing is planned." : locale === "uk" ? "Запланованих справ немає." : "Запланированных дел нет.";
+    return [title, "", empty, ...footer].join("\n");
   }
-  const uk = locale === "uk";
-  if (!rows.length) return uk ? "☀️ Сьогодні\n\nЗапланованих справ немає." : "☀️ Сегодня\n\nЗапланированных дел нет.";
-  const top = rows.slice(0, visibleLimit);
-  const main = top.find(({ task }) => task.importance !== "normal") ?? top[0];
-  const lines = [`${uk ? "☀️ Сьогодні" : "☀️ Сегодня"} · ${rows.length} ${taskWord(rows.length, locale)}`];
-  if (main) lines.push(`\n${uk ? "Головне" : "Главное"}: ${main.task.title}`);
+  const main = groups.find((group) => group.importance !== "normal") ?? groups[0];
+  const lines = [`${title} · ${total} ${taskWord(total, locale)}`];
+  if (main && !offset) lines.push(`\n${locale === "en" ? "Main" : locale === "uk" ? "Головне" : "Главное"}: ${main.title}`);
   lines.push("");
-  for (const { task, occurrence } of top) lines.push(todayLine(task, occurrence, localDate, locale, now));
-  if (rows.length > top.length) lines.push(uk ? `+ ще ${rows.length - top.length}` : `+ ещё ${rows.length - top.length}`);
-  if (completedCount) lines.push(`\n✅ ${uk ? "Виконано сьогодні" : "Выполнено сегодня"}: ${completedCount}`);
-  return lines.join("\n");
+  for (const [index, group] of groups.entries()) lines.push(`${offset + index + 1}. ${todayGroupLine(group, localDate, locale, now)}`);
+  lines.push(...footer);
+  return compactText(lines.join("\n"), 3_800);
+}
+
+function todayGroupLine(group: TelegramGroupCard, localDate: string, locale: TelegramLocale, now: Date): string {
+  // A single row keeps the day-local wording ("до 18:00"); several rows on one day list their times.
+  if (group.rows.length < 2) return todayLine(group.lead.task, group.lead.occurrence, localDate, locale, now);
+  return groupLine(group, now, locale);
 }
 
 export function goalsOverviewText(

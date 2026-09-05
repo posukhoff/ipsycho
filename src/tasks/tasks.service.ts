@@ -5,7 +5,7 @@ import { buildOneTimeOccurrence, buildRecurringOccurrences, type OccurrenceProje
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
 import { localDateAt } from "../core/timezone.js";
-import { occurrenceFallsOnLocalDate } from "../core/local-schedule.js";
+import { filterByScope, groupTaskRows, isStaleRow, rowLocalDate, scopeCounts, type TaskGroup, type TaskScope } from "../core/task-list-view.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import type { TaskDefinition } from "../core/types.js";
 import type { reminderDeliveries, taskChecklistItems, taskOccurrences, taskRecurrenceExclusions, tasks } from "../database/schema.js";
@@ -46,6 +46,11 @@ export interface BuiltTaskPlan {
   plan: PersistedTaskPlan;
   result: CreatedTaskResult;
 }
+
+/** One line a list screen can show: a live occurrence, or a fuzzy task that has none. */
+export type TelegramScreenRow = { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null };
+
+export type TelegramTaskGroup = TaskGroup<TelegramScreenRow>;
 
 @Injectable()
 export class TasksService {
@@ -241,36 +246,39 @@ export class TasksService {
     };
   }
 
-  async listForTelegram(workspaceId: string, limit = 12) {
-    const [actionable, fuzzy] = await Promise.all([
-      // A recurrence is materialized as many occurrences. Fetch the full active
-      // set before choosing one representative per task, otherwise a daily series
-      // can consume the whole page and hide unrelated tasks.
-      this.repository.listActionableForTelegram(workspaceId),
-      this.repository.listFuzzyForTelegram(workspaceId, Math.max(limit, 20)),
-    ]);
-    const rows = [...actionable, ...fuzzy.map((task) => ({ task, occurrence: null }))].sort(compareTelegramTasks);
-    const seenTaskIds = new Set<string>();
-    return rows
-      .filter((row) => {
-        if (seenTaskIds.has(row.task.id)) return false;
-        seenTaskIds.add(row.task.id);
-        return true;
-      })
-      .slice(0, limit);
+  /**
+   * Every row a list screen can show: one query for live occurrences, one for fuzzy tasks.
+   * A recurrence is materialized as many occurrences, so the full set is fetched and the
+   * narrowing happens above — a daily series must not be able to consume the whole page.
+   */
+  async listScreenRows(workspaceId: string): Promise<TelegramScreenRow[]> {
+    const [actionable, fuzzy] = await Promise.all([this.repository.listActionableForTelegram(workspaceId), this.repository.listFuzzyForTelegram(workspaceId, 50)]);
+    return [...actionable, ...fuzzy.map((task) => ({ task, occurrence: null }))];
   }
 
-  async listTodayForTelegram(workspaceId: string, localDate: string, limit = 20) {
-    // Filter by the requested day before applying the display limit. This keeps
-    // every occurrence on that day discoverable even when other series have many
-    // materialized future occurrences.
+  /** The task list for one filter: groups in reading order, plus what every other filter would show. */
+  async listGroupedForTelegram(workspaceId: string, input: { scope: TaskScope; localDate: string }) {
+    const rows = await this.listScreenRows(workspaceId);
+    const groups = groupTaskRows(filterByScope(rows, input.scope, input.localDate), input.localDate);
+    return { groups, counts: scopeCounts(rows, input.localDate), total: groups.length };
+  }
+
+  /**
+   * Today is the requested day only. Work dated before it is counted, not listed: an occurrence
+   * stays overdue until it is closed, and three weeks of unclosed work used to bury the day.
+   */
+  async listTodayGroupedForTelegram(workspaceId: string, localDate: string) {
     const [actionable, fuzzy] = await Promise.all([
       this.repository.listActionableForTelegram(workspaceId),
-      this.repository.listFuzzyReviewsForLocalDate(workspaceId, localDate, limit),
+      this.repository.listFuzzyReviewsForLocalDate(workspaceId, localDate, 20),
     ]);
-    const rows = actionable.filter(({ task, occurrence }) => occurrenceFallsOnLocalDate({ ...occurrence, timeMode: task.timeMode }, localDate));
+    const today = actionable.filter((row) => rowLocalDate(row) === localDate);
     const reviews = fuzzy.map((task) => ({ task, occurrence: null }));
-    return [...rows, ...reviews].sort(compareTelegramTasks).slice(0, limit);
+    const stale = actionable.filter((row) => isStaleRow(row, localDate));
+    return {
+      groups: groupTaskRows([...today, ...reviews], localDate),
+      staleCount: groupTaskRows(stale, localDate).length,
+    };
   }
 
   async listCompletedTodayForTelegram(workspaceId: string, localDate: string) {
@@ -447,25 +455,6 @@ export class TasksService {
     const task = await this.repository.findTask(workspaceId, occurrence.taskId);
     return task ? { task, occurrence } : null;
   }
-}
-
-function compareTelegramTasks(
-  left: { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null },
-  right: { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null },
-): number {
-  const importance = (value: (typeof tasks.$inferSelect)["importance"]) => (value === "critical" ? 0 : value === "required" ? 1 : 2);
-  const leftImportance = importance(left.task.importance);
-  const rightImportance = importance(right.task.importance);
-  if (leftImportance !== rightImportance) return leftImportance - rightImportance;
-  const leftState = left.occurrence?.overdue ? 0 : left.occurrence?.status === "in_progress" ? 1 : 2;
-  const rightState = right.occurrence?.overdue ? 0 : right.occurrence?.status === "in_progress" ? 1 : 2;
-  if (leftState !== rightState) return leftState - rightState;
-  return telegramTaskTime(left) - telegramTaskTime(right);
-}
-
-function telegramTaskTime(row: { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null }): number {
-  const value = row.occurrence?.dueAt ?? row.occurrence?.plannedStartAt ?? row.task.reviewAt;
-  return value ? new Date(value).getTime() : Number.POSITIVE_INFINITY;
 }
 
 export { withExplicitReminder };

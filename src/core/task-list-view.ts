@@ -28,7 +28,6 @@ export interface ListTask {
   id: string;
   title: string;
   importance: TaskImportance;
-  timeMode?: string;
   recurrenceRule?: string | null;
   reviewAt?: Date | string | null;
   timezone: string;
@@ -71,7 +70,7 @@ export function normalizeGroupTitle(title: string): string {
 
 /** The single local day a row belongs to, or null for fuzzy work and undated occurrences. */
 export function rowLocalDate(row: ListRow): string | null {
-  if (row.occurrence) return occurrenceLocalDate({ ...row.occurrence, timeMode: row.task.timeMode ?? "point" });
+  if (row.occurrence) return occurrenceLocalDate(row.occurrence);
   return null;
 }
 
@@ -80,11 +79,15 @@ export function rowTime(row: ListRow): number {
   return value ? new Date(value).getTime() : Number.POSITIVE_INFINITY;
 }
 
-/** Work the user has already run past: flagged overdue, or dated before today. */
-export function isPastRow(row: ListRow, todayLocalDate: string): boolean {
-  if (row.occurrence?.overdue) return true;
+/** Dated before today. Today's own work that is already late is overdue, not stale. */
+export function isStaleRow(row: ListRow, todayLocalDate: string): boolean {
   const localDate = rowLocalDate(row);
   return localDate !== null && compareLocalDates(localDate, todayLocalDate) < 0;
+}
+
+/** Work the user has already run past: flagged overdue, or dated before today. */
+export function isPastRow(row: ListRow, todayLocalDate: string): boolean {
+  return Boolean(row.occurrence?.overdue) || isStaleRow(row, todayLocalDate);
 }
 
 export function scopeMatches(row: ListRow, scope: TaskScope, todayLocalDate: string): boolean {
@@ -119,11 +122,7 @@ export function groupTaskRows<Row extends ListRow>(rows: readonly Row[], todayLo
     groups.push({
       key: lead.occurrence?.id ?? lead.task.id,
       title: lead.task.title,
-      importance: sorted.some((row) => row.task.importance === "critical")
-        ? "critical"
-        : sorted.some((row) => row.task.importance === "required")
-          ? "required"
-          : "normal",
+      importance: sorted.some((row) => row.task.importance === "critical") ? "critical" : sorted.some((row) => row.task.importance === "required") ? "required" : "normal",
       recurrenceRule: series,
       rows: sorted,
       lead,

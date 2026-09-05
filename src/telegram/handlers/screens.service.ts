@@ -3,6 +3,7 @@ import { InlineKeyboard } from "grammy";
 import { ChatService } from "../../chat/chat.service.js";
 import { ContextService } from "../../context/context.service.js";
 import { formatLocalDateTime } from "../../core/time-presentation.js";
+import { DEFAULT_TASK_SCOPE, paginate, type TaskScope } from "../../core/task-list-view.js";
 import { localDateAt } from "../../core/timezone.js";
 import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
@@ -10,6 +11,7 @@ import { t } from "../copy/index.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import type { TelegramLocale } from "../telegram-locale.js";
 import {
+  appendFooter,
   fuzzyTaskCardText,
   fuzzyTaskDetailKeyboard,
   goalsOverviewText,
@@ -20,13 +22,20 @@ import {
   startedTaskKeyboard,
   taskCardText,
   taskDetailKeyboard,
+  taskGroupKeyboard,
+  taskGroupText,
   taskKeyboard,
   taskListKeyboard,
+  taskScopeKeyboard,
   tasksOverviewText,
   todayText,
+  type GroupSource,
 } from "../telegram-ui.js";
 
 export type OccurrenceContext = NonNullable<Awaited<ReturnType<TasksService["getOccurrenceContext"]>>>;
+
+/** How many groups one screen shows before it pages; a Telegram message stays readable at eight lines. */
+const PAGE_SIZE = 8;
 
 /** Renders the main screens; a callback edits the message it came from, a command sends a new one. */
 @Injectable()
@@ -50,10 +59,35 @@ export class ScreensService {
     await ctx.reply(text, keyboard ? { reply_markup: keyboard } : {});
   }
 
-  async tasks_(ctx: AppContext, edit = false): Promise<void> {
-    const { access, locale } = activeState(ctx);
-    const items = await this.tasks.listForTelegram(access.workspaceId, 50);
-    await this.present(ctx, tasksOverviewText(items, locale), taskListKeyboard(items, locale, { visibleCount: 8 }), edit);
+  async tasks_(ctx: AppContext, edit = false, scope: TaskScope = DEFAULT_TASK_SCOPE, page = 0): Promise<void> {
+    const { access, settings, locale } = activeState(ctx);
+    const localDate = localDateAt(new Date(), settings.timezone);
+    const { groups, counts } = await this.tasks.listGroupedForTelegram(access.workspaceId, { scope, localDate });
+    const view = paginate(groups, page, PAGE_SIZE);
+    const keyboard = taskListKeyboard(view.items, locale, {
+      source: "tasks",
+      offset: view.page * PAGE_SIZE,
+      page: view.page,
+      pages: view.pages,
+      rest: view.rest,
+      pageCallback: (next) => `tsk:${scope}:${next}`,
+    });
+    for (const row of taskScopeKeyboard(scope, counts, locale).inline_keyboard) keyboard.row(...row);
+    await this.present(ctx, tasksOverviewText(view.items, { scope, total: groups.length, offset: view.page * PAGE_SIZE, locale }), appendFooter(keyboard, locale), edit);
+  }
+
+  /** One collapsed line opened up: the dates it stood for, each leading to its own card. */
+  async taskGroup(ctx: AppContext, source: GroupSource, key: string): Promise<boolean> {
+    const { access, settings, locale } = activeState(ctx);
+    const localDate = localDateAt(new Date(), settings.timezone);
+    const groups =
+      source === "today"
+        ? (await this.tasks.listTodayGroupedForTelegram(access.workspaceId, localDate)).groups
+        : (await this.tasks.listGroupedForTelegram(access.workspaceId, { scope: "all", localDate })).groups;
+    const group = groups.find((candidate) => candidate.rows.some((row) => (row.occurrence?.id ?? row.task.id) === key));
+    if (!group) return false;
+    await this.present(ctx, taskGroupText(group, locale), taskGroupKeyboard(group, source, locale), true);
+    return true;
   }
 
   async reminders_(ctx: AppContext, edit = false): Promise<void> {
@@ -71,19 +105,28 @@ export class ScreensService {
     await this.present(ctx, lines.join("\n"), remindersKeyboard(buttons, locale), edit);
   }
 
-  async today(ctx: AppContext, edit = false, showAll = false): Promise<void> {
+  async today(ctx: AppContext, edit = false, page = 0): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
     const now = new Date();
     const localDate = localDateAt(now, settings.timezone);
-    const [items, completed] = await Promise.all([
-      this.tasks.listTodayForTelegram(access.workspaceId, localDate, 20),
+    const [{ groups, staleCount }, completed] = await Promise.all([
+      this.tasks.listTodayGroupedForTelegram(access.workspaceId, localDate),
       this.tasks.listCompletedTodayForTelegram(access.workspaceId, localDate),
     ]);
-    const visible = showAll ? 20 : 6;
+    const view = paginate(groups, page, PAGE_SIZE);
+    const keyboard = taskListKeyboard(view.items, locale, {
+      source: "today",
+      offset: view.page * PAGE_SIZE,
+      page: view.page,
+      pages: view.pages,
+      rest: view.rest,
+      pageCallback: (next) => `tdy:${next}`,
+    });
+    if (staleCount) keyboard.text(t(locale, "today_stale_button", { count: staleCount }), "tsk:overdue:0").row();
     await this.present(
       ctx,
-      todayText(items, localDate, locale, completed.length, visible),
-      taskListKeyboard(items, locale, { showAll: !showAll, allCount: items.length, visibleCount: visible, expanded: showAll }),
+      todayText(view.items, localDate, { locale, completedCount: completed.length, staleCount, total: groups.length, offset: view.page * PAGE_SIZE, now }),
+      appendFooter(keyboard, locale),
       edit,
     );
   }

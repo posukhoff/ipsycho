@@ -1,5 +1,8 @@
 import { compactText } from "../core/telegram-ux.js";
+import { occurrenceLocalDate } from "../core/local-schedule.js";
+import { recurrenceLabel } from "../core/recurrence-label.js";
 import { localDateAt } from "../core/timezone.js";
+import { plural, t } from "./copy/index.js";
 import { formatLocalDateTime, intlLocale } from "../core/time-presentation.js";
 import { selectCardDetails } from "../core/card-details.js";
 import type { TelegramLocale } from "./telegram-locale.js";
@@ -44,6 +47,17 @@ export interface TelegramOccurrenceCard {
 }
 
 export type TelegramTaskListRow = { task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null };
+
+/** What a list screen needs from one collapsed group; the grouping itself lives in `src/core/task-list-view.ts`. */
+export interface TelegramGroupCard {
+  key: string;
+  title: string;
+  importance: TelegramImportance;
+  recurrenceRule: string | null;
+  rows: ReadonlyArray<TelegramTaskListRow>;
+  lead: TelegramTaskListRow;
+  pastCount: number;
+}
 
 export const CARD_COPY = {
   ru: {
@@ -190,6 +204,39 @@ export function overviewWhen(task: TelegramTaskCard, occurrence: TelegramOccurre
   if (!occurrence) return task.fuzzyHorizonText ? ` · 🫧 ${task.fuzzyHorizonText}` : "";
   const when = occurrenceWhen(occurrence, now, locale);
   return when ? ` · ${when}` : "";
+}
+
+/**
+ * The "when" of a collapsed group. A group holds everything that reads as one thing, so the line
+ * must say how much is hidden behind it: a repeating rule, several times in one day, or several
+ * dates. Only the nearest one gets a full timestamp — the rest is a count the user can open.
+ */
+export function groupWhenLabel(group: TelegramGroupCard, now: Date, locale: TelegramLocale = "ru"): string {
+  const { lead, rows } = group;
+  if (rows.length < 2) return overviewWhen(lead.task, lead.occurrence, now, locale);
+  const dates = distinctLocalDates(rows);
+  const next = lead.occurrence ? occurrenceWhen(lead.occurrence, now, locale) : lead.task.fuzzyHorizonText ? `🫧 ${lead.task.fuzzyHorizonText}` : "";
+  const rule = group.recurrenceRule ? recurrenceLabel(group.recurrenceRule, lead.task.recurrenceEndLocalDate ?? null, locale) : "";
+  // Several times on one day read better as the times themselves than as "2 dates".
+  const sameDayTimes = dates.length === 1 ? sameDayTimeList(rows, locale) : null;
+  const detail = sameDayTimes ?? [dates.length > 1 ? plural(locale, dates.length, "date") : "", next ? `${t(locale, "group_next")} ${next}` : ""].filter(Boolean).join(" · ");
+  const parts = [rule, detail].filter(Boolean);
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
+function sameDayTimeList(rows: ReadonlyArray<TelegramTaskListRow>, locale: TelegramLocale): string | null {
+  const times = rows.map((row) => (row.occurrence?.plannedStartAt ? formatTime(new Date(row.occurrence.plannedStartAt), row.occurrence.timezone, locale) : null));
+  return times.every((time): time is string => time !== null) ? times.join(", ") : null;
+}
+
+function distinctLocalDates(rows: ReadonlyArray<TelegramTaskListRow>): string[] {
+  const dates: string[] = [];
+  for (const { occurrence } of rows) {
+    if (!occurrence) continue;
+    const localDate = occurrenceLocalDate(occurrence);
+    if (localDate && !dates.includes(localDate)) dates.push(localDate);
+  }
+  return dates;
 }
 
 export function relativeDue(occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {

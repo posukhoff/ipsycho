@@ -4,6 +4,7 @@ import { canCreateRegistrationInvite, deterministicCopy, guideText, helpText, re
 import { telegramLocale } from "../../dist/telegram/telegram-locale.js";
 import { TelegramService } from "../../dist/telegram/telegram.service.js";
 import { deployedBuildLine, goalsOverviewText, settingsText, taskListKeyboard, tasksOverviewText, todayText } from "../../dist/telegram/telegram-ui.js";
+import { groupTaskRows } from "../../dist/core/task-list-view.js";
 
 const config = { aiVoiceMaxBytes: 20 * 1024 * 1024, aiVoiceMaxDurationSeconds: 300, aiMaxMessagesPerHour: 60, aiMaxCallsPerHour: 60 };
 
@@ -72,14 +73,14 @@ test("English is a first-class locale and primary overview screens do not fall b
       0,
       "en",
     ),
-    tasksOverviewText([{ task, occurrence }], "en"),
-    todayText([{ task, occurrence }], "2026-08-12", "en"),
+    tasksOverviewText(groupTaskRows([{ task, occurrence }], "2026-08-12"), { scope: "week", locale: "en" }),
+    todayText(groupTaskRows([{ task, occurrence }], "2026-08-12"), "2026-08-12", { locale: "en", staleCount: 2 }),
     goalsOverviewText([{ goal: { title: "Health", status: "active", why: "Feel better", targetLocalDate: null }, tasks: [] }], "en"),
   ];
   for (const screen of screens) assert.doesNotMatch(screen, /[А-Яа-яЁёІіЇїЄє]/);
 });
 
-test("task overview collapses recurring occurrences while Today keeps same-day occurrences", () => {
+test("both lists collapse a repeated task into one line and Today shows its times", () => {
   const recurring = { id: "series", title: "Take medication", importance: "normal", recurrenceRule: "FREQ=DAILY", fuzzyHorizonText: null, timezone: "Europe/Kyiv" };
   const morning = {
     id: "morning",
@@ -97,11 +98,14 @@ test("task overview collapses recurring occurrences while Today keeps same-day o
     { task: recurring, occurrence: evening },
   ];
 
-  const overview = tasksOverviewText(rows, "en");
+  const groups = groupTaskRows(rows, "2026-08-12");
+  assert.equal(groups.length, 1);
+
+  const overview = tasksOverviewText(groups, { scope: "week", locale: "en" });
   assert.equal((overview.match(/Take medication/g) ?? []).length, 1);
 
-  const today = todayText(rows, "2026-08-12", "en");
-  assert.equal((today.match(/Take medication/g) ?? []).length, 3); // Main plus both occurrences.
+  const today = todayText(groups, "2026-08-12", { locale: "en" });
+  assert.equal((today.match(/Take medication/g) ?? []).length, 2); // The "Main" line plus the one row.
   assert.match(today, /09:00/);
   assert.match(today, /21:00/);
 });
@@ -118,14 +122,14 @@ test("task-list keyboard opens each displayed occurrence and can reveal the rest
     dueAt: null,
     dueLocalDate: null,
   };
-  const keyboard = taskListKeyboard(
-    Array.from({ length: 7 }, (_, index) => ({ task: { ...task, id: `task-${index}` }, occurrence: { ...occurrence, id: `occ-${index}` } })),
-    "en",
-    { showAll: true, allCount: 7 },
+  const groups = groupTaskRows(
+    Array.from({ length: 7 }, (_, index) => ({ task: { ...task, id: `task-${index}`, title: `Call doctor ${index}` }, occurrence: { ...occurrence, id: `occ-${index}` } })),
+    "2026-08-12",
   );
+  const keyboard = taskListKeyboard(groups.slice(0, 6), "en", { source: "tasks", page: 0, pages: 2, rest: 1, pageCallback: (page) => `tsk:week:${page}` });
   const callbacks = keyboard.inline_keyboard.flat().map((button) => button.callback_data);
   assert.ok(callbacks.includes("view:occ:occ-0"));
-  assert.ok(callbacks.includes("nav:today_all"));
+  assert.ok(callbacks.includes("tsk:week:1"));
 });
 
 test("Today presents a same-day fuzzy review honestly instead of hiding it", () => {
@@ -139,7 +143,7 @@ test("Today presents a same-day fuzzy review honestly instead of hiding it", () 
     timezone: "Europe/Kyiv",
   };
 
-  const text = todayText([{ task, occurrence: null }], "2026-08-23", "ru");
+  const text = todayText(groupTaskRows([{ task, occurrence: null }], "2026-08-23"), "2026-08-23", { locale: "ru" });
 
   assert.match(text, /Пройти Soulmate Scan/);
   assert.match(text, /пересмотреть в 18:00/);

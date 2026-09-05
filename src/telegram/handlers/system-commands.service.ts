@@ -11,6 +11,7 @@ import { guideIndexText, guideKeyboard, guideText, helpKeyboard, helpText, type 
 import { t } from "../copy/index.js";
 import { deterministicCopy } from "../copy/onboarding.js";
 import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
+import type { TaskScope } from "../../core/task-list-view.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { telegramLocale } from "../telegram-locale.js";
 import { deployedBuildLine } from "../telegram-ui.js";
@@ -21,7 +22,10 @@ import { logger } from "../../observability/logger.js";
 
 const ACCOUNT_DELETE_CONFIRM = "account:delete_confirm";
 const GUIDE_CALLBACK = /^guide:(help|index|tasks|goals|reminders|reports|ai)$/;
-const NAV_CALLBACK = /^nav:(today|today_all|tasks|reminders|settings|goals)$/;
+const NAV_CALLBACK = /^nav:(today|tasks|reminders|settings|goals)$/;
+const TASK_SCOPE_CALLBACK = /^tsk:(overdue|today|week|month|all|nodate):(\d{1,3})$/;
+const TODAY_PAGE_CALLBACK = /^tdy:(\d{1,3})$/;
+const GROUP_CALLBACK = /^grp:(t|d):([0-9a-f-]{36})$/;
 const HISTORY_CLEAR_CALLBACK = "history:clear";
 const PROFILE_OPEN_CALLBACK = "profile:open";
 const BACKUP_RETENTION = { daily: 7, weekly: 4 };
@@ -65,6 +69,9 @@ export class SystemCommandsService {
     bot.callbackQuery("ai:decline", (ctx) => this.declineConsent(ctx));
     bot.callbackQuery(GUIDE_CALLBACK, (ctx) => this.guide(ctx));
     bot.callbackQuery(NAV_CALLBACK, (ctx) => this.navigate(ctx));
+    bot.callbackQuery(TASK_SCOPE_CALLBACK, (ctx) => this.tasksPage(ctx));
+    bot.callbackQuery(TODAY_PAGE_CALLBACK, (ctx) => this.todayPage(ctx));
+    bot.callbackQuery(GROUP_CALLBACK, (ctx) => this.openGroup(ctx));
     bot.callbackQuery(HISTORY_CLEAR_CALLBACK, (ctx) => this.clearHistory(ctx));
     bot.callbackQuery(PROFILE_OPEN_CALLBACK, async (ctx) => {
       await ctx.answerCallbackQuery();
@@ -247,11 +254,43 @@ export class SystemCommandsService {
     if (!target) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     await ctx.answerCallbackQuery();
     if (target === "today") return this.screens.today(ctx, true);
-    if (target === "today_all") return this.screens.today(ctx, true, true);
     if (target === "tasks") return this.screens.tasks_(ctx, true);
     if (target === "reminders") return this.screens.reminders_(ctx, true);
     if (target === "goals") return this.screens.goals(ctx, true);
     return this.screens.settings_(ctx, true);
+  }
+
+  /** The task list on one date window and page; the window itself is carried by the button, not stored. */
+  private async tasksPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const match = TASK_SCOPE_CALLBACK.exec(ctx.callbackQuery.data);
+    if (!match?.[1] || match[2] === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    await ctx.answerCallbackQuery();
+    await this.screens.tasks_(ctx, true, match[1] as TaskScope, Number(match[2]));
+  }
+
+  private async todayPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const page = TODAY_PAGE_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
+    if (page === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    await ctx.answerCallbackQuery();
+    await this.screens.today(ctx, true, Number(page));
+  }
+
+  /**
+   * A collapsed line stands for rows that may have moved or been closed since the message was
+   * drawn, so the group is looked up again; when it is gone the screen is redrawn instead.
+   */
+  private async openGroup(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const match = GROUP_CALLBACK.exec(ctx.callbackQuery.data);
+    const source = match?.[1] === "d" ? "today" : "tasks";
+    const key = match?.[2];
+    if (!key) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    const shown = await this.screens.taskGroup(ctx, source, key);
+    if (shown) return void (await ctx.answerCallbackQuery());
+    await ctx.answerCallbackQuery({ text: t(locale, "list_changed_toast") });
+    await (source === "today" ? this.screens.today(ctx, true) : this.screens.tasks_(ctx, true));
   }
 
   private async clearHistory(ctx: CallbackQueryContext<AppContext>): Promise<void> {

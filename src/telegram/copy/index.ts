@@ -18,7 +18,7 @@ export function t(locale: TelegramLocale, key: CopyKey, params: Record<string, s
 }
 
 /** Count with the right plural form: `plural(locale, 3, "task")` → "3 задачи". */
-export function plural(locale: TelegramLocale, count: number, noun: "task" | "message" | "point" | "day" | "week" | "month" | "goal" | "step"): string {
+export function plural(locale: TelegramLocale, count: number, noun: "task" | "message" | "point" | "day" | "week" | "month" | "goal" | "step" | "date"): string {
   const forms = PLURALS[locale][noun];
   return `${count} ${pickForm(locale, count, forms)}`;
 }
@@ -47,6 +47,7 @@ const PLURALS = {
     month: ["месяц", "месяца", "месяцев"],
     goal: ["цель", "цели", "целей"],
     step: ["шаг", "шага", "шагов"],
+    date: ["дата", "даты", "дат"],
   },
   uk: {
     task: ["завдання", "завдання", "завдань"],
@@ -57,6 +58,7 @@ const PLURALS = {
     month: ["місяць", "місяці", "місяців"],
     goal: ["ціль", "цілі", "цілей"],
     step: ["крок", "кроки", "кроків"],
+    date: ["дата", "дати", "дат"],
   },
   en: {
     task: ["task", "tasks", "tasks"],
@@ -67,5 +69,6 @@ const PLURALS = {
     month: ["month", "months", "months"],
     goal: ["goal", "goals", "goals"],
     step: ["step", "steps", "steps"],
+    date: ["date", "dates", "dates"],
   },
 } as const satisfies Record<TelegramLocale, Record<string, readonly [string, string, string]>>;

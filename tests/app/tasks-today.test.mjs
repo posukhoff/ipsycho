@@ -18,6 +18,7 @@ test("Today includes fuzzy tasks whose planning review falls on the requested lo
       {
         task: task("exact-today"),
         occurrence: {
+          id: "occ-exact-today",
           status: "open",
           timezone: "Europe/Kyiv",
           plannedStartAt: new Date("2026-08-23T16:00:00Z"),
@@ -34,13 +35,14 @@ test("Today includes fuzzy tasks whose planning review falls on the requested lo
   };
   const service = new TasksService(repository, {}, {});
 
-  const rows = await service.listTodayForTelegram("workspace", "2026-08-23");
+  const { groups, staleCount } = await service.listTodayGroupedForTelegram("workspace", "2026-08-23");
 
   assert.deepEqual(
-    rows.map(({ task: rowTask }) => rowTask.id),
-    ["fuzzy-today", "exact-today"],
+    groups.map((group) => group.lead.task.id),
+    ["exact-today", "fuzzy-today"],
   );
-  assert.equal(rows[0].occurrence, null);
+  assert.equal(groups[1].lead.occurrence, null);
+  assert.equal(staleCount, 0);
 });
 
 test("an explicit reminder replaces the default user reminder but keeps follow-up rules", () => {

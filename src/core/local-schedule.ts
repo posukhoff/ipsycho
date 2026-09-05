@@ -160,3 +160,22 @@ export function occurrenceFallsOnLocalDate(
   if (input.timeMode === "window" && input.plannedEndAt && localDateAt(input.plannedEndAt, input.timezone) === localDate) return true;
   return false;
 }
+
+/**
+ * The one local day an occurrence belongs to, independent of today. `occurrenceFallsOnLocalDate`
+ * answers "is it on this day", which is true for overdue work on every day; a date window needs
+ * the day itself. The order matches how a card reads the occurrence: planned before due.
+ */
+export function occurrenceLocalDate(input: {
+  timezone: string;
+  plannedLocalDate?: string | null;
+  dueLocalDate?: string | null;
+  plannedStartAt?: Date | string | null;
+  dueAt?: Date | string | null;
+}): string | null {
+  if (input.plannedStartAt) return localDateAt(new Date(input.plannedStartAt), input.timezone);
+  if (input.plannedLocalDate) return input.plannedLocalDate;
+  if (input.dueAt) return localDateAt(new Date(input.dueAt), input.timezone);
+  if (input.dueLocalDate) return input.dueLocalDate;
+  return null;
+}

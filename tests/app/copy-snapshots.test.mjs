@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { deterministicCopy, guideText, helpText } from "../../dist/telegram/telegram-handlers.service.js";
-import { goalsOverviewText, reminderCardText, settingsText, taskCardText, tasksOverviewText, terminalTaskText, todayText } from "../../dist/telegram/telegram-ui.js";
+import { goalsOverviewText, reminderCardText, settingsText, taskCardText, taskGroupText, tasksOverviewText, terminalTaskText, todayText } from "../../dist/telegram/telegram-ui.js";
+import { groupTaskRows } from "../../dist/core/task-list-view.js";
 import { renderAppliedReport } from "../../dist/core/applied-report.js";
 
 /**
@@ -72,6 +73,14 @@ const report = [
   { kind: "settings", operation: "quiet_hours" },
 ];
 
+const LOCAL_DATE = "2026-09-04";
+const listRow = { task: { ...task, id: "t1" }, occurrence };
+// One task on three dates: what the list must collapse into a single line.
+const repeatedRows = ["2026-09-06", "2026-09-09", "2026-09-11"].map((date, index) => ({
+  task: { id: `r${index}`, title: "Позвонить маме", importance: "normal", timezone: TIMEZONE },
+  occurrence: { id: `00000000-0000-0000-0000-00000000000${index}`, status: "open", timezone: TIMEZONE, plannedStartAt: new Date(`${date}T09:00:00Z`), overdue: false },
+}));
+
 function render(locale) {
   const copy = deterministicCopy(locale);
   const sections = [
@@ -80,8 +89,9 @@ function render(locale) {
     ["help", helpText(config, locale)],
     ["guide", guideText(locale)],
     ["settings", settingsText(settings, NOW, 42, locale)],
-    ["today", todayText([{ task: { ...task, id: "t1" }, occurrence }], "2026-09-04", locale, 2, 6, NOW)],
-    ["tasks", tasksOverviewText([{ task: { ...task, id: "t1" }, occurrence }], locale, NOW)],
+    ["today", todayText(groupTaskRows([listRow], LOCAL_DATE), LOCAL_DATE, { locale, completedCount: 2, staleCount: 3, now: NOW })],
+    ["tasks", tasksOverviewText(groupTaskRows([listRow, ...repeatedRows], LOCAL_DATE), { scope: "week", locale, now: NOW })],
+    ["task group", taskGroupText(groupTaskRows(repeatedRows, LOCAL_DATE)[0], locale, NOW)],
     [
       "goals",
       goalsOverviewText(
@@ -118,6 +128,7 @@ for (const locale of ["ru", "uk", "en"]) {
 // screen. Only the copy around it must be localized.
 const USER_CONTENT = [
   "Позвонить клиенту",
+  "Позвонить маме",
   "Запустить первую платную группу",
   "Объяснить ошибку и предложить два решения.",
   "Подготовить список вариантов",
