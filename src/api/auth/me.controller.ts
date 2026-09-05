@@ -1,4 +1,5 @@
 import { Controller, Get, Inject, UseGuards } from "@nestjs/common";
+import { DELETION_GRACE_DAYS } from "../../access/access.service.js";
 import { AiService } from "../../ai/ai.service.js";
 import { ChatService } from "../../chat/chat.service.js";
 import { APP_CONFIG, type AppConfig } from "../../config.js";
@@ -57,6 +58,9 @@ export class MeController {
       consents,
       settings: presentSettings(settings, { historyMessageCount }),
       commit: this.config.appCommit ?? null,
+      // The deletion screen has to say how long the grace period is before the confirmation, not
+      // after it; the bootstrap is where a constant the whole app reads belongs.
+      deletionGraceDays: DELETION_GRACE_DAYS,
     } satisfies MeResponse);
   }
 

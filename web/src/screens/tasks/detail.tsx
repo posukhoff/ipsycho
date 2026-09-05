@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { TEXT_LIMITS, type ChecklistItem, type OccurrenceState, type TaskDetail } from "../../api/contracts.js";
+import { TEXT_LIMITS, type CancelScope, type ChecklistItem, type OccurrenceState, type TaskDetail } from "../../api/contracts.js";
 import { useNavigate, useTodayLocalDate, type RouteOf } from "../../app/index.js";
 import { useT, type CopyKey, type Translator } from "../../i18n/index.js";
 import { formatInstantTime, instantToLocalDate, useMutation, useQuery } from "../../lib/index.js";
@@ -152,11 +152,17 @@ function TaskBody({ task, reload }: { task: TaskDetail; reload: () => void }): R
   const canComplete = task.status === "active" && occurrence !== null && (!isTerminal || occurrence.status === "elapsed");
   const canSkip = canAct && task.kind === "task" && task.recurrence !== null;
 
-  const changeState = (state: OccurrenceState, note?: string): void => {
-    if (!occurrence) return;
+  /**
+   * `scope` is only ever sent with `cancelled`, and it decides which row's version travels: the
+   * occurrence for this date, the task for the whole repeat. The contract's table is the authority;
+   * sending the occurrence version for a series cancel would be a conflict every time.
+   */
+  const changeState = (state: OccurrenceState, note?: string, scope?: CancelScope): void => {
+    const expectedVersion = scope === "series" ? task.version : occurrence?.version;
+    if (expectedVersion === undefined) return;
     void setState.mutate({
       params: { id: actionId },
-      body: { state, expectedVersion: occurrence.version, ...(note === undefined ? {} : { note }) },
+      body: { state, expectedVersion, ...(note === undefined ? {} : { note }), ...(scope ? { scope } : {}) },
     });
   };
 
@@ -369,16 +375,37 @@ function TaskBody({ task, reload }: { task: TaskDetail; reload: () => void }): R
         pending={setState.isPending}
       />
 
+      {/*
+        A repeat has two answers to «отмени» and the bot's single button only ever gave one, so a
+        cancelled occurrence left the rule producing the next date. The sheet asks which, the same
+        way the reschedule sheet does, and a one-off keeps the single confirmation — cancelling its
+        only date closes the task with it.
+      */}
       <ConfirmSheet
-        open={confirming === "cancelled"}
+        open={confirming === "cancelled" && task.recurrence === null}
         onClose={() => setConfirming(null)}
         onConfirm={() => changeState("cancelled")}
         title={t("state.mark_cancelled")}
-        description={task.recurrence ? t("reschedule.scope_occurrence") : task.title}
+        description={task.title}
         confirmLabel={t("state.mark_cancelled")}
         destructive
         pending={setState.isPending}
       />
+
+      <Sheet open={confirming === "cancelled" && task.recurrence !== null} onClose={() => setConfirming(null)} title={t("state.mark_cancelled")}>
+        <Stack>
+          <p className="ip-muted">{task.title}</p>
+          <Button block variant="danger" loading={setState.isPending} onClick={() => changeState("cancelled", undefined, "occurrence")}>
+            {t("reschedule.scope_occurrence")}
+          </Button>
+          <Button block variant="danger" loading={setState.isPending} onClick={() => changeState("cancelled", undefined, "series")}>
+            {t("reschedule.scope_series")}
+          </Button>
+          <Button block variant="ghost" onClick={() => setConfirming(null)}>
+            {t("common.cancel")}
+          </Button>
+        </Stack>
+      </Sheet>
 
       <ConfirmSheet
         open={confirming === "pause"}

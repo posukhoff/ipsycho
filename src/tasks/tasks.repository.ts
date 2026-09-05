@@ -179,6 +179,22 @@ export class TasksRepository {
       .then((rows) => rows.map((row) => ({ ...row.task, overdue: row.overdue })));
   }
 
+  /**
+   * One pool task by id, judged by `POOL_MEMBERSHIP` itself rather than by `timeMode`.
+   *
+   * The pool is not «fuzzy tasks»: it is fuzzy tasks *plus* one-offs whose day has passed. A caller
+   * that re-states the membership as `timeMode === 'fuzzy'` answers not-found for a row the pool
+   * list put on the screen a second earlier, which is what this exists to prevent.
+   */
+  async findPoolTask(workspaceId: string, taskId: string) {
+    const [row] = await this.database.db
+      .select({ task: tasks, overdue: OVERDUE_EXISTS })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), eq(tasks.status, "active"), POOL_MEMBERSHIP))
+      .limit(1);
+    return row ? { ...row.task, overdue: row.overdue } : null;
+  }
+
   async countPool(workspaceId: string): Promise<number> {
     const [row] = await this.database.db
       .select({ count: sql<number>`count(*)::int` })

@@ -18,7 +18,6 @@ import {
   SegmentedControl,
   Sheet,
   Stack,
-  Switch,
   useToast,
   useUndo,
   type Option,
@@ -81,7 +80,13 @@ function GoalBody({ detail, reload }: { detail: GoalDetail; reload: () => void }
     },
   });
 
-  const patch = (change: { status?: GoalStatus; reviewEnabled?: boolean }): void => {
+  /**
+   * `reviewEnabled` and `clear` are always null here, and that is not an oversight: the goal action
+   * has no slot for either — `update_goal`'s patch is title, why, target date and status — so the
+   * server refuses both by name rather than answering 200 to a change it cannot make. The switch
+   * this screen used to draw for the review flag reported «сохранено» and moved nothing.
+   */
+  const patch = (change: { status?: GoalStatus }): void => {
     void update.mutate({
       params: { id: goal.id },
       body: {
@@ -90,7 +95,7 @@ function GoalBody({ detail, reload }: { detail: GoalDetail; reload: () => void }
         why: null,
         targetLocalDate: null,
         status: change.status ?? null,
-        reviewEnabled: change.reviewEnabled ?? null,
+        reviewEnabled: null,
         clear: null,
       },
     });
@@ -142,10 +147,9 @@ function GoalBody({ detail, reload }: { detail: GoalDetail; reload: () => void }
             </Field>
           </div>
         </div>
-        <ListRow
-          title={t(goal.reviewEnabled ? "goals.review_on" : "goals.review_off")}
-          trailing={<Switch checked={goal.reviewEnabled} label={t("goals.review_on")} disabled={update.isPending} onChange={(reviewEnabled) => patch({ reviewEnabled })} />}
-        />
+        {/* Shown, not offered: nothing in the product writes `review_enabled`, and a switch that
+            answers «сохранено» without moving the row is worse than a line that states the state. */}
+        <ListRow title={t(goal.reviewEnabled ? "goals.review_on" : "goals.review_off")} muted />
       </Section>
 
       <Section title={t("goals.tasks")}>

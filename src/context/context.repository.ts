@@ -5,6 +5,9 @@ import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
 import { conversationTopics, goals, memoryItems, messages, taskGoals, tasks } from "../database/schema.js";
 
+/** `memory_items.type`, taken from the table so the filter cannot drift from the column. */
+type MemoryItemType = (typeof memoryItems.$inferSelect)["type"];
+
 @Injectable()
 export class ContextRepository {
   constructor(private readonly database: DatabaseService) {}
@@ -214,6 +217,8 @@ export class ContextRepository {
 
   /** Profile facts are intentionally always available to the assistant, unlike search-only memory. */
   async listProfile(workspaceId: string, userId: string, limit = 30) {
+    // The default is the model's budget, not the screen's: `chat.service.ts` reads this to build a
+    // turn's context. A caller rendering the profile passes its own, larger bound.
     return this.database.db
       .select()
       .from(memoryItems)
@@ -226,14 +231,41 @@ export class ContextRepository {
    * Everything remembered about this user, newest first. A sensitive fact is deliberately kept out
    * of the model's context, which also kept it off every screen: the user could not see, correct or
    * delete what the bot had been told to remember. This is the one place that shows all of it.
+   *
+   * Whole rows, not a projection: `version` is what every write on the memory screen is checked
+   * against, and a list without it forced one `findMemory` per row before the page could be edited.
+   *
+   * `offset` makes the window a page rather than a cap. A capped read of an editable table is not a
+   * paging nicety — a row past the cap can never be corrected or deleted, which is the whole reason
+   * this screen exists. `id` breaks ties in the ordering: `updatedAt` alone is not a total order,
+   * and two rows sharing a timestamp across a page boundary would repeat one and drop the other.
    */
-  async listAllMemory(workspaceId: string, userId: string, limit = 50) {
+  async listAllMemory(workspaceId: string, userId: string, options: { limit?: number; offset?: number; type?: MemoryItemType } = {}) {
     return this.database.db
-      .select({ id: memoryItems.id, type: memoryItems.type, content: memoryItems.content, sensitive: memoryItems.sensitive, updatedAt: memoryItems.updatedAt })
+      .select()
       .from(memoryItems)
-      .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.userId, userId)))
-      .orderBy(desc(memoryItems.updatedAt))
-      .limit(limit);
+      .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.userId, userId), ...(options.type ? [eq(memoryItems.type, options.type)] : [])))
+      .orderBy(desc(memoryItems.updatedAt), desc(memoryItems.id))
+      .limit(options.limit ?? 50)
+      .offset(options.offset ?? 0);
+  }
+
+  /**
+   * How many rows the same filter selects, and how many of them are sensitive.
+   *
+   * Counted in SQL rather than over the page: the screen says «столько-то скрыто», and a count
+   * taken over the rows that happened to fit in one window is a number that shrinks as the user
+   * scrolls.
+   */
+  async countMemory(workspaceId: string, userId: string, type?: MemoryItemType): Promise<{ total: number; sensitive: number }> {
+    const [row] = await this.database.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        sensitive: sql<number>`count(*) filter (where ${memoryItems.sensitive})::int`,
+      })
+      .from(memoryItems)
+      .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.userId, userId), ...(type ? [eq(memoryItems.type, type)] : [])));
+    return { total: row?.total ?? 0, sensitive: row?.sensitive ?? 0 };
   }
 
   /**

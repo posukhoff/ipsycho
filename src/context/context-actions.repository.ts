@@ -258,7 +258,16 @@ export async function updateMemoryInTx(tx: DbTransaction, input: UpdateMemoryInp
       version: input.expectedVersion + 1,
       updatedAt: input.now,
     })
-    .where(and(eq(memoryItems.workspaceId, input.workspaceId), eq(memoryItems.id, input.memoryId), eq(memoryItems.version, input.expectedVersion)))
+    // `userId` as well as `workspaceId`: the SELECT above scopes on both, and an UPDATE whose WHERE
+    // is narrower than its guard is a cross-user write the moment the guard is refactored.
+    .where(
+      and(
+        eq(memoryItems.workspaceId, input.workspaceId),
+        eq(memoryItems.userId, input.actorUserId),
+        eq(memoryItems.id, input.memoryId),
+        eq(memoryItems.version, input.expectedVersion),
+      ),
+    )
     .returning();
   if (!after) throw new DomainRuleError("memory is stale or missing");
   await tx.insert(actionEvents).values({

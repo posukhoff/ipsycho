@@ -442,6 +442,14 @@ function fakeActions(store, recorder) {
         if (action.type === "set_task_state" && action.target.kind === "occurrence" && stale(action.target.occurrenceId, action.target.occurrenceVersion, store.occurrences)) {
           issues.push({ index, kind: "reference", code: "stale", message: "target occurrence is missing or stale" });
         }
+        // Cancelling a whole repeat addresses the task, so it is the task's version that is stale.
+        if (
+          action.type === "set_task_state" &&
+          (action.target.kind === "series" || action.target.kind === "task") &&
+          stale(action.target.taskId, action.target.taskVersion, store.tasks)
+        ) {
+          issues.push({ index, kind: "reference", code: "stale", message: "target task is missing or stale" });
+        }
         if (action.type === "reschedule" && action.reason === null && action.target.kind === "occurrence") {
           const owner = store.tasks.find((row) => row.id === action.target.taskId);
           if (owner && owner.importance !== "normal") issues.push({ index, kind: "domain", code: "reason_required", message: "reschedule reason is required" });
@@ -830,6 +838,34 @@ test("a state change goes through the action journal with the versions the clien
   assert.deepEqual(harness.recorder.undone, [{ workspaceId: WORKSPACE_ID, actorUserId: USER_ID, groupId: applied.groupId }]);
 });
 
+test("cancelling a repeat can mean this date or the whole rule, and the version follows the target", async (t) => {
+  // `set_task_state` has always had both answers; only one was reachable over HTTP, so cancelling a
+  // repeating task closed one date and the rule produced the next one anyway.
+  const harness = await createApp();
+  t.after(() => harness.close());
+
+  const one = await harness.post(`/tasks/${ids.occSeriesOne}/state`, { state: "cancelled", expectedVersion: 2, scope: "occurrence" });
+  assert.equal(one.status, 201);
+  assert.equal(harness.recorder.applied[0].actions[0].target.kind, "occurrence");
+  assert.equal(harness.recorder.applied[0].actions[0].target.occurrenceVersion, 2, "an occurrence cancel carries the occurrence version");
+
+  // The whole repeat addresses the task, so the *task* version is what travels — the table in the
+  // contract, not a guess from the id in the path.
+  const whole = await harness.post(`/tasks/${ids.occSeriesOne}/state`, { state: "cancelled", expectedVersion: 4, scope: "series" });
+  assert.equal(whole.status, 201);
+  assert.deepEqual(harness.recorder.applied[1].actions[0].target, { kind: "series", taskId: ids.taskSeries, taskVersion: 4 });
+
+  // And a stale task version is the conflict for the task, not for the occurrence under it.
+  const stale = await harness.post(`/tasks/${ids.occSeriesOne}/state`, { state: "cancelled", expectedVersion: 1, scope: "series" });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error.details.currentVersion, 4);
+
+  // A one-off has no series to cancel, and says so by name rather than closing something else.
+  const notRecurring = await harness.post(`/tasks/${ids.occPoint}/state`, { state: "cancelled", expectedVersion: 1, scope: "series" });
+  assert.equal(notRecurring.status, 422);
+  assert.equal(notRecurring.body.error.details.rule, "not_recurring");
+});
+
 test("«seen» records what is blocking it in the journal and promises no Undo", async (t) => {
   const harness = await createApp();
   t.after(() => harness.close());
@@ -1008,6 +1044,31 @@ test("goals are created, linked and unlinked through the same journal", async (t
   const stale = await harness.post(`/goals/${ids.goal}/tasks`, { taskId: ids.taskSeries, expectedGoalVersion: 1, expectedTaskVersion: 4 });
   assert.equal(stale.status, 409);
   assert.equal(stale.body.error.details.currentVersion, 2);
+});
+
+test("a goal field the action cannot carry is refused by name, never accepted and dropped", async (t) => {
+  // `update_goal`'s patch is title, why, target date and status. `clear` and `reviewEnabled` have
+  // no slot in it, and answering 200 to either would be a write that reports «сохранено» and moves
+  // nothing — which is the one thing the journal exists to make impossible.
+  const harness = await createApp();
+  t.after(() => harness.close());
+
+  const patch = { expectedVersion: 2, title: null, why: null, targetLocalDate: null, status: null, reviewEnabled: null, clear: null };
+
+  const cleared = await harness.patch(`/goals/${ids.goal}`, { ...patch, clear: ["why"] });
+  assert.equal(cleared.status, 422);
+  assert.equal(cleared.body.error.details.rule, "goal_clear_unsupported");
+
+  const review = await harness.patch(`/goals/${ids.goal}`, { ...patch, reviewEnabled: false });
+  assert.equal(review.status, 422);
+  assert.equal(review.body.error.details.rule, "goal_review_unsupported");
+
+  assert.deepEqual(harness.recorder.applied, [], "neither reached the journal");
+
+  // What the action does carry still goes through it.
+  const status = await harness.patch(`/goals/${ids.goal}`, { ...patch, status: "paused" });
+  assert.equal(status.status, 200);
+  assert.equal(harness.recorder.applied[0].actions[0].status, "paused");
 });
 
 test("a request the contract refuses names the fields and never their values", async (t) => {

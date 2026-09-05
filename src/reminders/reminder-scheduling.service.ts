@@ -50,6 +50,35 @@ export class ReminderSchedulingService {
       .limit(input.limit ?? 12);
   }
 
+  /**
+   * One pending delivery of this user, by id.
+   *
+   * `listUpcoming` is a window — the soonest N — and a caller that looked a delivery up by scanning
+   * that window could not act on the N+1st: a reminder further out than the list reaches would
+   * answer not-found for a snooze, a repeat or a cancel that `cancelUpcoming` would have performed
+   * happily. The scoping is the same pair (`workspaceId`, `recipientUserId`), so a foreign id is
+   * still the not-found an unknown id gets.
+   */
+  async findUpcoming(input: { workspaceId: string; userId: string; deliveryId: string; now?: Date }) {
+    const [row] = await this.database.db
+      .select({ delivery: reminderDeliveries, task: tasks, occurrence: taskOccurrences, rule: reminderRules })
+      .from(reminderDeliveries)
+      .innerJoin(tasks, and(eq(tasks.workspaceId, reminderDeliveries.workspaceId), eq(tasks.id, reminderDeliveries.taskId)))
+      .innerJoin(reminderRules, and(eq(reminderRules.workspaceId, reminderDeliveries.workspaceId), eq(reminderRules.id, reminderDeliveries.reminderRuleId)))
+      .leftJoin(taskOccurrences, and(eq(taskOccurrences.workspaceId, reminderDeliveries.workspaceId), eq(taskOccurrences.id, reminderDeliveries.occurrenceId)))
+      .where(
+        and(
+          eq(reminderDeliveries.workspaceId, input.workspaceId),
+          eq(reminderDeliveries.recipientUserId, input.userId),
+          eq(reminderDeliveries.id, input.deliveryId),
+          eq(reminderDeliveries.status, "pending"),
+          gt(reminderDeliveries.scheduledFor, input.now ?? new Date()),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
   async cancelUpcoming(input: { workspaceId: string; userId: string; deliveryId: string }): Promise<boolean> {
     const [cancelled] = await this.database.db
       .update(reminderDeliveries)

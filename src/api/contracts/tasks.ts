@@ -219,12 +219,44 @@ export const TaskDetailSchema = z
  */
 export const OccurrenceStateSchema = z.enum(["done", "started", "seen", "skipped", "cancelled"]);
 
+/**
+ * What a `cancelled` request is about — the same two-way question `RescheduleRequest.scope` asks.
+ *
+ * `set_task_state` has always had both answers and only one was reachable over HTTP, so cancelling
+ * a repeating task closed one date and the rule produced the next one anyway. That is not a rule
+ * the user broke; it was a shape the request could not express.
+ *
+ * - `occurrence` (the default) closes this date. For a one-off that is the whole task: the domain
+ *   closes a task whose only date was cancelled.
+ * - `series` cancels the repeat — the parent, the live date and the future dates, `change_series`
+ *   with `cancel`. Only a task with a recurrence rule has one, and asking otherwise is refused.
+ *
+ * Only `cancelled` reads this. `done` and `skipped` are always about the one date in front of the
+ * user, and `started`/`seen` are acknowledgements of one occurrence.
+ */
+export const CancelScopeSchema = z.enum(["occurrence", "series"]);
+
 export const OccurrenceStateRequestSchema = z
   .object({
     state: OccurrenceStateSchema,
+    /**
+     * The version the client read, of the row this request addresses — which is decided by `scope`
+     * and by whether the task has a date at all, not by the id in the path:
+     *
+     * | request                                    | `expectedVersion` is |
+     * | ------------------------------------------ | -------------------- |
+     * | any state, task has a live occurrence      | the **occurrence** version (`TaskListRow.occurrenceVersion`, `TaskDetail.occurrence.version`) |
+     * | any state, task has none (fuzzy)           | the **task** version |
+     * | `cancelled` with `scope: "series"`         | the **task** version |
+     *
+     * A mismatch is answered as `conflict` carrying the row's own version, never as a silent
+     * overwrite and never as a domain rule the user cannot act on.
+     */
     expectedVersion: VersionSchema,
     /** What is blocking it. Journalled as the event's details; never required. */
     note: z.string().max(TEXT_LIMITS.blockerNote).nullable().optional(),
+    /** Only meaningful with `cancelled`; null and absent both mean `occurrence`. */
+    scope: CancelScopeSchema.nullable().optional(),
   })
   .strict();
 
@@ -242,6 +274,19 @@ export const RescheduleReasonSchema = z
 
 export const RescheduleRequestSchema = z
   .object({
+    /**
+     * The version of the row this move addresses, which `scope` and the task's own shape decide —
+     * never the id in the path:
+     *
+     * | request                                        | `expectedVersion` is       |
+     * | ---------------------------------------------- | -------------------------- |
+     * | `scope: "occurrence"` (or null, with a date)   | the **occurrence** version |
+     * | `scope: "series"`                              | the **task** version       |
+     * | null scope on a task with no occurrence        | the **task** version       |
+     *
+     * `RescheduleOptions.hasSeries` is what tells the sheet whether the scope question exists at
+     * all, and `TaskDetail.occurrence` is null exactly when the task version is the right one.
+     */
     expectedVersion: VersionSchema,
     when: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("preset"), preset: ReschedulePresetSchema }).strict(),
@@ -374,6 +419,7 @@ export type TaskJournalEntry = z.infer<typeof TaskJournalEntrySchema>;
 export type OccurrenceDetail = z.infer<typeof OccurrenceDetailSchema>;
 export type TaskDetail = z.infer<typeof TaskDetailSchema>;
 export type OccurrenceState = z.infer<typeof OccurrenceStateSchema>;
+export type CancelScope = z.infer<typeof CancelScopeSchema>;
 export type OccurrenceStateRequest = z.infer<typeof OccurrenceStateRequestSchema>;
 export type ReschedulePreset = z.infer<typeof ReschedulePresetSchema>;
 export type RescheduleReasonCode = z.infer<typeof RescheduleReasonCodeSchema>;

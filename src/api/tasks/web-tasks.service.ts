@@ -242,13 +242,17 @@ export class WebTasksService {
     if (body.state === "started" || body.state === "seen") return this.acknowledge(user, target, body);
 
     const now = new Date();
+    const stateTarget = this.stateTarget(target, body);
     const action: ResolvedAction = {
       ...this.base(user, target.occurrence?.timezone ?? target.task.timezone),
       type: "set_task_state",
-      target: this.stateTarget(target, body),
+      target: stateTarget,
       state: body.state,
     };
-    const groupId = await this.apply(user, [action], now, target.occurrence?.version ?? target.task.version);
+    // A conflict answers with the version of the row the request addressed, not with whichever one
+    // this task happens to have: cancelling a whole series is checked against the task.
+    const currentVersion = stateTarget.kind === "occurrence" ? (target.occurrence?.version ?? target.task.version) : target.task.version;
+    const groupId = await this.apply(user, [action], now, currentVersion);
     return this.mutationResponse(user, await this.rowsForTask(user, target.task), groupId);
   }
 
@@ -327,9 +331,25 @@ export class WebTasksService {
     return this.mutationResponse(user, await this.rowsForTask(user, target.task), null);
   }
 
-  /** The shape `set_task_state` addresses: the occurrence when there is one, the task otherwise. */
+  /**
+   * The shape `set_task_state` addresses: the occurrence when there is one, the task otherwise —
+   * unless a `cancelled` request said which of the three things it meant.
+   *
+   * «Отмени» has two answers and the request now carries which one: this date
+   * (`update_occurrence` cancel, which for a one-off closes the task with it), or the whole repeat
+   * (`change_series` cancel). Without the second, cancelling one occurrence of a series left the
+   * rule producing the next one — a capability the domain has always had and no screen could reach.
+   *
+   * `expectedVersion` follows the target, which is what the contract's table spells out: the
+   * occurrence version for an occurrence, the task version for a series or a dateless task.
+   */
   private stateTarget(target: TaskTargetRows, body: OccurrenceStateRequest): TaskTarget {
     const { task, occurrence } = target;
+    const scope = body.state === "cancelled" ? (body.scope ?? "occurrence") : "occurrence";
+    if (scope === "series") {
+      if (!task.recurrenceRule) throw new DomainRuleError("task is not a recurring series", "not_recurring");
+      return { kind: "series", taskId: task.id, taskVersion: body.expectedVersion };
+    }
     if (occurrence) {
       return {
         kind: "occurrence",

@@ -62,7 +62,7 @@ export class WebSettingsController {
       // here would mean a second definition of «утром» — the reference time, and tomorrow when
       // today's has passed — living in the API.
       await this.settings.snoozeUntilMorning(user.access.user.id);
-      return this.mutation(user);
+      return this.mutation(user, null);
     }
 
     const scope: ActionScope = {
@@ -71,10 +71,11 @@ export class WebSettingsController {
       recipientUserId: user.access.user.id,
       language: current.pinnedLanguage ?? user.locale,
     };
+    let groupId: string;
     try {
       const issues = await this.actions.validateResolved([plan.action], scope);
       if (issues.length) throw apiErrorForIssues(issues, current.version);
-      await this.actions.applyResolved([plan.action], scope);
+      groupId = (await this.actions.applyResolved([plan.action], scope)).groupId;
     } catch (error) {
       rethrowWriteError(error, current.version);
     }
@@ -83,7 +84,11 @@ export class WebSettingsController {
     // columns, exactly as the button does, and — exactly as the button does — outside the journal.
     if (plan.copyTimezoneTo) await this.settings.applyProfileTimezone(user.access.user.id, plan.copyTimezoneTo);
 
-    return this.mutation(user);
+    // Undo restores the journalled action and nothing else, so it is offered only when the action
+    // *is* the whole change. With a column copy behind it, undoing would put the profile zone back
+    // and leave the digest or quiet-hours zone on the new one — a half-undo, which is worse than
+    // none because the user believes the change is gone.
+    return this.mutation(user, plan.copyTimezoneTo ? null : groupId);
   }
 
   /**
@@ -95,12 +100,12 @@ export class WebSettingsController {
     return TimezoneSearchResponseSchema.parse({ suggestions: searchTimezones(query.q, new Date()) } satisfies TimezoneSearchResponse);
   }
 
-  private async mutation(user: WebAuthContext): Promise<SettingsMutationResponse> {
+  private async mutation(user: WebAuthContext, undoGroupId: string | null): Promise<SettingsMutationResponse> {
     const updated = await this.settings.get(user.access.user.id);
     // The row existed a moment ago (the guard read it) and the write committed, so its absence is a
     // broken account rather than a caller error — the same answer the guard gives for it.
     if (!updated) throw new ApiError("unavailable");
-    return SettingsMutationResponseSchema.parse({ settings: await this.present(user, updated) } satisfies SettingsMutationResponse);
+    return SettingsMutationResponseSchema.parse({ settings: await this.present(user, updated), undoGroupId } satisfies SettingsMutationResponse);
   }
 
   private async present(user: WebAuthContext, row: WebSettingsRow): Promise<SettingsResponse> {

@@ -18,6 +18,7 @@ import {
   MemoryResponseSchema,
   ProfileResponseSchema,
   RemindersResponseSchema,
+  SettingsMutationResponseSchema,
   SettingsResponseSchema,
   TimezoneSearchResponseSchema,
 } from "../../dist/api/contracts/index.js";
@@ -281,14 +282,39 @@ async function createApp(options = {}) {
     })
     .overrideProvider(ContextService)
     .useValue({
-      memoryOverview: async (workspaceId, userId) =>
-        workspaceId === WORKSPACE_ID && userId === USER_ID ? state.memory.map(({ id, type, content, sensitive, updatedAt }) => ({ id, type, content, sensitive, updatedAt })) : [],
+      /**
+       * The paged read the memory screen makes: whole rows (the version every write is checked
+       * against travels with them), an offset rather than a cap, and counts taken over the filter
+       * rather than over the page — which is what makes `sensitiveCount` mean anything.
+       */
+      memoryPage: async (workspaceId, userId, { page, pageSize, type }) => {
+        // Scoped on the row, the way the SQL is: `workspace_id` *and* `user_id` are in the WHERE.
+        const all = state.memory.filter((row) => row.workspaceId === workspaceId && row.userId === userId && (!type || row.type === type));
+        const pages = Math.max(1, Math.ceil(all.length / pageSize));
+        const clamped = Math.min(Math.max(page, 0), pages - 1);
+        return {
+          rows: all.slice(clamped * pageSize, clamped * pageSize + pageSize),
+          page: clamped,
+          pages,
+          total: all.length,
+          sensitive: all.filter((row) => row.sensitive).length,
+        };
+      },
       findMemory: async (workspaceId, userId, memoryId) => state.memory.find((row) => row.id === memoryId && row.workspaceId === workspaceId && row.userId === userId) ?? null,
       profileOverview: async (workspaceId, userId) => state.memory.filter((row) => row.type === "context" && row.workspaceId === workspaceId && row.userId === userId),
     })
     .overrideProvider(ReminderSchedulingService)
     .useValue({
-      listUpcoming: async ({ workspaceId, userId }) => (workspaceId === WORKSPACE_ID && userId === USER_ID ? state.deliveries : []),
+      // The window is real: the query is `order by scheduled_for limit N`, and the controller's own
+      // `WINDOW` is what decides how far the *list* reaches.
+      listUpcoming: async ({ workspaceId, userId, limit }) => (workspaceId === WORKSPACE_ID && userId === USER_ID ? state.deliveries.slice(0, limit ?? 12) : []),
+      /**
+       * Addressed by id, and scoped by the same pair. It is deliberately *not* «find it in the
+       * list»: the list is a window, and a delivery past it must still be snoozable and
+       * cancellable — which is the bug this method exists to close.
+       */
+      findUpcoming: async ({ workspaceId, userId, deliveryId }) =>
+        (workspaceId === WORKSPACE_ID && userId === USER_ID ? state.deliveries.find((row) => row.delivery.id === deliveryId) : undefined) ?? null,
       cancelUpcoming: async (input) => {
         calls.cancelUpcoming.push(input);
         return state.cancelResult;
@@ -539,6 +565,36 @@ test("the presets are journaled, and «отложить до утра» takes th
   assert.equal(SettingsResponseSchema.parse(morning.body.settings).notificationsSnoozedUntil, "2026-09-06T06:00:00.000Z");
 });
 
+test("a journaled settings change hands back the group Undo needs, and the two that are not hand back null", async (t) => {
+  // The bot has attached an Undo button to every settings command since they existed
+  // (`settings-commands.service.ts`). A screen that could not reach the group would be a feature
+  // lost in the move, and the two exceptions are exactly the two writes that skip the journal.
+  const harness = await createApp();
+  t.after(() => harness.close());
+
+  const language = await harness.patch("/settings", { expectedVersion: 7, change: { operation: "language", language: "uk" } });
+  assert.equal(language.status, 200);
+  assert.equal(SettingsMutationResponseSchema.parse(language.body).undoGroupId, GROUP_ID);
+
+  // «Утром» is written straight through `SettingsService`: no action group, so nothing to undo.
+  harness.state.settings = settingsRow({ version: 9 });
+  const morning = await harness.patch("/settings", { expectedVersion: 9, change: { operation: "snooze", until: { kind: "morning" } } });
+  assert.equal(SettingsMutationResponseSchema.parse(morning.body).undoGroupId, null);
+
+  // A timezone applied to the digests alone is a journaled action *plus* an unjournaled column
+  // copy. Undoing the action would restore the profile zone and leave the copied one — a half-undo,
+  // and the reason the answer refuses to offer it.
+  harness.state.settings = settingsRow({ version: 11 });
+  const copied = await harness.patch("/settings", { expectedVersion: 11, change: { operation: "timezone", timezone: "Europe/Berlin", applyTo: "digests" } });
+  assert.equal(harness.calls.applyProfileTimezone.length, 1);
+  assert.equal(SettingsMutationResponseSchema.parse(copied.body).undoGroupId, null);
+
+  // «Обе» is one step that moves all three columns, so it is undoable in full.
+  harness.state.settings = settingsRow({ version: 13 });
+  const both = await harness.patch("/settings", { expectedVersion: 13, change: { operation: "timezone", timezone: "Europe/Berlin", applyTo: "both" } });
+  assert.equal(SettingsMutationResponseSchema.parse(both.body).undoGroupId, GROUP_ID);
+});
+
 test("the timezone picker searches server-side, in the words /timezone accepts", async (t) => {
   const harness = await createApp();
   t.after(() => harness.close());
@@ -651,6 +707,39 @@ test("GET /memory shows everything, sensitive entries included, with the version
     filtered.rows.map((row) => row.id),
     [CONTEXT_ID],
   );
+});
+
+test("the memory list is a page of the whole table, not the newest window of it", async (t) => {
+  // Every row on this screen is editable and deletable, so a read that stopped at a cap would make
+  // the rows past it permanently uncorrectable — and `sensitiveCount` would count only what fit.
+  const base = memoryRows()[0];
+  const many = Array.from({ length: 7 }, (_, index) => ({
+    ...base,
+    id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    sensitive: index >= 5,
+    version: index + 1,
+  }));
+  const harness = await createApp({ memory: many });
+  t.after(() => harness.close());
+
+  const first = MemoryResponseSchema.parse((await harness.get("/memory?pageSize=3")).body);
+  assert.equal(first.rows.length, 3);
+  assert.deepEqual(first.page, { page: 0, pages: 3, pageSize: 3, total: 7, hasMore: true });
+  assert.equal(first.sensitiveCount, 2, "counted over the filter, not over the page that loaded");
+
+  // The last page is reachable, and its rows carry the version a PATCH or a DELETE is checked
+  // against — so a fact older than one window can still be corrected.
+  const last = MemoryResponseSchema.parse((await harness.get("/memory?page=2&pageSize=3")).body);
+  assert.deepEqual(last.page, { page: 2, pages: 3, pageSize: 3, total: 7, hasMore: false });
+  assert.equal(last.rows.length, 1);
+  assert.equal(last.rows[0].version, 7);
+  assert.equal(last.sensitiveCount, 2);
+
+  // A page past the end clamps to the last one rather than answering an empty list in the middle
+  // of an infinite scroll.
+  const past = MemoryResponseSchema.parse((await harness.get("/memory?page=9&pageSize=3")).body);
+  assert.equal(past.page.page, 2);
+  assert.equal(past.rows.length, 1);
 });
 
 test("a memory id from another workspace is the same not-found as an id that never existed", async (t) => {
@@ -799,6 +888,36 @@ test("a delivery id from another workspace answers not-found, for every verb", a
   }
   assert.equal(harness.calls.followUp.length, 0);
   assert.equal(harness.calls.cancelUpcoming.length, 0, "nothing is attempted before the id is known to belong here");
+});
+
+test("a delivery beyond the list window is still snoozable, repeatable and cancellable", async (t) => {
+  // The list reads the soonest `WINDOW` deliveries. Looking a delivery up by scanning that list
+  // made the `WINDOW + 1`st unreachable for every write, even though `cancelUpcoming` would have
+  // performed it — a read cap that reaches into the write path is a row that cannot be changed.
+  const far = deliveryRow();
+  far.delivery = { ...far.delivery, id: "3f2e1d0c-9b8a-4756-8443-2211ffeeddcc" };
+  const filler = Array.from({ length: 250 }, (_, index) => {
+    const row = deliveryRow();
+    row.delivery = { ...row.delivery, id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, occurrenceId: null };
+    return row;
+  });
+  const harness = await createApp({ deliveries: [...filler, far], followUpResult: far.delivery.id });
+  t.after(() => harness.close());
+
+  const listed = RemindersResponseSchema.parse((await harness.get("/reminders?pageSize=50")).body);
+  assert.equal(listed.page.total, 200, "the list stops at the window, which is what it is for");
+  assert.equal(
+    listed.rows.some((row) => row.deliveryId === far.delivery.id),
+    false,
+  );
+
+  const snoozed = await harness.post(`/reminders/${far.delivery.id}/snooze`, { choice: "1h" });
+  assert.equal(snoozed.status, 201, "a delivery the list could not reach is still addressable by id");
+  assert.deepEqual(harness.calls.followUp.at(-1).occurrenceId, OCCURRENCE_ID);
+
+  const cancelled = await harness.del(`/reminders/${far.delivery.id}`);
+  assert.equal(cancelled.status, 200);
+  assert.deepEqual(harness.calls.cancelUpcoming.at(-1), { workspaceId: WORKSPACE_ID, userId: USER_ID, deliveryId: far.delivery.id });
 });
 
 test("snoozing repeats the contact without journaling a state change", async (t) => {

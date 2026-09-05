@@ -269,6 +269,15 @@ export class TasksService {
     return { rows: [...rows].sort(comparePoolRows(todayLocalDate)), total, summary, weekStart: targetWeekStart(todayLocalDate) };
   }
 
+  /**
+   * One pool task by id. The membership predicate is the repository's, not a caller's restatement:
+   * an overdue one-off is in the pool exactly like a task that never had a date, and «делаю
+   * сегодня» is offered on both.
+   */
+  findPoolTask(workspaceId: string, taskId: string) {
+    return this.repository.findPoolTask(workspaceId, taskId);
+  }
+
   /** Tasks taken for the week today belongs to and still without a day. */
   async listPickedForWeek(workspaceId: string, todayLocalDate: string) {
     return this.repository.listPickedForWeek(workspaceId, targetWeekStart(todayLocalDate));

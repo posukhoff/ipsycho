@@ -48,6 +48,14 @@ export const MeResponseSchema = z
     settings: SettingsResponseSchema,
     /** The commit the server was built from; the app footer shows it, as `/status` does in chat. */
     commit: z.string().max(64).nullable(),
+    /**
+     * `DELETION_GRACE_DAYS`, and it is here rather than only on `AccountDeleteResponse` because the
+     * sentence it belongs to has to be read *before* the user confirms. `/delete_account` states
+     * the grace period in the prompt it puts the confirm button on; a screen that could only say it
+     * afterwards would be asking for an irreversible confirmation with less information than the
+     * chat gives.
+     */
+    deletionGraceDays: z.number().int().min(1),
   })
   .strict();
 

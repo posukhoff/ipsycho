@@ -97,12 +97,39 @@ export class ContextService {
     });
   }
 
-  profileOverview(workspaceId: string, userId: string) {
-    return this.repository.listProfile(workspaceId, userId);
+  profileOverview(workspaceId: string, userId: string, limit?: number) {
+    return this.repository.listProfile(workspaceId, userId, limit);
   }
 
   memoryOverview(workspaceId: string, userId: string) {
     return this.repository.listAllMemory(workspaceId, userId);
+  }
+
+  /**
+   * One page of what is remembered, plus how much there is.
+   *
+   * The screen edits and deletes these rows, so the read has to be able to reach all of them: a
+   * capped list makes an old fact permanently uncorrectable, which is the opposite of why the
+   * screen exists. The counts come from the same filter rather than from the page, so «столько-то
+   * скрыто» is a property of the list and not of how far the user has scrolled.
+   *
+   * The count runs first because it is what decides the page: a request past the end clamps to the
+   * last page and returns its rows, rather than an empty list that reads as «nothing left».
+   */
+  async memoryPage(
+    workspaceId: string,
+    userId: string,
+    options: { page: number; pageSize: number; type?: "note" | "decision" | "preference" | "context" },
+  ): Promise<{ rows: Awaited<ReturnType<ContextRepository["listAllMemory"]>>; page: number; pages: number; total: number; sensitive: number }> {
+    const counts = await this.repository.countMemory(workspaceId, userId, options.type);
+    const pages = Math.max(1, Math.ceil(counts.total / options.pageSize));
+    const page = Math.min(Math.max(options.page, 0), pages - 1);
+    const rows = await this.repository.listAllMemory(workspaceId, userId, {
+      limit: options.pageSize,
+      offset: page * options.pageSize,
+      ...(options.type ? { type: options.type } : {}),
+    });
+    return { rows, page, pages, total: counts.total, sensitive: counts.sensitive };
   }
 
   updateClarificationCount(input: { workspaceId: string; userId: string; topicId: string; askedQuestion: boolean; now?: Date }): Promise<number> {

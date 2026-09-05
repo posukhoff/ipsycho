@@ -5,7 +5,7 @@ import "reflect-metadata";
 import { GUARDS_METADATA, METHOD_METADATA, MODULE_METADATA, PATH_METADATA } from "@nestjs/common/constants.js";
 import { APP_FILTER } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
-import { AccessService } from "../../dist/access/access.service.js";
+import { AccessService, DELETION_GRACE_DAYS } from "../../dist/access/access.service.js";
 import { AiService } from "../../dist/ai/ai.service.js";
 import { ApiModule } from "../../dist/api/api.module.js";
 import { InitDataGuard } from "../../dist/api/auth/init-data.guard.js";
@@ -256,6 +256,10 @@ test("GET /me answers the bootstrap call and says nothing about Telegram", async
     { scope: "voice", granted: false, provider: "openai", version: "2" },
   ]);
   assert.equal(parsed.commit, "abc1234");
+  // The grace period is on the bootstrap, not only on the deletion's answer: `/delete_account`
+  // states it in the prompt the confirm button sits on, and the screen has to be able to do the
+  // same *before* the user types the word.
+  assert.equal(parsed.deletionGraceDays, DELETION_GRACE_DAYS);
 
   assert.equal(parsed.settings.version, 7);
   assert.equal(parsed.settings.resolvedLocale, "ru", "the settings screen resolves from the stored row, not from this payload");

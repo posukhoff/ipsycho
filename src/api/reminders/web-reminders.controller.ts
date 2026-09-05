@@ -30,13 +30,15 @@ import { presentReminder, type UpcomingReminder } from "./reminders.presenter.js
 /**
  * The reminders screen: what the bot will say next, and the three things the user can do about it.
  *
- * Every read and every write goes through `ReminderSchedulingService.listUpcoming`, which filters on
+ * Every read and every write goes through `ReminderSchedulingService`, whose every query filters on
  * `workspaceId` **and** `recipientUserId`. That is the workspace isolation for this whole file: a
- * delivery id from another workspace is simply not in the list, so it answers `not_found` — the same
- * envelope as an id that never existed, and never a 403 that would confirm the id is real.
+ * delivery id from another workspace answers `not_found` — the same envelope as an id that never
+ * existed, and never a 403 that would confirm the id is real.
  *
  * The window is read whole and paged in memory: the domain has no offset for this query, and adding
- * one in the API would be a second ordering that could disagree with the bot's.
+ * one in the API would be a second ordering that could disagree with the bot's. It bounds the
+ * *list* only — every write addresses its delivery through `findUpcoming`, so a reminder past the
+ * window is still snoozable, repeatable and cancellable.
  */
 const WINDOW = 200;
 
@@ -173,10 +175,16 @@ export class WebRemindersController {
     return this.reminders.listUpcoming({ workspaceId: user.access.workspaceId, userId: user.access.user.id, now, limit: WINDOW });
   }
 
-  /** A delivery of this user, in this workspace, still pending — or the same 404 as a stranger's id. */
+  /**
+   * A delivery of this user, in this workspace, still pending — or the same 404 as a stranger's id.
+   *
+   * Addressed by id, not found by scanning the list: the list is the `WINDOW` soonest deliveries,
+   * and a reminder further out than that would otherwise be unreachable for a snooze, a repeat or a
+   * cancel the domain would have performed. A read cap on a list is a paging question; a read cap
+   * on the lookup a write depends on is a row that cannot be changed.
+   */
   private async find(user: WebAuthContext, deliveryId: string): Promise<UpcomingReminder> {
-    const rows = await this.upcoming(user, new Date());
-    const row = rows.find((candidate) => candidate.delivery.id === deliveryId);
+    const row = await this.reminders.findUpcoming({ workspaceId: user.access.workspaceId, userId: user.access.user.id, deliveryId, now: new Date() });
     if (!row) throw ApiError.notFound();
     return row;
   }

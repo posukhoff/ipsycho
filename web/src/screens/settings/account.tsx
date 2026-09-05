@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { AccountDeleteResponse } from "../../api/contracts.js";
-import { useTimezone, useTodayLocalDate } from "../../app/index.js";
+import { useMe, useTimezone, useTodayLocalDate } from "../../app/index.js";
 import { useT } from "../../i18n/index.js";
 import { formatInstantTime, formatLocalDate, instantToLocalDate, useMutation } from "../../lib/index.js";
 import { Button, ConfirmSheet, EmptyState, Field, Screen, Sheet, Stack, TextInput, useToast } from "../../ui/index.js";
@@ -49,6 +49,7 @@ export function ClearHistorySheet({ count, onClose }: { count: number; onClose: 
 export function DeleteAccountSheet({ onClose, onDeleted }: { onClose: () => void; onDeleted: (result: AccountDeleteResponse) => void }): ReactNode {
   const t = useT();
   const toast = useToast();
+  const graceDays = useMe().deletionGraceDays;
   const [typed, setTyped] = useState("");
 
   const remove = useMutation("deleteAccount", {
@@ -61,7 +62,14 @@ export function DeleteAccountSheet({ onClose, onDeleted }: { onClose: () => void
   return (
     <Sheet open onClose={onClose} title={t("settings.delete_account")}>
       <Stack>
-        {/* Said before the deletion, not only after it: from here the app is the wrong surface. */}
+        {/*
+          Both sentences are said before the deletion, not only after it. The grace period is the
+          only thing that makes «удалить» survivable, and `/delete_account` states it in the prompt
+          it attaches the confirm button to — a screen that waited until the answer would be asking
+          for an irreversible confirmation on less information than the chat gives. From here on the
+          app is also the wrong surface, which is the second sentence.
+        */}
+        <p className="ip-muted">{t("settings.delete_warning", { days: graceDays })}</p>
         <p className="ip-muted">{t("settings.restore_chat_only")}</p>
         <Field label={t("settings.delete_confirm_hint")}>
           <TextInput value={typed} onChange={setTyped} placeholder="delete" boxed />

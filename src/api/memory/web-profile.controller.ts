@@ -6,6 +6,14 @@ import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.j
 import { presentMemory } from "./memory.presenter.js";
 
 /**
+ * More profile facts than a person accumulates, and far past the thirty the chat reads for one
+ * model turn: this list is the user's own view of what is stored, and a bound tuned for a prompt
+ * would silently hide the oldest of it. Anything past this is still reachable — and editable —
+ * through `GET /memory?type=context`, which pages in SQL.
+ */
+const PROFILE_READ_LIMIT = 200;
+
+/**
  * `GET /profile` — the read side of `/context`.
  *
  * It is not a second store: these are `memory_items` of type `context`, the durable facts the
@@ -22,7 +30,7 @@ export class WebProfileController {
 
   @Get()
   async profile(@CurrentUser() user: WebAuthContext): Promise<ProfileResponse> {
-    const rows = await this.context.profileOverview(user.access.workspaceId, user.access.user.id);
+    const rows = await this.context.profileOverview(user.access.workspaceId, user.access.user.id, PROFILE_READ_LIMIT);
     return ProfileResponseSchema.parse({
       rows: rows.map(presentMemory),
       // Null until the user has been invited to build one at least once; the screen shows the

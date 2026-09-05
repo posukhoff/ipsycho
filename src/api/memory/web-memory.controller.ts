@@ -14,14 +14,12 @@ import {
   type MemoryPatchRequest,
   type MemoryQuery,
   type MemoryResponse,
-  type MemoryRow,
 } from "../contracts/index.js";
 import { ApiError } from "../http/api-error.js";
 import { apiRoute } from "../http/routes.js";
 import { zodBody, zodParam, zodQuery } from "../http/zod-validation.pipe.js";
 import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
 import { apiErrorForIssues, rethrowWriteError } from "../settings/action-errors.js";
-import { paginate } from "../settings/paging.js";
 import { presentMemory, type MemoryItem } from "./memory.presenter.js";
 
 /**
@@ -47,22 +45,29 @@ export class WebMemoryController {
     private readonly actions: ActionsService,
   ) {}
 
+  /**
+   * One page, cut in SQL rather than out of a capped read.
+   *
+   * The rows on this screen are edited and deleted, so a read that stopped at the newest fifty
+   * would make the fifty-first permanently uncorrectable — the opposite of what the screen is for.
+   * `memoryPage` therefore pages with an offset and counts with the same filter, which also makes
+   * `sensitiveCount` a property of the whole list instead of a property of the page that happened
+   * to load. Whole rows come back, so no `findMemory` per row is needed to learn the version every
+   * write below is checked against.
+   */
   @Get()
   async list(@CurrentUser() user: WebAuthContext, @Query(zodQuery(MemoryQuerySchema)) query: MemoryQuery): Promise<MemoryResponse> {
-    const all = await this.context.memoryOverview(user.access.workspaceId, user.access.user.id);
-    const filtered = query.type ? all.filter((row) => row.type === query.type) : all;
-    const paged = paginate(filtered, query);
-    // The overview projection has no version, source or timestamps, and the version is what every
-    // write on this screen is checked against. The page is hydrated row by row rather than shown
-    // without it: a list the client cannot safely edit from is worse than a slower list.
-    const hydrated = await Promise.all(paged.rows.map((row) => this.context.findMemory(user.access.workspaceId, user.access.user.id, row.id)));
-    const rows = hydrated.flatMap((row): MemoryRow[] => (row ? [presentMemory(row)] : []));
+    const { rows, page, pages, total, sensitive } = await this.context.memoryPage(user.access.workspaceId, user.access.user.id, {
+      page: query.page,
+      pageSize: query.pageSize,
+      ...(query.type ? { type: query.type } : {}),
+    });
     return MemoryResponseSchema.parse({
-      rows,
-      page: paged.page,
+      rows: rows.map(presentMemory),
+      page: { page, pages, pageSize: query.pageSize, total, hasMore: page * query.pageSize + rows.length < total },
       // Counted over everything the filter selects, not over the page, so the screen can say how
       // much is hidden without walking the list.
-      sensitiveCount: filtered.filter((row) => row.sensitive).length,
+      sensitiveCount: sensitive,
     } satisfies MemoryResponse);
   }
 

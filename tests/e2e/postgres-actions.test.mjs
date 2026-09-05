@@ -92,6 +92,52 @@ test("profile update is transactional and undo restores the prior fact", async (
   assert.equal(restored?.version, 3);
 });
 
+test("one member cannot rewrite another member's fact, even inside the same workspace", async () => {
+  // `memory_items` is scoped by (`workspace_id`, `user_id`): a fact is remembered about a person,
+  // not about a workspace. Both halves of the write hold that pair — the guarding SELECT and the
+  // UPDATE — so the refusal does not depend on which one runs first. The UPDATE used to name only
+  // the workspace, which was harmless only for as long as the SELECT above it stayed unchanged.
+  const owner = await fixture();
+  const otherUserId = randomUUID();
+  telegramUserSequence += 1;
+  await database.pool.query("insert into users(id, telegram_user_id) values ($1, $2)", [otherUserId, BigInt(telegramUserSequence)]);
+  await database.pool.query("insert into workspace_members(workspace_id, user_id, role) values ($1, $2, 'member')", [owner.workspaceId, otherUserId]);
+  await database.pool.query("insert into user_settings(user_id) values ($1)", [otherUserId]);
+  const theirMemory = await createMemory(owner.workspaceId, otherUserId, "Их факт");
+
+  const now = new Date("2026-08-12T09:00:00Z");
+  await assert.rejects(
+    groups.apply({
+      workspaceId: owner.workspaceId,
+      actorUserId: owner.userId,
+      groupId: randomUUID(),
+      groupExists: false,
+      now,
+      undoExpiresAt: new Date(now.getTime() + 60_000),
+      steps: [{ kind: "update_memory", memoryId: theirMemory, expectedVersion: 1, patch: { content: "Переписано чужим" } }],
+    }),
+  );
+
+  await assert.rejects(
+    groups.apply({
+      workspaceId: owner.workspaceId,
+      actorUserId: owner.userId,
+      groupId: randomUUID(),
+      groupExists: false,
+      now,
+      undoExpiresAt: new Date(now.getTime() + 60_000),
+      steps: [{ kind: "delete_memory", memoryId: theirMemory, expectedVersion: 1 }],
+    }),
+  );
+
+  const [untouched] = await database.db
+    .select()
+    .from(memoryItems)
+    .where(and(eq(memoryItems.workspaceId, owner.workspaceId), eq(memoryItems.id, theirMemory)));
+  assert.equal(untouched?.content, "Их факт");
+  assert.equal(untouched?.version, 1);
+});
+
 test("stale concurrent profile edits cannot both overwrite one fact", async () => {
   const { workspaceId, userId } = await fixture();
   const memoryId = await createMemory(workspaceId, userId);

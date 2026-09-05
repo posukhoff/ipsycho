@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { ActionsService } from "../../actions/actions.service.js";
 import type { ResolvedAction } from "../../core/ai-actions.js";
+import type { TaskTarget } from "../../core/ai-contract.js";
 import { paginate } from "../../core/task-list-view.js";
 import { localDateAt } from "../../core/timezone.js";
 import { isPickLive, isPickStale, previousWeekRange, targetWeekStart, WEEK_PICK_LIMIT } from "../../core/week-plan.js";
@@ -21,6 +22,7 @@ import {
   type WeekTakeTodayResponse,
 } from "../contracts/index.js";
 import { ApiError, apiRoute, zodBody, zodParam, zodQuery } from "../http/index.js";
+import { errorForIssue } from "../tasks/web-tasks.service.js";
 
 /**
  * The week plan: the pool of dateless work, the handful taken for the coming week, and the one tap
@@ -97,6 +99,9 @@ export class WebWeekController {
    * means. It is a `reschedule` through `ActionsService`, so a task with no occurrence becomes
    * concrete — first occurrence and default reminders in one transaction — and the group it writes
    * is undoable, exactly as the button's is.
+   *
+   * The pool has two kinds of row and so does this: a dateless task, and a one-off whose day has
+   * passed. The second one already has a live occurrence, and it is that date which moves.
    */
   @Post("take-today/:taskId")
   @HttpCode(200)
@@ -108,27 +113,47 @@ export class WebWeekController {
     const { access, settings } = user;
     const today = this.todayFor(user);
 
-    // The three refusals `wk:d` makes, in the same order: gone or foreign, no longer active, or
-    // already carrying a date. A task from another workspace is `null` here because `getTask` is
-    // scoped, so it is answered by the identical envelope an unknown id gets.
-    const task = await this.tasks.getTask(access.workspaceId, taskId);
-    if (!task || task.status !== "active" || task.timeMode !== "fuzzy") throw ApiError.notFound();
+    // Membership is `POOL_MEMBERSHIP`, read for this one id — not `timeMode === "fuzzy"`, which is
+    // what the bot's `wk:d` asks and which is narrower than the pool it draws its rows from. The
+    // pool also holds one-offs whose day has passed, the screen offers «делаю сегодня» on those
+    // rows too, and refusing them would be a not-found for a row that is on screen. Gone, foreign,
+    // closed or already dated are all the same answer, because `findPoolTask` is workspace-scoped.
+    const task = await this.tasks.findPoolTask(access.workspaceId, taskId);
+    if (!task) throw ApiError.notFound();
     // The row moved under the screen that offered the tap. The transaction checks the version again
     // and would refuse it as a domain rule; answering `conflict` here is what tells the client to
     // refetch rather than to show the user a rule they did not break.
     if (task.version !== body.expectedVersion) throw ApiError.conflict(task.version);
+
+    // A dateless task is concretised — the whole task gains a first occurrence. An overdue one-off
+    // already has one, and `concretise_task` refuses anything but a fuzzy task, so its live date is
+    // what moves. The occurrence version is read here rather than sent: the pool row carries the
+    // task's version and no occurrence at all, and the transaction re-checks what it reads.
+    const current = task.timeMode === "fuzzy" ? null : await this.tasks.findCurrentOccurrence(access.workspaceId, task.id);
+    const target: TaskTarget = current
+      ? { kind: "occurrence", taskId: task.id, taskVersion: task.version, occurrenceId: current.id, occurrenceVersion: current.version, timezone: current.timezone }
+      : { kind: "task", taskId: task.id, taskVersion: task.version };
 
     const action: ResolvedAction = {
       type: "reschedule",
       intent: "explicit",
       timezone: task.timezone,
       reviewTime: settings.morningReferenceTime ?? "09:00",
-      target: { kind: "task", taskId: task.id, taskVersion: task.version },
+      target,
+      // The day, not the hour: the pool is where a task's *next day* is chosen, so a missed 14:00
+      // call becomes today's work rather than today at 14:00, which has usually also passed.
       when: { mode: "date", date: today },
       recurrence: null,
       reason: null,
     };
-    const applied = await this.actions.applyResolved([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
+    const scope = { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id };
+    // Validated before it is applied, so a rule the tap cannot satisfy — an overdue critical task
+    // whose second move needs a reason — is the domain refusal the client can render and route to
+    // the reschedule sheet, not a 500 from inside the transaction.
+    const issues = await this.actions.validateResolved([action], scope);
+    const issue = issues[0];
+    if (issue) throw errorForIssue(issue, task.version);
+    const applied = await this.actions.applyResolved([action], scope);
 
     // Read back rather than reported: the occurrence the client opens next is the one the
     // transaction committed, whether it was created here or already existed.

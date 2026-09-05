@@ -278,6 +278,7 @@ export const me: MeResponse = {
   consents: consents.consents,
   settings,
   commit: "0a1b2c3",
+  deletionGraceDays: 14,
 };
 
 /* ----------------------------------------------------------------- lists */

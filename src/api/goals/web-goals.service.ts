@@ -99,6 +99,12 @@ export class WebGoalsService {
     // contract has no way to express it: `ResolvedActionOf<"goal">` uses the same `null` for both.
     // Refusing by name is honest; accepting the request and dropping the clear silently is not.
     if (body.clear?.length) throw new DomainRuleError("a goal field cannot be emptied through this action", "goal_clear_unsupported");
+    // The same rule, and the same refusal, for the one field the goal action has no slot for at
+    // all. `update_goal`'s patch carries title, why, target date and status; `review_enabled` is
+    // read by `idleGoals` and written by nothing, on either surface. Answering 200 to a request
+    // that changes it would be a write that reports success and does nothing — the failure this
+    // whole file exists to avoid.
+    if (body.reviewEnabled !== null) throw new DomainRuleError("a goal review cannot be switched through this action", "goal_review_unsupported");
     const action: ResolvedAction = {
       ...this.base(user),
       type: "goal",

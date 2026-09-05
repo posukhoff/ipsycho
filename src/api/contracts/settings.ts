@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IsoInstantSchema, IsoWeekdayNumberSchema, LocalDateSchema, LocalTimeSchema, LocaleSchema, TEXT_LIMITS, TimezoneSchema, VersionSchema } from "./primitives.js";
+import { IsoInstantSchema, IsoWeekdayNumberSchema, LocalDateSchema, LocalTimeSchema, LocaleSchema, TEXT_LIMITS, TimezoneSchema, UuidSchema, VersionSchema } from "./primitives.js";
 
 /**
  * Settings: everything the settings screen and the seven settings commands touch.
@@ -104,8 +104,19 @@ export const SettingsChangeSchema = z.discriminatedUnion("operation", [
 
 export const SettingsPatchRequestSchema = z.object({ expectedVersion: VersionSchema, change: SettingsChangeSchema }).strict();
 
-/** A PATCH answers with the whole screen, because one change can move three fields at once. */
-export const SettingsMutationResponseSchema = z.object({ settings: SettingsResponseSchema }).strict();
+/**
+ * A PATCH answers with the whole screen, because one change can move three fields at once.
+ *
+ * `undoGroupId` is here for the same reason it is on every other write: almost every settings change
+ * is a journalled `settings` action — the road `settings-commands.service.ts` takes, and the bot
+ * attaches an Undo button to it — so a screen with no way to reach that group loses a feature the
+ * chat has. It is `null` for the two writes that do not journal, and only for those:
+ * `snooze: { kind: "morning" }`, which `SettingsService.snoozeUntilMorning` performs directly, and a
+ * timezone change with `applyTo: "digests" | "quiet"`, whose second half is the unjournalled column
+ * copy `tzapply:` performs — undoing the action alone would restore the profile zone and leave the
+ * copied one behind, which is a half-undo and therefore a lie.
+ */
+export const SettingsMutationResponseSchema = z.object({ settings: SettingsResponseSchema, undoGroupId: UuidSchema.nullable() }).strict();
 
 /** The timezone picker: a search over the IANA list, answered server-side so no tz table ships. */
 export const TimezoneSearchQuerySchema = z.object({ q: z.string().min(1).max(TEXT_LIMITS.timezoneQuery) }).strict();

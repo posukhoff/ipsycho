@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import type { SettingsChange, SettingsResponse } from "../../api/contracts.js";
 import { useT } from "../../i18n/index.js";
 import { useMutation, useQueryCache } from "../../lib/index.js";
-import { useToast } from "../../ui/index.js";
+import { useToast, useUndo } from "../../ui/index.js";
 
 /**
  * The one way this screen writes a setting.
@@ -20,6 +20,12 @@ import { useToast } from "../../ui/index.js";
  * A success replaces the cached settings with what the server actually stored (one change can move
  * three columns — a digest change stamps `digestTimezone` too) and invalidates `/me`, because the
  * shell reads locale, timezone and today's date from there.
+ *
+ * The confirmation carries Undo when the server hands back a group. Almost every settings change is
+ * a journalled `settings` action — the chat has offered Undo on it since the settings commands
+ * existed — and the two that are not (snooze until morning, and a timezone applied to the digest or
+ * quiet-hours columns alone) answer `undoGroupId: null`, which `useUndo` renders as a plain
+ * confirmation. This screen never decides which is which.
  */
 export interface SettingsPatchApi {
   readonly save: (change: SettingsChange, project?: (settings: SettingsResponse) => SettingsResponse) => Promise<boolean>;
@@ -31,6 +37,7 @@ export interface SettingsPatchApi {
 export function useSettingsPatch(settings: SettingsResponse): SettingsPatchApi {
   const t = useT();
   const toast = useToast();
+  const undo = useUndo();
   const cache = useQueryCache();
   const projection = useRef<((current: SettingsResponse) => SettingsResponse) | null>(null);
 
@@ -43,7 +50,10 @@ export function useSettingsPatch(settings: SettingsResponse): SettingsPatchApi {
     onSuccess: (data) => {
       cache.set("settings", undefined, data.settings);
       cache.invalidate(["me"]);
-      toast.show(t("common.saved"));
+      // Almost every settings change is a journalled action and the chat has always offered Undo on
+      // it; `undoGroupId` is null for the two that are not, and the snackbar then shows the plain
+      // confirmation. The screen never decides which is which.
+      undo.offer(t("common.saved"), data.undoGroupId, ["settings", "me"]);
     },
     onError: () => toast.show(t("settings.failed_toast"), { tone: "error" }),
   });

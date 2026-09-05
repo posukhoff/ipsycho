@@ -216,7 +216,7 @@ async function createApp(options = {}) {
     summary: options.summary ?? { done: 4, takenNotStarted: 2 },
     occurrenceId: options.occurrenceId ?? "9f8e7d6c-5b4a-4392-8281-706f5e4d3c2b",
   };
-  const calls = { plan: [], toggle: [], getTask: [], applied: [] };
+  const calls = { plan: [], toggle: [], getTask: [], poolTask: [], validated: [], applied: [] };
 
   const tasks = {
     async listWeekPlanForTelegram(workspaceId, todayLocalDate) {
@@ -248,9 +248,18 @@ async function createApp(options = {}) {
       calls.getTask.push({ workspaceId, taskId });
       return state.tasks.find((row) => row.workspaceId === workspaceId && row.id === taskId) ?? null;
     },
+    /**
+     * `POOL_MEMBERSHIP` for one id, which is what the controller asks now — dateless *or* a one-off
+     * whose day has passed. The fake's `pool` flag is the same predicate the list above filters on,
+     * so a row the pool showed is a row this returns.
+     */
+    async findPoolTask(workspaceId, taskId) {
+      calls.poolTask.push({ workspaceId, taskId });
+      return state.tasks.find((row) => row.workspaceId === workspaceId && row.id === taskId && row.status === "active" && row.pool) ?? null;
+    },
     async findCurrentOccurrence(workspaceId, taskId) {
       const task = state.tasks.find((row) => row.workspaceId === workspaceId && row.id === taskId);
-      return task && task.dated ? { id: state.occurrenceId } : null;
+      return task && task.dated ? { id: state.occurrenceId, version: task.occurrenceVersion ?? 1, timezone: task.timezone } : null;
     },
     async findCurrentOccurrences() {
       return new Map();
@@ -258,6 +267,10 @@ async function createApp(options = {}) {
   };
 
   const actions = {
+    async validateResolved(resolved, scope) {
+      calls.validated.push({ actions: resolved, scope });
+      return options.issues ?? [];
+    },
     async applyResolved(resolved, scope) {
       calls.applied.push({ actions: resolved, scope });
       if (options.applyFails) throw options.applyFails;
@@ -612,7 +625,7 @@ test("a task in another workspace is answered exactly like one that never existe
   assert.equal(harness.calls.toggle.length, 0);
   assert.equal(harness.calls.applied.length, 0);
   assert.equal(harness.state.tasks.find((task) => task.id === foreign).pickedWeekStart, DST_WEEK_START);
-  for (const call of [...harness.calls.plan, ...harness.calls.getTask]) assert.equal(call.workspaceId, WORKSPACE_ID);
+  for (const call of [...harness.calls.plan, ...harness.calls.getTask, ...harness.calls.poolTask]) assert.equal(call.workspaceId, WORKSPACE_ID);
 });
 
 /* ------------------------------------------------------------------ take today */
@@ -646,6 +659,53 @@ test("«делаю сегодня» is the same reschedule the button applies, t
       reason: null,
     },
   ]);
+});
+
+test("«делаю сегодня» works on an overdue one-off, and moves its date rather than the task", async (t) => {
+  // The pool is not «fuzzy tasks»: `POOL_MEMBERSHIP` also holds a one-off whose day has passed, the
+  // week screen draws a take-today button on that row, and the endpoint used to answer it with the
+  // not-found meant for a stranger's id. It also cannot be a `kind: "task"` reschedule —
+  // `concretise_task` refuses anything but a fuzzy task — so what moves is the live occurrence.
+  const harness = await createApp({
+    tasks: [poolTask(1, { version: 4, timeMode: "point", dated: true, occurrenceVersion: 9, overdue: true })],
+  });
+  t.after(() => harness.close());
+
+  const { status, body } = await harness.call("POST", `/week/take-today/${id(1)}`, { body: { expectedVersion: 4 } });
+  assert.equal(status, 200);
+  const taken = WeekTakeTodayResponseSchema.parse(body);
+  assert.equal(taken.taskId, id(1));
+  assert.equal(taken.localDate, DST_TODAY);
+  assert.equal(taken.undoGroupId, "7c6b5a49-3827-4160-9f0e-1d2c3b4a5968");
+
+  assert.equal(harness.calls.applied.length, 1);
+  const { actions } = harness.calls.applied[0];
+  assert.deepEqual(actions[0].target, {
+    kind: "occurrence",
+    taskId: id(1),
+    taskVersion: 4,
+    occurrenceId: harness.state.occurrenceId,
+    // Read on the server: the pool row carries the task's version and no occurrence at all.
+    occurrenceVersion: 9,
+    timezone: DST_TIMEZONE,
+  });
+  assert.deepEqual(actions[0].when, { mode: "date", date: DST_TODAY });
+});
+
+test("a rule take-today cannot satisfy is a domain refusal, not a not-found", async (t) => {
+  // An overdue critical task on its second move needs a reason, and the tap carries none. The
+  // client can route that to the reschedule sheet; it could do nothing with a 404.
+  const harness = await createApp({
+    tasks: [poolTask(1, { version: 4, timeMode: "point", dated: true, importance: "critical" })],
+    issues: [{ kind: "domain", code: "reason_required", message: "reschedule reason is required" }],
+  });
+  t.after(() => harness.close());
+
+  const { status, body } = await harness.call("POST", `/week/take-today/${id(1)}`, { body: { expectedVersion: 4 } });
+  assert.equal(status, 422);
+  assert.equal(body.error.code, "domain_rule");
+  assert.equal(body.error.details.rule, "reason_required");
+  assert.equal(harness.calls.applied.length, 0, "a refused action never reaches the journal");
 });
 
 test("take-today refuses a row that has moved, and says which version it found", async (t) => {
