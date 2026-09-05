@@ -535,3 +535,9 @@
 - **P6.5** — реальный вред снят: `stripPresentation` чистит недельный снимок перед моделью. `briefing-content` и `reminder-queue` продолжают звать `telegram-ui`: это путь доставки в Telegram.
 
 **Что осталось владельцу:** прогнать `npm run eval:agent -- --runs 3` с ключами и записать `eval/baseline.json`; выполнить ручные проверки из `MANUAL_ACTIONS.md`; настроить на сервере cron бэкапа с `BACKUP_PING_URL` и `HEALTHCHECK_PING_URL`.
+
+### Обновление зависимостей (2026-09-05)
+
+`eslint 10`, `rxjs 7.8.2`, `NestJS 12` (common/core/platform-express/testing) и `TypeScript 6.0.3` — прогнаны check, e2e, coverage и сборка образа, правок в коде не потребовалось.
+
+`TypeScript 7` отложен сознательно: `typescript-eslint@8.69` отказывается запускаться на нём («typescript-eslint does not support TS 7.0», поддержка ожидается для 7.1, typescript-eslint#10940). Единственный обходной путь — держать в дереве два компилятора (TS 7 для сборки, TS 6 для линта), то есть две разные системы типов на один код. Вернуться, когда typescript-eslint выпустит поддержку.
