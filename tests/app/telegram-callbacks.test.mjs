@@ -56,7 +56,7 @@ const ROUTES = [
   /^occ:(start|done|skip|cant|cancel|cancel_one|resched|more|back|check):[0-9a-f-]{36}$/,
   /^resched:(1h|evening|tomorrow|custom):[0-9a-f-]{36}$/,
   /^rr:(h|e|t):(t|d|e|o):[0-9a-f-]{36}$/,
-  /^follow:(seen|result):(15m|1h|evening|custom|none):[0-9a-f-]{36}$/,
+  /^follow:(snooze|result):(15m|1h|evening|custom|none):[0-9a-f-]{36}$/,
   /^series:(pause|resume|cancel):[0-9a-f-]{36}$/,
   /^rem:(cancel|mute):[0-9a-f-]{36}$/,
   /^act:(confirm|cancel|undo):[0-9a-f-]{36}$/,

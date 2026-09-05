@@ -14,7 +14,7 @@ export function deriveAvoidanceSignals(eventTypes: readonly string[]): Avoidance
   for (const type of eventTypes) {
     if (type === "occurrence:rescheduled") signals.reschedules += 1;
     if (type === "occurrence:seen") signals.seenWithoutStart += 1;
-    if (type === "occurrence:start_check_ignored" || type === "occurrence:result_check_ignored") signals.ignoredStartChecks += 1;
+    if (type === "occurrence:result_check_ignored") signals.ignoredStartChecks += 1;
     if (type === "occurrence:in_progress") {
       signals.seenWithoutStart = 0;
       signals.ignoredStartChecks = 0;

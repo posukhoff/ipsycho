@@ -38,7 +38,6 @@ export interface TurnContext {
   model: ModelContext;
   refs: RefMap;
   activeTopic: ActiveTopicState | null;
-  modelMode: "default" | "deep";
   meta: { tasksShown: number; tasksTotal: number; truncated: boolean };
 }
 
@@ -152,7 +151,6 @@ export class TurnContextService {
       refs: composed.refs,
       activeTopic,
       // Existing rows may still carry mode=analysis; the chat layer no longer sets it from the model.
-      modelMode: reviewKind === "weekly" || activeTopic?.mode === "analysis" ? "deep" : "default",
       meta: { tasksShown: selection.shown.length, tasksTotal: selection.total, truncated: selection.truncated },
     };
   }

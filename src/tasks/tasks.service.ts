@@ -417,7 +417,7 @@ export class TasksService {
     });
   }
 
-  async recordInteraction(input: { workspaceId: string; occurrenceId: string; actorUserId: string; eventType: "occurrence:seen" | "occurrence:cant_start" }): Promise<void> {
+  async recordInteraction(input: { workspaceId: string; occurrenceId: string; actorUserId: string; eventType: "occurrence:cant_start" }): Promise<void> {
     const occurrence = await this.repository.findOccurrence(input.workspaceId, input.occurrenceId);
     if (!occurrence) throw new DomainRuleError("occurrence not found");
     await this.repository.recordEvent({

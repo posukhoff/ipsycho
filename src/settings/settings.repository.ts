@@ -9,7 +9,7 @@ export type PendingInput =
   | { kind: "reschedule"; occurrenceId: string }
   | { kind: "quick_reschedule_reason"; occurrenceId: string; choice: "1h" | "evening" | "tomorrow" }
   | { kind: "blocker"; occurrenceId: string }
-  | { kind: "follow_up_custom"; occurrenceId: string; mode: "seen" | "result" };
+  | { kind: "follow_up_custom"; occurrenceId: string; mode: "snooze" | "result" };
 
 export type SettingsRow = typeof userSettings.$inferSelect;
 

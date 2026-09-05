@@ -109,13 +109,12 @@ test("profile facts reach the model under short memory ids and sensitive facts a
   assert.equal(result.model.settings.language, "ru");
   assert.equal("version" in result.model.settings, false);
   assert.equal(result.activeTopic, null);
-  assert.equal(result.modelMode, "default");
   assert.deepEqual(result.meta, { tasksShown: 1, tasksTotal: 1, truncated: false });
   assert.equal(result.model.review, undefined);
   assert.equal(calls.briefings.length, 0);
 });
 
-test("an analysis topic or a weekly review switches the model mode to deep and adds the review frame", async () => {
+test("an analysis topic keeps its own frame and a weekly review adds the review snapshot", async () => {
   const analysis = makeService({
     topics: [
       {
@@ -132,7 +131,6 @@ test("an analysis topic or a weekly review switches the model mode to deep and a
     ],
   });
   const deep = await analysis.service.build({ workspaceId: "workspace", userId: "user", timezone, query: "что дальше", now });
-  assert.equal(deep.modelMode, "deep");
   assert.deepEqual(deep.activeTopic, { topicId: "topic-1", reviewKind: null, clarificationCount: 2, reviewState: null, mode: "analysis" });
   assert.deepEqual(deep.model.topic.active, { title: "Стратегия", summary: "думаем о годе" });
 
@@ -160,7 +158,6 @@ test("an analysis topic or a weekly review switches the model mode to deep and a
     ],
   });
   const review = await weekly.service.build({ workspaceId: "workspace", userId: "user", timezone, query: "давай", now });
-  assert.equal(review.modelMode, "deep");
   assert.equal(review.activeTopic.reviewKind, "weekly");
   assert.deepEqual(weekly.calls.briefings, [{ workspaceId: "workspace", kind: "weekly", localDate: "2026-09-04", timezone, now, locale: "ru" }]);
   assert.deepEqual(review.model.review, {

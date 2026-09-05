@@ -83,11 +83,10 @@ export class AiService implements OnApplicationBootstrap {
     messages: AiMessage[];
     domainContext?: unknown;
     correction?: string;
-    modelMode?: "default" | "deep";
     /** One server-authoritative instant for the entire user turn (including repair). */
     now?: Date;
   }) {
-    const model = input.modelMode === "deep" && this.config.aiDeepModel ? this.config.aiDeepModel : this.config.aiModel;
+    const model = this.config.aiModel;
     // The prompt is written in English and carries Russian examples; naming the language of the
     // latest user message outright is what makes the model actually answer in it.
     const latestUserMessage = [...input.messages].reverse().find((message) => message.role === "user");

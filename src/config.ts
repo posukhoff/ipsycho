@@ -48,7 +48,6 @@ const schema = z
     HEALTHCHECK_PING_URL: z.preprocess((value) => (value === "" || value === undefined ? undefined : value), z.url().optional()),
     AI_PROVIDER: z.enum(["openai", "gemini", "deepseek"]).default("openai"),
     AI_MODEL: z.string().min(1),
-    AI_MODEL_DEEP: z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional()),
     AI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
     AI_VOICE_MAX_DURATION_SECONDS: z.coerce.number().int().min(1).max(300).default(300),
     AI_VOICE_MAX_BYTES: z.coerce
@@ -101,7 +100,6 @@ export interface AppConfig {
   healthcheckPingUrl?: string;
   aiProvider: AiProviderName;
   aiModel: string;
-  aiDeepModel?: string;
   aiTranscriptionModel: string;
   aiVoiceMaxDurationSeconds: number;
   aiVoiceMaxBytes: number;
@@ -133,7 +131,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(value.HEALTHCHECK_PING_URL ? { healthcheckPingUrl: value.HEALTHCHECK_PING_URL } : {}),
     aiProvider: value.AI_PROVIDER,
     aiModel: value.AI_MODEL,
-    ...(value.AI_MODEL_DEEP ? { aiDeepModel: value.AI_MODEL_DEEP } : {}),
     aiTranscriptionModel: value.AI_TRANSCRIPTION_MODEL,
     aiVoiceMaxDurationSeconds: value.AI_VOICE_MAX_DURATION_SECONDS,
     aiVoiceMaxBytes: value.AI_VOICE_MAX_BYTES,

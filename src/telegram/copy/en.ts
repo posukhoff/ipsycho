@@ -210,7 +210,6 @@ export const en: Record<keyof typeof ru, string> = {
   not_in_progress_toast: "The task is no longer in progress",
   check_prompt_toast: "When to check the result?",
   resched_prompt_toast: "When to come back?",
-  seen_toast: "I will come back to this task later",
   blocker_prompt_toast: "Tell me what is in the way",
   blocker_prompt_text: "🧱 {title}\n\nWhat is stopping you from starting? Write one message or tap a button.",
   cancel_what_toast: "Cancel what?",
@@ -252,7 +251,6 @@ export const en: Record<keyof typeof ru, string> = {
   snooze_reminder_toast: "I will remind you later",
   snooze_15m_button: "⏰ In 15 min",
   snooze_1h_button: "⏰ In an hour",
-  snooze_evening_button: "⏰ This evening",
 
   series_paused: "Series paused",
   series_cancelled: "Series cancelled",

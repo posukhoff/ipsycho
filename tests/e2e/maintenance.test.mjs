@@ -125,6 +125,48 @@ test("retention cleanups run in bounded batches and report the total", async () 
   assert.equal(await tasksRepository.deleteEventsOlderThan(new Date(Date.now() - 365 * 24 * 60 * 60_000), 5), remaining.rows[0].count);
 });
 
+test("the snooze buttons on a reminder card schedule one system follow-up and supersede the previous one", async () => {
+  // The 15-minute and one-hour buttons are the only reachable use of this path and it had no test,
+  // so any change to the follow-up plumbing could take plain snooze with it unnoticed.
+  const scope = await fixture();
+  const { taskId } = await createTask(scope, "Позвонить в клинику");
+  const { rows: occurrences } = await database.pool.query("select id from task_occurrences where task_id=$1", [taskId]);
+  const occurrenceId = occurrences[0].id;
+  const enqueued = [];
+  const scheduling = new ReminderSchedulingService(database, { enqueue: async (...args) => void enqueued.push(args) });
+  const now = new Date();
+
+  const first = await scheduling.scheduleFollowUpChoice({ workspaceId: scope.workspaceId, userId: scope.userId, occurrenceId, choice: "15m", now });
+  assert.ok(first, "snooze must schedule a delivery");
+  const afterFirst = await database.pool.query(
+    "select r.purpose, r.origin, r.active, d.status, d.intended_for from reminder_rules r join reminder_deliveries d on d.reminder_rule_id = r.id where r.occurrence_id=$1 and r.origin='system'",
+    [occurrenceId],
+  );
+  assert.equal(afterFirst.rowCount, 1);
+  assert.equal(afterFirst.rows[0].purpose, "follow_up");
+  assert.equal(afterFirst.rows[0].status, "pending");
+  assert.equal(Math.round((new Date(afterFirst.rows[0].intended_for) - now) / 60_000), 15);
+  assert.equal(enqueued.length, 1);
+
+  const second = await scheduling.scheduleFollowUpChoice({ workspaceId: scope.workspaceId, userId: scope.userId, occurrenceId, choice: "1h", now });
+  assert.ok(second);
+  const rules = await database.pool.query("select active from reminder_rules where occurrence_id=$1 and origin='system' order by created_at", [occurrenceId]);
+  assert.deepEqual(
+    rules.rows.map((row) => row.active),
+    [false, true],
+    "a second snooze retires the first rule instead of leaving two live contacts",
+  );
+  const superseded = await database.pool.query(
+    "select d.status, d.suppressed_reason from reminder_deliveries d join reminder_rules r on r.id = d.reminder_rule_id where r.occurrence_id=$1 and r.active=false",
+    [occurrenceId],
+  );
+  assert.deepEqual(superseded.rows, [{ status: "cancelled", suppressed_reason: "superseded" }]);
+
+  // A closed occurrence has nothing left to postpone.
+  await database.pool.query("update task_occurrences set status='done' where id=$1", [occurrenceId]);
+  assert.equal(await scheduling.scheduleFollowUpChoice({ workspaceId: scope.workspaceId, userId: scope.userId, occurrenceId, choice: "15m", now }), null);
+});
+
 test("the applied report reads occurrences and next reminders for a whole package in two queries", async () => {
   const scope = await fixture();
   const created = [];

@@ -16,7 +16,8 @@ export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceSta
   const keyboard = new InlineKeyboard();
   if (status === "in_progress") return startedTaskKeyboard(occurrenceId, locale, options);
   keyboard.text(label(locale, "start"), `occ:start:${occurrenceId}`).text(label(locale, "done"), `occ:done:${occurrenceId}`).row();
-  if (options.snooze) keyboard.text(t(locale, "snooze_15m_button"), `follow:seen:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:seen:1h:${occurrenceId}`).row();
+  if (options.snooze)
+    keyboard.text(t(locale, "snooze_15m_button"), `follow:snooze:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:snooze:1h:${occurrenceId}`).row();
   keyboard.text(label(locale, "later"), `occ:resched:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
   if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
   return keyboard;
@@ -24,7 +25,8 @@ export function taskKeyboard(occurrenceId: string, status: TelegramOccurrenceSta
 
 export function startedTaskKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
   const keyboard = new InlineKeyboard().text(label(locale, "done"), `occ:done:${occurrenceId}`).text(label(locale, "later"), `occ:resched:${occurrenceId}`).row();
-  if (options.snooze) keyboard.text(t(locale, "snooze_15m_button"), `follow:seen:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:seen:1h:${occurrenceId}`).row();
+  if (options.snooze)
+    keyboard.text(t(locale, "snooze_15m_button"), `follow:snooze:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:snooze:1h:${occurrenceId}`).row();
   keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
   if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
   return keyboard;

@@ -110,7 +110,7 @@ export class ReminderSchedulingService {
     userId: string;
     occurrenceId: string;
     choice: Exclude<FollowUpChoice, "custom">;
-    mode: "seen" | "result";
+    mode: "snooze" | "result";
     now?: Date;
   }): Promise<string | null> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
@@ -129,7 +129,7 @@ export class ReminderSchedulingService {
     userId: string;
     occurrenceId: string;
     intendedFor: Date;
-    mode: "seen" | "result";
+    mode: "snooze" | "result";
     now?: Date;
   }): Promise<string | null> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
@@ -465,7 +465,7 @@ export class ReminderSchedulingService {
     occurrenceId: string;
     intendedFor: Date;
     now: Date;
-    mode?: "seen" | "result";
+    mode?: "snooze" | "result";
   }): Promise<string> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
     const rule: ReminderRuleSpec = { triggerKind: "exact", exactAt: input.intendedFor, purpose: "follow_up", quietPolicy: "respect", origin: "system" };

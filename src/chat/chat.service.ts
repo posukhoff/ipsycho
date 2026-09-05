@@ -328,7 +328,6 @@ export class ChatService {
         ...(input.language !== undefined ? { language: input.language } : {}),
         messages: history,
         domainContext: ctx.model,
-        modelMode: ctx.modelMode,
         correction:
           "This is an explicit conclusion-only control. Leave every action array empty, question=null. Do not propose or persist any new task, goal, memory, reminder, reschedule or cancellation. Give a best-effort conclusion from known context only.",
         now,
@@ -423,7 +422,6 @@ export class ChatService {
       scope,
       history: [{ role: "user", content: opening }],
       domainContext,
-      modelMode: ctx.modelMode,
       correction: `${reviewCorrection(input.kind)}${input.kind === "weekly" ? " This is the opening turn: leave every action array empty and ask one planning question." : ""}`,
     });
     if (modelTurn.kind === "unparseable") {
@@ -517,7 +515,7 @@ export class ChatService {
           ? "The user explicitly said not to save anything from this turn. Leave every action array empty; ordinary conversational reply is allowed."
           : undefined;
 
-      const modelTurn = await this.runModelTurn({ scope, history, domainContext, modelMode: ctx.modelMode, ...(correction ? { correction } : {}) });
+      const modelTurn = await this.runModelTurn({ scope, history, domainContext, ...(correction ? { correction } : {}) });
       if (modelTurn.kind === "unparseable") {
         await this.messages.setStatus(input.workspaceId, input.inbound.id, "processed").catch(() => undefined);
         return { kind: "ok", text: unclearReply(input.language), appliedCount: 0, pendingCount: 0, warnings: [] };
@@ -665,7 +663,6 @@ export class ChatService {
     scope: TurnScope;
     history: AiMessage[];
     domainContext: unknown;
-    modelMode: "default" | "deep";
     correction?: string;
   }): Promise<{ kind: "ok"; turn: AiTurn } | { kind: "unparseable" }> {
     try {
@@ -676,7 +673,6 @@ export class ChatService {
         ...(input.scope.language !== undefined ? { language: input.scope.language } : {}),
         messages: input.history,
         domainContext: input.domainContext,
-        modelMode: input.modelMode,
         ...(input.correction ? { correction: input.correction } : {}),
         now: input.scope.now,
       });

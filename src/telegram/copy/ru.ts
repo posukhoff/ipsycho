@@ -225,7 +225,6 @@ export const ru = {
   not_in_progress_toast: "Задача уже не в работе",
   check_prompt_toast: "Когда проверить результат?",
   resched_prompt_toast: "Когда вернуться?",
-  seen_toast: "Вернусь к задаче позже",
   blocker_prompt_toast: "Расскажи, что мешает",
   blocker_prompt_text: "🧱 {title}\n\nЧто мешает начать? Напиши одним сообщением или нажми кнопку.",
   cancel_what_toast: "Что отменить?",
@@ -269,7 +268,6 @@ export const ru = {
   snooze_reminder_toast: "Напомню позже",
   snooze_15m_button: "⏰ Через 15 мин",
   snooze_1h_button: "⏰ Через час",
-  snooze_evening_button: "⏰ Вечером",
 
   // Series
   series_paused: "Серия на паузе",

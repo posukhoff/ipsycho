@@ -330,13 +330,7 @@ export class ContextRepository {
         and(
           eq(taskEvents.workspaceId, workspaceId),
           inArray(taskEvents.occurrenceId, [...occurrenceIds]),
-          inArray(taskEvents.eventType, [
-            "occurrence:rescheduled",
-            "occurrence:seen",
-            "occurrence:in_progress",
-            "occurrence:start_check_ignored",
-            "occurrence:result_check_ignored",
-          ]),
+          inArray(taskEvents.eventType, ["occurrence:rescheduled", "occurrence:seen", "occurrence:in_progress", "occurrence:result_check_ignored"]),
         ),
       )
       .orderBy(asc(taskEvents.createdAt));

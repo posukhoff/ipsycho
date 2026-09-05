@@ -212,7 +212,6 @@ export const uk: Record<keyof typeof ru, string> = {
   not_in_progress_toast: "Завдання вже не в роботі",
   check_prompt_toast: "Коли перевірити результат?",
   resched_prompt_toast: "Коли повернутися?",
-  seen_toast: "Повернуся до завдання пізніше",
   blocker_prompt_toast: "Розкажи, що заважає",
   blocker_prompt_text: "🧱 {title}\n\nЩо заважає почати? Напиши одним повідомленням або натисни кнопку.",
   cancel_what_toast: "Що скасувати?",
@@ -254,7 +253,6 @@ export const uk: Record<keyof typeof ru, string> = {
   snooze_reminder_toast: "Нагадаю пізніше",
   snooze_15m_button: "⏰ Через 15 хв",
   snooze_1h_button: "⏰ Через годину",
-  snooze_evening_button: "⏰ Увечері",
 
   series_paused: "Серія на паузі",
   series_cancelled: "Серію скасовано",
