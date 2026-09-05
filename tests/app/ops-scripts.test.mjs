@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-for (const script of ["scripts/backup-compose.sh", "scripts/restore-compose.sh", "scripts/deploy-remote.sh", "scripts/dev.sh", "scripts/backup-roundtrip.sh"]) {
+for (const script of [
+  "scripts/backup-compose.sh",
+  "scripts/restore-compose.sh",
+  "scripts/deploy-remote.sh",
+  "scripts/dev.sh",
+  "scripts/backup-roundtrip.sh",
+  "scripts/watchdog.sh",
+]) {
   test(`${script} has valid bash syntax`, () => {
     execFileSync("bash", ["-n", script], { stdio: "pipe" });
   });
@@ -65,4 +72,16 @@ test("the image makes what the non-root runtime reads readable, whatever the che
   assert.ok(chmod > 0, "the runtime stage must normalise permissions");
   assert.ok(chmod < user, "permissions are fixed while the build is still root");
   for (const path of ["./migrations", "./dist", "./package.json"]) assert.ok(dockerfile.slice(chmod, user).includes(path), path);
+});
+
+test("the watchdog alerts once per outage and never puts the bot token on a command line", () => {
+  const source = readFileSync("scripts/watchdog.sh", "utf8");
+  // One message when the failures cross the threshold, one when it recovers; not every tick.
+  assert.match(source, /if \[ "\$state" -eq "\$FAILURES_BEFORE_ALERT" \]/);
+  assert.match(source, /снова отвечает/);
+  // Telegram puts the token in the URL, and a URL in argv is readable through `ps`: the whole
+  // request goes to curl on stdin instead, and the token is never echoed.
+  assert.match(source, /curl[^\n]*--config -/);
+  assert.doesNotMatch(source, /curl[^\n]*https:\/\/api\.telegram\.org/);
+  assert.doesNotMatch(source, /echo[^\n]*\$token/);
 });
