@@ -32,6 +32,11 @@ test("the remote deploy only succeeds once /ready reports the deployed commit, a
   assert.match(source, /wait_ready "\$DEPLOY_SHA"/);
   assert.match(source, /git checkout --detach "\$PREVIOUS_SHA"/);
   assert.doesNotMatch(source, /image prune/);
+  // The dump's tight umask must not reach the checkout: files the image cannot read fail the boot.
+  assert.match(source, /\(\n\s+umask 077/);
+  assert.doesNotMatch(source, /^umask 077$/mu);
+  // A rollback target may predate /ready, so the check falls back to /health.
+  assert.match(source, /3000\/health/);
 });
 
 test("the round-trip drill restores into a scratch database and compares row counts", () => {

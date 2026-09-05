@@ -13,8 +13,13 @@ PRE_DEPLOY_DIR="$PROJECT_DIR/backups/pre-deploy"
 cd "$PROJECT_DIR"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
 
+# /ready on the new build, /health on anything older: a rollback target may predate /ready, and
+# then the rollback would look like a failure even when the bot is back up.
 ready_commit() {
-  docker compose exec -T app wget -qO- http://127.0.0.1:3000/ready 2>/dev/null | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p'
+  local body
+  body="$(docker compose exec -T app wget -qO- http://127.0.0.1:3000/ready 2>/dev/null)"
+  [ -n "$body" ] || body="$(docker compose exec -T app wget -qO- http://127.0.0.1:3000/health 2>/dev/null)"
+  printf '%s' "$body" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p'
 }
 
 wait_ready() {
@@ -33,12 +38,16 @@ bring_up() {
 }
 
 # A plain local dump before migrations run; the encrypted daily backup is the real archive.
-umask 077
-mkdir -p "$PRE_DEPLOY_DIR"
-if docker compose ps --status running --services | grep -qx postgres; then
-  docker compose exec -T postgres pg_dump --format=custom --no-owner --no-privileges --username=ipsycho --dbname=ipsycho > "$PRE_DEPLOY_DIR/$DEPLOY_SHA.dump"
-  find "$PRE_DEPLOY_DIR" -maxdepth 1 -type f -name '*.dump' -exec ls -t {} + | awk 'NR>3' | xargs -r rm -f
-fi
+# The tight umask stays inside this subshell: it must not reach the checkout below, where it would
+# leave the source unreadable to the non-root user inside the image.
+(
+  umask 077
+  mkdir -p "$PRE_DEPLOY_DIR"
+  if docker compose ps --status running --services | grep -qx postgres; then
+    docker compose exec -T postgres pg_dump --format=custom --no-owner --no-privileges --username=ipsycho --dbname=ipsycho > "$PRE_DEPLOY_DIR/$DEPLOY_SHA.dump"
+    find "$PRE_DEPLOY_DIR" -maxdepth 1 -type f -name '*.dump' -exec ls -t {} + | awk 'NR>3' | xargs -r rm -f
+  fi
+)
 
 git fetch --prune origin
 git checkout --detach "$DEPLOY_SHA"
