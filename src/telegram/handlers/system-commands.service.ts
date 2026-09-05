@@ -27,7 +27,7 @@ const NAV_CALLBACK = /^nav:(today|tasks|reminders|settings|goals|week)$/;
 const TASK_SCOPE_CALLBACK = /^tsk:(overdue|today|week|month|all|nodate):(\d{1,3})$/;
 const TODAY_PAGE_CALLBACK = /^tdy:(\d{1,3})$/;
 const PAUSED_SERIES_CALLBACK = /^paused:(\d{1,3})$/;
-const GROUP_CALLBACK = /^grp:(t|d):([0-9a-f-]{36})$/;
+const GROUP_CALLBACK = /^grp:(t|d):([0-9a-f-]{36})(?::(overdue|today|week|month|all|nodate))?$/;
 const GOALS_SCOPE_CALLBACK = /^gl:(active|paused|completed):(\d{1,3})$/;
 const GOAL_CALLBACK = /^goal:([0-9a-f-]{36})$/;
 const REMINDERS_PAGE_CALLBACK = /^rem:p:(\d{1,3})$/;
@@ -306,10 +306,11 @@ export class SystemCommandsService {
     const source = match?.[1] === "d" ? "today" : "tasks";
     const key = match?.[2];
     if (!key) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    const shown = await this.screens.taskGroup(ctx, source, key);
+    const scope = match?.[3] as TaskScope | undefined;
+    const shown = await this.screens.taskGroup(ctx, source, key, scope);
     if (shown) return void (await ctx.answerCallbackQuery());
     await ctx.answerCallbackQuery({ text: t(locale, "list_changed_toast") });
-    await (source === "today" ? this.screens.today(ctx, true) : this.screens.tasks_(ctx, true));
+    await (source === "today" ? this.screens.today(ctx, true) : this.screens.tasks_(ctx, true, scope));
   }
 
   private async goalsPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {

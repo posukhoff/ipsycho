@@ -52,7 +52,7 @@ const MULTI_GROUP = groupOf([listRow("Позвонить маме", OCCURRENCE_I
 
 // Every pattern the bot registers. A generated payload that matches none of them is a dead button.
 const ROUTES = [
-  /^view:(occ|task):[0-9a-f-]{36}$/,
+  /^view:(occ|task):[0-9a-f-]{36}(?::(overdue|today|week|month|all|nodate))?$/,
   /^occ:(done|skip|cancel|cancel_one|resched|more|back):[0-9a-f-]{36}$/,
   /^resched:(1h|evening|tomorrow|custom):[0-9a-f-]{36}$/,
   /^rr:(h|e|t):(t|d|e|o):[0-9a-f-]{36}$/,
@@ -80,7 +80,7 @@ const ROUTES = [
   /^wk:t:\d{1,3}:[0-9a-f-]{36}$/,
   /^wk:d:[0-9a-f-]{36}$/,
   /^wk:p:\d{1,3}$/,
-  /^grp:(t|d):[0-9a-f-]{36}$/,
+  /^grp:(t|d):[0-9a-f-]{36}(?::(overdue|today|week|month|all|nodate))?$/,
 ];
 
 const KEYBOARDS = {
@@ -95,6 +95,7 @@ const KEYBOARDS = {
   settingsKeyboard: settingsKeyboard("ru", { morningDigestEnabled: true, eveningDigestEnabled: false, weeklyReviewEnabled: true, quietHoursEnabled: true }),
   taskListKeyboard: taskListKeyboard([SINGLE_GROUP, FUZZY_GROUP, MULTI_GROUP], "ru", {
     source: "tasks",
+    scope: "overdue",
     page: 0,
     pages: 3,
     rest: 9,
@@ -104,7 +105,7 @@ const KEYBOARDS = {
   taskScopeKeyboard: taskScopeKeyboard("week", { overdue: 3, today: 4, week: 9, month: 12, all: 20, nodate: 2 }, "ru", 2),
   pausedSeriesKeyboard: pausedSeriesKeyboard([{ id: TASK_ID, title: "Зарядка по будням", recurrence: "FREQ=WEEKLY" }], "ru", { page: 1, pages: 3, rest: 4 }),
   weekPlanKeyboard: weekPlanKeyboard([{ id: TASK_ID, title: "Разобраться с налогами", picked: true }], "ru", { page: 1, pages: 3, rest: 5 }),
-  taskGroupKeyboard: taskGroupKeyboard(MULTI_GROUP, "tasks", "ru"),
+  taskGroupKeyboard: taskGroupKeyboard(MULTI_GROUP, "tasks", "ru", "overdue"),
   goalsScopeKeyboard: goalsScopeKeyboard("active", "ru"),
   goalListKeyboard: goalListKeyboard([{ id: GOAL_UUID, title: "Запустить первую платную группу" }], "ru", { page: 0, pages: 2, rest: 4, scope: "paused" }),
   goalDetailKeyboard: goalDetailKeyboard([{ id: TASK_ID, title: "Позвонить клиенту" }], "ru"),
@@ -307,4 +308,17 @@ test("a typed yes answers an onboarding step instead of going to the model", asy
     ["weekly", "pending", "completed", "settings_screen"],
   );
   assert.equal(writes[1].input, null);
+});
+
+test("a card opened from a filtered list goes back to that filter, not to the default one", () => {
+  // Two back buttons pointed at a fixed screen: opening a task from «⚠️ Просрочено» and returning
+  // dropped the user into the week window, and the filter they had chosen was gone.
+  const fromOverdue = buttonsOf(taskListKeyboard([SINGLE_GROUP], "ru", { source: "tasks", scope: "overdue" }));
+  assert.ok(fromOverdue.includes(`view:occ:${OCCURRENCE_ID}:overdue`), fromOverdue.join(" | "));
+  assert.ok(buttonsOf(taskDetailKeyboard(OCCURRENCE_ID, "ru", "overdue")).includes("tsk:overdue:0"));
+  assert.ok(buttonsOf(taskGroupKeyboard(MULTI_GROUP, "tasks", "ru", "nodate")).includes("tsk:nodate:0"));
+
+  // Without a filter nothing changes: the list button still leads to the task screen.
+  assert.ok(buttonsOf(taskDetailKeyboard(OCCURRENCE_ID, "ru")).includes("nav:tasks"));
+  assert.ok(buttonsOf(taskListKeyboard([SINGLE_GROUP], "ru", { source: "tasks" })).includes(`view:occ:${OCCURRENCE_ID}`));
 });

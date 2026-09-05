@@ -77,6 +77,7 @@ export class ScreensService {
     const view = paginate(groups, page, PAGE_SIZE);
     const keyboard = taskListKeyboard(view.items, locale, {
       source: "tasks",
+      scope,
       offset: view.page * PAGE_SIZE,
       page: view.page,
       pages: view.pages,
@@ -125,7 +126,7 @@ export class ScreensService {
   }
 
   /** One collapsed line opened up: the dates it stood for, each leading to its own card. */
-  async taskGroup(ctx: AppContext, source: GroupSource, key: string): Promise<boolean> {
+  async taskGroup(ctx: AppContext, source: GroupSource, key: string, scope?: TaskScope): Promise<boolean> {
     const { access, settings, locale } = activeState(ctx);
     const localDate = localDateAt(new Date(), settings.timezone);
     const groups =
@@ -134,7 +135,7 @@ export class ScreensService {
         : (await this.tasks.listGroupedForTelegram(access.workspaceId, { scope: "all", localDate })).groups;
     const group = groups.find((candidate) => candidate.rows.some((row) => (row.occurrence?.id ?? row.task.id) === key));
     if (!group) return false;
-    await this.present(ctx, taskGroupText(group, locale), taskGroupKeyboard(group, source, locale), true);
+    await this.present(ctx, taskGroupText(group, locale), taskGroupKeyboard(group, source, locale, scope), true);
     return true;
   }
 
@@ -227,11 +228,11 @@ export class ScreensService {
     return taskCardText({ ...context.task, ...extras, nextReminderAt }, context.occurrence, new Date(), locale);
   }
 
-  async showOccurrence(ctx: AppContext, occurrenceId: string): Promise<boolean> {
+  async showOccurrence(ctx: AppContext, occurrenceId: string, scope?: TaskScope): Promise<boolean> {
     const { access, locale } = activeState(ctx);
     const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
     if (!context) return false;
-    await ctx.editMessageText(await this.taskCard(access.workspaceId, context, locale), { reply_markup: taskDetailKeyboard(occurrenceId, locale) }).catch(() => undefined);
+    await ctx.editMessageText(await this.taskCard(access.workspaceId, context, locale), { reply_markup: taskDetailKeyboard(occurrenceId, locale, scope) }).catch(() => undefined);
     return true;
   }
 
@@ -258,6 +259,7 @@ export class ScreensService {
     const { locale } = activeState(ctx);
     const keyboard = taskKeyboard(context.occurrence.id, locale);
     if (undoGroupId) keyboard.row().text(t(locale, undoLabel), `act:undo:${undoGroupId}`);
-    return keyboard;
+    // The card that replaces a list after an action was the one screen with no way out of it.
+    return appendFooter(keyboard.row(), locale);
   }
 }

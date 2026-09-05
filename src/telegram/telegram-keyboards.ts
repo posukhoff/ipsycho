@@ -150,12 +150,12 @@ export function settingsKeyboard(locale: TelegramLocale = "ru", row?: { morningD
 export function taskListKeyboard(
   groups: ReadonlyArray<TelegramGroupCard>,
   locale: TelegramLocale = "ru",
-  options: { source: GroupSource; offset?: number; pageCallback?: (page: number) => string; page?: number; pages?: number; rest?: number } = { source: "tasks" },
+  options: { source: GroupSource; scope?: TaskScope; offset?: number; pageCallback?: (page: number) => string; page?: number; pages?: number; rest?: number } = { source: "tasks" },
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const offset = options.offset ?? 0;
   for (const [index, group] of groups.entries()) {
-    const target = groupCallback(group, options.source);
+    const target = groupCallback(group, options.source, options.scope);
     const title = group.title.length > 30 ? `${group.title.slice(0, 29)}…` : group.title;
     keyboard.text(`${offset + index + 1}. ${title}`, target).row();
   }
@@ -172,9 +172,10 @@ export function taskListKeyboard(
 export type GroupSource = "tasks" | "today";
 
 /** Where a collapsed line leads: one occurrence, one fuzzy task, or the group's own screen. */
-export function groupCallback(group: TelegramGroupCard, source: GroupSource): string {
-  if (group.rows.length > 1) return `grp:${source === "today" ? "d" : "t"}:${group.key}`;
-  return group.lead.occurrence ? `view:occ:${group.lead.occurrence.id}` : `view:task:${group.lead.task.id}`;
+export function groupCallback(group: TelegramGroupCard, source: GroupSource, scope?: TaskScope): string {
+  const tail = scope ? `:${scope}` : "";
+  if (group.rows.length > 1) return `grp:${source === "today" ? "d" : "t"}:${group.key}${tail}`;
+  return group.lead.occurrence ? `view:occ:${group.lead.occurrence.id}${tail}` : `view:task:${group.lead.task.id}${tail}`;
 }
 
 /** The date window the list is showing, and every other window one tap away. */
@@ -263,8 +264,6 @@ export function appendFooter(keyboard: InlineKeyboard, locale: TelegramLocale): 
 }
 
 /** Each upcoming reminder is a button that cancels it; the footer leads back to the main screens. */
-
-/** Each upcoming reminder is a button that cancels it; the footer leads back to the main screens. */
 export function remindersKeyboard(
   rows: ReadonlyArray<{ deliveryId: string; title: string; when: string }>,
   locale: TelegramLocale = "ru",
@@ -333,8 +332,12 @@ export function screenFooterKeyboard(locale: TelegramLocale = "ru"): InlineKeybo
   return appendFooter(new InlineKeyboard(), locale);
 }
 
-export function taskDetailKeyboard(occurrenceId: string, locale: TelegramLocale = "ru"): InlineKeyboard {
-  return taskKeyboard(occurrenceId, locale).row().text(t(locale, "to_tasks_button"), "nav:tasks");
+export function taskDetailKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", scope?: TaskScope): InlineKeyboard {
+  // Back means the list the card was opened from, filter and all: a fixed `nav:tasks` threw away
+  // the window the user had chosen and dropped them into the default one.
+  return taskKeyboard(occurrenceId, locale)
+    .row()
+    .text(t(locale, "to_tasks_button"), scope ? `tsk:${scope}:0` : "nav:tasks");
 }
 
 /** The three languages plus "follow Telegram", so the value is a tap and not a command. */
@@ -354,14 +357,15 @@ export function fuzzyTaskDetailKeyboard(locale: TelegramLocale = "ru"): InlineKe
 }
 
 /** One expanded group: every row of it opens its own card, and the list it came from stays one tap away. */
-export function taskGroupKeyboard(group: TelegramGroupCard, source: GroupSource, locale: TelegramLocale = "ru"): InlineKeyboard {
+export function taskGroupKeyboard(group: TelegramGroupCard, source: GroupSource, locale: TelegramLocale = "ru", scope?: TaskScope): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const [index, row] of group.rows.entries()) {
-    const target = row.occurrence ? `view:occ:${row.occurrence.id}` : `view:task:${row.task.id}`;
+    const tail = scope ? `:${scope}` : "";
+    const target = row.occurrence ? `view:occ:${row.occurrence.id}${tail}` : `view:task:${row.task.id}${tail}`;
     keyboard.text(`${index + 1}. ${row.task.title.length > 26 ? `${row.task.title.slice(0, 25)}…` : row.task.title}`, target).row();
   }
   const endlessSeriesTaskId = group.recurrenceRule && !group.lead.task.recurrenceEndLocalDate ? group.lead.task.id : null;
   if (endlessSeriesTaskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${endlessSeriesTaskId}`).row();
-  keyboard.text(t(locale, "back_button"), source === "today" ? "tdy:0" : "tsk:week:0").row();
+  keyboard.text(t(locale, "back_button"), source === "today" ? "tdy:0" : `tsk:${scope ?? "week"}:0`).row();
   return appendFooter(keyboard, locale);
 }

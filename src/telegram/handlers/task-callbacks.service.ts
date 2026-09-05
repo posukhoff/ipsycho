@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { InlineKeyboard, type Bot, type CallbackQueryContext } from "grammy";
 import { ActionStateUncertainError, ActionsService } from "../../actions/actions.service.js";
 import type { ResolvedAction } from "../../core/ai-contract.js";
+import type { TaskScope } from "../../core/task-list-view.js";
 import { renderAppliedReport } from "../../core/applied-report.js";
 import { safeError } from "../../observability/safe-error.js";
 import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.service.js";
@@ -14,7 +15,7 @@ import { ScreensService, type OccurrenceContext } from "./screens.service.js";
 import { logger } from "../../observability/logger.js";
 
 const UUID = "[0-9a-f-]{36}";
-const VIEW_CALLBACK = new RegExp(`^view:(occ|task):(${UUID})$`);
+const VIEW_CALLBACK = new RegExp(`^view:(occ|task):(${UUID})(?::(overdue|today|week|month|all|nodate))?$`);
 const OCCURRENCE_CALLBACK = new RegExp(`^occ:(done|skip|cancel|cancel_one|resched|more|back):(${UUID})$`);
 const SERIES_CALLBACK = new RegExp(`^series:(pause|resume|cancel):(${UUID})$`);
 const REMINDER_CALLBACK = new RegExp(`^rem:(cancel|mute):(${UUID})$`);
@@ -45,7 +46,8 @@ export class TaskCallbacksService {
     const kind = match?.[1];
     const id = match?.[2];
     if (!kind || !id) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    const shown = kind === "occ" ? await this.screens.showOccurrence(ctx, id) : await this.screens.showFuzzyTask(ctx, id);
+    const scope = match?.[3] as TaskScope | undefined;
+    const shown = kind === "occ" ? await this.screens.showOccurrence(ctx, id, scope) : await this.screens.showFuzzyTask(ctx, id);
     if (!shown) return this.stale(ctx, "task_unavailable_toast");
     await ctx.answerCallbackQuery();
   }
