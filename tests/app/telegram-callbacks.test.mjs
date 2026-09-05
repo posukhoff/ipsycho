@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { InlineKeyboard } from "grammy";
 import { TaskCallbacksService } from "../../dist/telegram/handlers/task-callbacks.service.js";
+import { OnboardingService } from "../../dist/telegram/handlers/onboarding.service.js";
 import {
   fuzzyTaskDetailKeyboard,
   goalDetailKeyboard,
@@ -59,7 +60,6 @@ const ROUTES = [
   /^series:(pause|resume|cancel):[0-9a-f-]{36}$/,
   /^rem:(cancel|mute):[0-9a-f-]{36}$/,
   /^act:(confirm|cancel|undo):[0-9a-f-]{36}$/,
-  /^topic:end:[0-9a-f-]{36}$/,
   /^onb:(tz|digests|quiet|weekly):([A-Za-z_/+-]+|on|off|default|other)$/,
   /^tzapply:(digests|quiet|both|keep)$/,
   /^prefs:(morning|weekly|quiet|snooze):(toggle|morning)$/,
@@ -258,4 +258,53 @@ test("a card whose text Telegram refuses to edit still loses its buttons", async
   const ctx = callbackContext(`occ:done:${OCCURRENCE_ID}`, { editFails: true });
   await handler.occurrence(ctx);
   assert.match(ctx.answers[0], /\S/);
+});
+
+test("a typed yes answers an onboarding step instead of going to the model", async () => {
+  // Every step after the timezone was a bare button: a typed «да» reached the model, and the
+  // question the user had just answered was asked again.
+  const writes = [];
+  const settings = {
+    setPendingInput: async (_userId, input) => writes.push({ op: "pending", input }),
+    setDigestPreset: async (_userId, on) => writes.push({ op: "digests", on }),
+    setQuietHours: async (_userId, update) => writes.push({ op: "quiet", update }),
+    setWeeklyPreset: async (_userId, on) => writes.push({ op: "weekly", on }),
+    completeOnboarding: async () => writes.push({ op: "completed" }),
+    get: async () => ({ timezone: "Europe/Kyiv" }),
+  };
+  const onboarding = new OnboardingService(settings, { settings_: async () => writes.push({ op: "settings_screen" }) });
+  const ctx = callbackContext("onb:digests:on");
+
+  await onboarding.applyTypedStep(ctx, "digests", "да");
+  assert.deepEqual(
+    writes.map((write) => write.op),
+    ["digests", "pending"],
+    "the answer is applied and the next step arms its own pending input",
+  );
+  assert.equal(writes[0].on, true);
+  assert.deepEqual(writes[1].input, { kind: "onboarding", step: "quiet" });
+
+  writes.length = 0;
+  await onboarding.applyTypedStep(ctx, "quiet", "нет");
+  assert.deepEqual(writes[0], { op: "quiet", update: { enabled: false } });
+
+  // Anything that is not an answer re-asks; the model never sees it.
+  writes.length = 0;
+  ctx.replies.length = 0;
+  await onboarding.applyTypedStep(ctx, "weekly", "а что это вообще значит");
+  assert.deepEqual(
+    writes.map((write) => write.op),
+    ["pending"],
+  );
+  assert.equal(ctx.replies.length, 2, "one line saying yes or no, then the prompt with its buttons again");
+  assert.ok(ctx.replies[1].markup, "the re-asked prompt keeps its buttons");
+
+  // The last step clears the pending input: nothing is left to swallow the next message.
+  writes.length = 0;
+  await onboarding.applyTypedStep(ctx, "weekly", "да");
+  assert.deepEqual(
+    writes.map((write) => write.op),
+    ["weekly", "pending", "completed", "settings_screen"],
+  );
+  assert.equal(writes[1].input, null);
 });

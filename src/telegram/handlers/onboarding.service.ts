@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { InlineKeyboard, type Bot, type CallbackQueryContext } from "grammy";
 import { TIMEZONE_SUGGESTIONS, resolveTimezoneInput } from "../../core/timezone-lookup.js";
-import { SettingsService } from "../../settings/settings.service.js";
+import { SettingsService, type OnboardingStep } from "../../settings/settings.service.js";
+import { bareConfirmationDecision } from "../../core/conversation-control.js";
 import { t } from "../copy/index.js";
 import { deterministicCopy } from "../copy/onboarding.js";
 import { activeState, type AppContext } from "../telegram-context.js";
@@ -49,14 +50,62 @@ export class OnboardingService {
       return false;
     }
     await this.settings.setTimezone(access.user.id, zone, { applyTo: "both" });
-    if (onboarding) await this.askDigests(ctx);
+    if (onboarding) await this.ask(ctx, "digests");
     else await ctx.reply(t(locale, "timezone_set", { timezone: zone }));
     return true;
   }
 
-  private async askDigests(ctx: AppContext): Promise<void> {
-    const copy = deterministicCopy(activeState(ctx).locale);
-    await ctx.reply(copy.digestsPrompt, { reply_markup: new InlineKeyboard().text(copy.yes, "onb:digests:on").text(copy.no, "onb:digests:off") });
+  /**
+   * A prompt and the pending input that belongs to it. Without the pending input a user who
+   * typed «да» instead of tapping sent the answer to the model, and the flow stalled on a
+   * question that was already answered.
+   */
+  private async ask(ctx: AppContext, step: OnboardingStep): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const copy = deterministicCopy(locale);
+    const prompt =
+      step === "digests"
+        ? { text: copy.digestsPrompt, keyboard: new InlineKeyboard().text(copy.yes, "onb:digests:on").text(copy.no, "onb:digests:off") }
+        : step === "quiet"
+          ? { text: copy.quietPrompt, keyboard: new InlineKeyboard().text(copy.defaultLabel, "onb:quiet:default").text(copy.off, "onb:quiet:off") }
+          : { text: copy.weeklyPrompt, keyboard: new InlineKeyboard().text(copy.yes, "onb:weekly:on").text(copy.no, "onb:weekly:off") };
+    await this.settings.setPendingInput(access.user.id, { kind: "onboarding", step });
+    await ctx.reply(prompt.text, { reply_markup: prompt.keyboard });
+  }
+
+  /** A typed answer to one of the yes/no steps; anything else re-asks instead of reaching the model. */
+  async applyTypedStep(ctx: AppContext, step: OnboardingStep, text: string): Promise<void> {
+    const decision = bareConfirmationDecision(text);
+    if (!decision) {
+      await ctx.reply(t(activeState(ctx).locale, "onb_step_unclear"));
+      await this.ask(ctx, step);
+      return;
+    }
+    await this.advance(ctx, step, decision === "confirm");
+  }
+
+  /** What each answer does, shared by the button and the typed word. */
+  private async advance(ctx: AppContext, step: OnboardingStep, on: boolean): Promise<void> {
+    const { access } = activeState(ctx);
+    if (step === "digests") {
+      await this.settings.setDigestPreset(access.user.id, on);
+      return this.ask(ctx, "quiet");
+    }
+    if (step === "quiet") {
+      await this.settings.setQuietHours(
+        access.user.id,
+        on ? { enabled: true, weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" } : { enabled: false },
+      );
+      return this.ask(ctx, "weekly");
+    }
+    await this.settings.setWeeklyPreset(access.user.id, on);
+    await this.settings.setPendingInput(access.user.id, null);
+    await this.settings.completeOnboarding(access.user.id);
+    await ctx.reply(deterministicCopy(activeState(ctx).locale).onboardingDone);
+    // The three answers are visible and editable in one place, instead of a bare "done".
+    const settings = await this.settings.get(access.user.id);
+    if (settings) ctx.state = { ...ctx.state, settings };
+    await this.screens.settings_(ctx);
   }
 
   private async step(ctx: CallbackQueryContext<AppContext>): Promise<void> {
@@ -80,34 +129,12 @@ export class OnboardingService {
       await this.settings.setTimezone(access.user.id, zone, { applyTo: "both" });
       await ctx.answerCallbackQuery({ text: t(locale, "onb_timezone_saved_toast") });
       await stripButtons();
-      await this.askDigests(ctx);
+      await this.ask(ctx, "digests");
       return;
     }
-    if (step === "digests") {
-      await this.settings.setDigestPreset(access.user.id, value === "on");
-      await ctx.answerCallbackQuery({ text: copy.saved });
-      await stripButtons();
-      await ctx.reply(copy.quietPrompt, { reply_markup: new InlineKeyboard().text(copy.defaultLabel, "onb:quiet:default").text(copy.off, "onb:quiet:off") });
-      return;
-    }
-    if (step === "quiet") {
-      await this.settings.setQuietHours(
-        access.user.id,
-        value === "off" ? { enabled: false } : { enabled: true, weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" },
-      );
-      await ctx.answerCallbackQuery({ text: copy.saved });
-      await stripButtons();
-      await ctx.reply(copy.weeklyPrompt, { reply_markup: new InlineKeyboard().text(copy.yes, "onb:weekly:on").text(copy.no, "onb:weekly:off") });
-      return;
-    }
-    await this.settings.setWeeklyPreset(access.user.id, value === "on");
-    await this.settings.completeOnboarding(access.user.id);
-    await ctx.answerCallbackQuery({ text: copy.done });
+    if (step !== "digests" && step !== "quiet" && step !== "weekly") return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    await ctx.answerCallbackQuery({ text: step === "weekly" ? copy.done : copy.saved });
     await stripButtons();
-    await ctx.reply(copy.onboardingDone);
-    // The three answers are visible and editable in one place, instead of a bare "done".
-    const settings = await this.settings.get(access.user.id);
-    if (settings) ctx.state = { ...ctx.state, settings };
-    await this.screens.settings_(ctx);
+    await this.advance(ctx, step, value !== "off");
   }
 }

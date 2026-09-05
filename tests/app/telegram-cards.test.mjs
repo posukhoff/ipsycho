@@ -251,6 +251,14 @@ test("settings show the quiet-hours window instead of hiding it", () => {
   assert.match(settingsText(row, now, 12, "ru"), /🔕 Тихие часы: 23:00–08:00 \(будни\), 23:00–10:00 \(выходные\)/);
   assert.match(settingsText({ ...row, weekendQuietStart: "23:00", weekendQuietEnd: "08:00" }, now, 12, "ru"), /🔕 Тихие часы: 23:00–08:00\n/);
   assert.match(settingsText({ ...row, quietHoursEnabled: false }, now, 12, "en"), /🔕 Quiet hours: off/);
+
+  // The quiet window and the digests keep their own timezone. Until it is confirmed it is the Kyiv
+  // default, so the screen has to name it whenever it is not the profile's own zone.
+  const shifted = settingsText({ ...row, timezone: "America/New_York", digestTimezone: "Europe/Kyiv", quietHoursTimezone: "Europe/Kyiv" }, now, 12, "ru");
+  assert.match(shifted, /🔕 Тихие часы: [^\n]* · Europe\/Kyiv/u);
+  assert.match(shifted, /☀️ Утренняя сводка: 09:00 · Europe\/Kyiv/u);
+  const aligned = settingsText({ ...row, digestTimezone: row.timezone, quietHoursTimezone: row.timezone }, now, 12, "ru");
+  assert.equal(/ · Europe\/Kyiv/u.test(aligned), false, "the zone is not repeated when it matches the profile");
 });
 
 test("cards drop fields that only restate the title, the goal or the checklist", () => {

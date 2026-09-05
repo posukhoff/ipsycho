@@ -33,6 +33,8 @@ export const en: Record<keyof typeof ru, string> = {
   delete_scheduled: "The account is locked. It can be restored with /restore within {days} days.",
   delete_failed_toast: "Could not schedule deletion",
   delete_unavailable_toast: "The account is no longer available",
+  deletion_pending_notice: "The account is awaiting deletion, so everything is stopped. You can still bring it back for {days} more days: /restore",
+  deletion_pending_toast: "The account is awaiting deletion. Bring it back: /restore",
   restore_done: "The account is restored. Future reminders are active again.",
   restore_unavailable: "The account is not awaiting deletion, or the restore period has passed.",
   ai_revoked: "Consent for external AI processing is revoked. Reminders, briefings and buttons keep working.",
@@ -98,6 +100,7 @@ export const en: Record<keyof typeof ru, string> = {
   rd_failed: "Could not change the setting. Check the numbers and the command format.",
 
   onb_timezone_prompt: "What is your timezone? Briefing times and phrases like “tomorrow at 10” depend on it. Send a city, for example “Berlin”, or pick one below.",
+  onb_step_unclear: "Answer yes or no, or tap a button.",
   onb_timezone_other: "Other",
   onb_timezone_saved_toast: "Timezone saved",
 

@@ -143,6 +143,10 @@ export class TextService {
         else await ctx.reply(t(locale, "rescheduled_text"));
         return;
       }
+      if (pending.kind === "onboarding") {
+        await this.onboarding.applyTypedStep(ctx, pending.step, ctx.message.text);
+        return;
+      }
       const context = await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId);
       if (!context) throw new Error("occurrence not found");
       let parsed: ReturnType<typeof parseRescheduleInput> | null = null;

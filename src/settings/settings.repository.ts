@@ -7,7 +7,11 @@ import { userSettings } from "../database/schema.js";
 export type PendingInput =
   | { kind: "timezone"; onboarding: boolean }
   | { kind: "reschedule"; occurrenceId: string }
-  | { kind: "quick_reschedule_reason"; occurrenceId: string; choice: "1h" | "evening" | "tomorrow" };
+  | { kind: "quick_reschedule_reason"; occurrenceId: string; choice: "1h" | "evening" | "tomorrow" }
+  | { kind: "onboarding"; step: OnboardingStep };
+
+/** The onboarding steps that are a yes/no question, so a typed answer resolves them too. */
+export type OnboardingStep = "digests" | "quiet" | "weekly";
 
 export type SettingsRow = typeof userSettings.$inferSelect;
 

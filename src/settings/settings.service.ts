@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { localDateAndTimeToUtc, localDateAt, shiftLocalDate } from "../core/timezone.js";
 import { buildSettingsPatch, type SettingsChange } from "../core/settings-change.js";
-import { SettingsRepository, type PendingInput } from "./settings.repository.js";
+import { SettingsRepository, type OnboardingStep, type PendingInput } from "./settings.repository.js";
 
-export type { PendingInput };
+export type { OnboardingStep, PendingInput };
 
 export interface QuietHoursUpdate {
   enabled: boolean;

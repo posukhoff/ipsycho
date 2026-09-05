@@ -33,6 +33,8 @@ export interface SettingsRow {
   weeklyReviewEnabled: boolean;
   weeklyReviewWeekday: number;
   weeklyReviewTime: string;
+  digestTimezone?: string | null;
+  quietHoursTimezone?: string | null;
   quietHoursEnabled: boolean;
   weekdayQuietStart: string;
   weekdayQuietEnd: string;
@@ -45,6 +47,9 @@ export interface SettingsRow {
 /** Grouped into what the setting is about, so eight flat lines do not have to be read in order. */
 export function settingsText(row: SettingsRow, now = new Date(), historyMessageCount = 0, locale: TelegramLocale = "ru"): string {
   const words = SETTINGS_COPY[locale];
+  // The digests and the quiet window keep their own timezone, and until it is confirmed it is the
+  // Kyiv default. Naming it only when it differs keeps the silent assumption out of the product.
+  const zone = (value: string | null | undefined) => (value && value !== row.timezone ? ` · ${value}` : "");
   const snoozed =
     row.notificationsSnoozedUntil && row.notificationsSnoozedUntil > now ? `\n🔕 ${words.quietUntil} ${formatLocal(row.notificationsSnoozedUntil, row.timezone)}` : "";
   return [
@@ -55,11 +60,11 @@ export function settingsText(row: SettingsRow, now = new Date(), historyMessageC
     `🗣 ${words.language}: ${row.pinnedLanguage ?? words.languageAuto}`,
     "",
     t(locale, "settings_section_digests"),
-    `☀️ ${words.morning}: ${row.morningDigestEnabled ? row.morningReferenceTime : words.off}`,
-    `📅 ${words.weekly}: ${row.weeklyReviewEnabled ? `${weekdayLabel(row.weeklyReviewWeekday, locale)} ${row.weeklyReviewTime}` : words.off}`,
+    `☀️ ${words.morning}: ${row.morningDigestEnabled ? `${row.morningReferenceTime}${zone(row.digestTimezone)}` : words.off}`,
+    `📅 ${words.weekly}: ${row.weeklyReviewEnabled ? `${weekdayLabel(row.weeklyReviewWeekday, locale)} ${row.weeklyReviewTime}${zone(row.digestTimezone)}` : words.off}`,
     "",
     t(locale, "settings_section_quiet"),
-    `🔕 ${words.quietHours}: ${quietHoursLabel(row, locale)}`,
+    `🔕 ${words.quietHours}: ${quietHoursLabel(row, locale)}${row.quietHoursEnabled ? zone(row.quietHoursTimezone) : ""}`,
     `💬 ${words.aiHistory}: ${historyMessageCount} ${messageWord(historyMessageCount, locale)}`,
     "",
     words.hint,

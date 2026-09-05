@@ -85,6 +85,14 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       }
       const command = ctx.message?.text?.match(/^\/(\w+)/u)?.[1]?.toLowerCase();
       if (command && OPEN_COMMANDS.has(command)) return next();
+      // An account awaiting deletion is not an unknown sender: it asked for this and can undo it.
+      const restorable = telegramUserId ? await this.access.findRestorable(telegramUserId) : null;
+      if (restorable) {
+        const days = Math.max(1, Math.ceil((restorable.deleteAfter.getTime() - Date.now()) / (24 * 60 * 60_000)));
+        if (ctx.callbackQuery) await ctx.answerCallbackQuery({ text: t(ctx.state.locale, "deletion_pending_toast") }).catch(() => undefined);
+        else if (ctx.message) await ctx.reply(t(ctx.state.locale, "deletion_pending_notice", { days })).catch(() => undefined);
+        return;
+      }
       if (ctx.callbackQuery) await ctx.answerCallbackQuery({ text: t(ctx.state.locale, "access_denied_toast") }).catch(() => undefined);
       else if (ctx.message) await ctx.reply(t(ctx.state.locale, "access_denied")).catch(() => undefined);
     });

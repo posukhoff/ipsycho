@@ -24,6 +24,19 @@ export class AccessService {
     return rows[0] ?? null;
   }
 
+  /**
+   * The refusal an account awaiting deletion should get. Without this it fell into the generic
+   * "this bot is private", which tells a user who asked for deletion nothing about the way back.
+   */
+  async findRestorable(telegramUserId: number, now = new Date()): Promise<{ deleteAfter: Date } | null> {
+    const [row] = await this.database.db
+      .select({ deleteAfter: users.deleteAfter })
+      .from(users)
+      .where(and(eq(users.telegramUserId, telegramUserId), eq(users.status, "deletion_pending"), gt(users.deleteAfter, now)))
+      .limit(1);
+    return row?.deleteAfter ? { deleteAfter: row.deleteAfter } : null;
+  }
+
   async addUser(telegramUserId: number): Promise<string> {
     return this.database.db.transaction(async (tx) => {
       const existing = await tx.select().from(users).where(eq(users.telegramUserId, telegramUserId)).limit(1);

@@ -30,7 +30,11 @@ function fakeUpdates() {
   };
 }
 const known = new Set([100, 200]);
-const fakeAccess = { resolveActiveUser: async (id) => (known.has(id) ? { user: { id: `u${id}`, aiStatus: "enabled", telegramUserId: id }, workspaceId: `w${id}` } : null) };
+const DELETING = 300;
+const fakeAccess = {
+  resolveActiveUser: async (id) => (known.has(id) ? { user: { id: `u${id}`, aiStatus: "enabled", telegramUserId: id }, workspaceId: `w${id}` } : null),
+  findRestorable: async (id) => (id === DELETING ? { deleteAfter: new Date(Date.now() + 3.5 * 24 * 60 * 60_000) } : null),
+};
 const remembered = [];
 const fakeSettings = {
   get: async (userId) => ({ userId, timezone: "Europe/Kyiv", pinnedLanguage: userId === "u200" ? "en" : null, telegramLanguage: null }),
@@ -174,4 +178,16 @@ test("a group chat gets one sentence for a command and silence otherwise", async
   const replies = calls.filter((call) => call.method === "sendMessage");
   assert.equal(replies.length, 1);
   assert.match(replies[0].payload.text, /личных сообщениях/);
+});
+
+test("an account awaiting deletion is told about /restore instead of being called a stranger", async () => {
+  // It fails the active-user lookup like any unknown sender, and the generic "this bot is private"
+  // tells someone who asked for deletion nothing about the way back.
+  const telegram = service();
+  const calls = captureApi(telegram.bot);
+  telegram.bot.on("message:text", async () => assert.fail("the update must not reach a handler"));
+  await telegram.bot.handleUpdate(messageUpdate(41, DELETING, "привет"));
+  const [sent] = calls.filter((call) => call.method === "sendMessage");
+  assert.match(sent.payload.text, /\/restore/u);
+  assert.match(sent.payload.text, /4 дн/u);
 });
