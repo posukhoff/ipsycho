@@ -73,9 +73,6 @@ export type SettingsPatch = Partial<
     | "eventReminderOffsetsMinutes"
     | "plannedTaskReminderOffsetMinutes"
     | "criticalPostDueMinutes"
-    | "seenNormalMinutes"
-    | "seenRequiredMinutes"
-    | "seenCriticalMinutes"
   >
 >;
 
@@ -95,13 +92,6 @@ export interface UpdateOccurrenceInput extends GroupScope {
   occurrenceId: string;
   expectedVersion: number;
   operation: "start" | "skip" | "cancel";
-  now: Date;
-}
-export interface OccurrenceInteractionInput extends GroupScope {
-  occurrenceId: string;
-  expectedVersion: number;
-  operation: "seen" | "record_blocker";
-  details?: string;
   now: Date;
 }
 export interface UpdateTaskInput extends GroupScope {
@@ -170,14 +160,6 @@ export interface UpdateOccurrenceStepResult {
   occurrenceId: string;
   title: string;
   operation: "start" | "skip" | "cancel";
-}
-export interface OccurrenceInteractionStepResult {
-  kind: "occurrence_interaction";
-  taskId: string;
-  occurrenceId: string;
-  title: string;
-  operation: "seen" | "record_blocker";
-  details: string | null;
 }
 export interface UpdateTaskStepResult {
   kind: "update_task";
@@ -390,48 +372,6 @@ export async function updateOccurrenceInTx(tx: DbTransaction, input: UpdateOccur
     eventType: `occurrence:${nextStatus}`,
   });
   return { kind: "update_occurrence", taskId: row.task.id, occurrenceId: input.occurrenceId, title: row.task.title, operation: input.operation, touched };
-}
-
-export async function occurrenceInteractionInTx(tx: DbTransaction, input: OccurrenceInteractionInput): Promise<InTx<OccurrenceInteractionStepResult>> {
-  const row = await loadOccurrence(tx, input.workspaceId, input.occurrenceId, input.expectedVersion);
-  await tx.insert(taskEvents).values(
-    input.operation === "seen"
-      ? [
-          {
-            workspaceId: input.workspaceId,
-            taskId: row.task.id,
-            occurrenceId: input.occurrenceId,
-            actorUserId: input.actorUserId,
-            eventType: "occurrence:seen",
-          },
-        ]
-      : [
-          {
-            workspaceId: input.workspaceId,
-            taskId: row.task.id,
-            occurrenceId: input.occurrenceId,
-            actorUserId: input.actorUserId,
-            eventType: "occurrence:cant_start",
-          },
-          {
-            workspaceId: input.workspaceId,
-            taskId: row.task.id,
-            occurrenceId: input.occurrenceId,
-            actorUserId: input.actorUserId,
-            eventType: "occurrence:blocker",
-            details: input.details,
-          },
-        ],
-  );
-  return {
-    kind: "occurrence_interaction",
-    taskId: row.task.id,
-    occurrenceId: input.occurrenceId,
-    title: row.task.title,
-    operation: input.operation,
-    details: input.details ?? null,
-    touched: [],
-  };
 }
 
 export async function updateTaskInTx(tx: DbTransaction, input: UpdateTaskInput): Promise<InTx<UpdateTaskStepResult>> {
@@ -1278,9 +1218,6 @@ export function settingsMutableState(row: typeof userSettings.$inferSelect) {
     eventReminderOffsetsMinutes: row.eventReminderOffsetsMinutes,
     plannedTaskReminderOffsetMinutes: row.plannedTaskReminderOffsetMinutes,
     criticalPostDueMinutes: row.criticalPostDueMinutes,
-    seenNormalMinutes: row.seenNormalMinutes,
-    seenRequiredMinutes: row.seenRequiredMinutes,
-    seenCriticalMinutes: row.seenCriticalMinutes,
   };
 }
 

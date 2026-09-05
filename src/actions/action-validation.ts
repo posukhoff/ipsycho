@@ -84,8 +84,6 @@ export async function validateResolvedAction(action: ResolvedAction, scope: Vali
           throw new InvalidAiActionError("terminal occurrence cannot be changed", "terminal_occurrence");
         }
       }
-      if (action.state === "seen" && action.note !== null && !action.note.trim()) throw new InvalidAiActionError("blocker details are required", "blank_field");
-      if (action.state !== "seen" && action.note !== null) throw new InvalidAiActionError("details are only valid when recording a blocker", "note_not_allowed");
       const task = await deps.tasks.getTask(scope.workspaceId, action.target.taskId);
       if (!task || task.version !== action.target.taskVersion) throw new InvalidAiActionError("target task is missing or stale", "stale");
       if (action.state === "done" && task.status !== "active") throw new InvalidAiActionError("only an active task can be marked done", "task_not_active");
@@ -207,17 +205,9 @@ async function validateSettingsAction(action: ResolvedActionOf<"settings">, user
     }
     return;
   }
-  const values = [
-    action.eventOffsets,
-    action.plannedTaskOffsetMinutes,
-    action.criticalPostDueMinutes,
-    action.seenNormalMinutes,
-    action.seenRequiredMinutes,
-    action.seenCriticalMinutes,
-  ];
+  const values = [action.eventOffsets, action.plannedTaskOffsetMinutes, action.criticalPostDueMinutes];
   if (values.every((value) => value === null)) throw new InvalidAiActionError("at least one reminder default is required", "settings_shape");
   if (action.eventOffsets !== null && action.eventOffsets.length === 0) throw new InvalidAiActionError("event offsets cannot be empty", "settings_shape");
-  for (const value of [action.criticalPostDueMinutes, action.seenNormalMinutes, action.seenRequiredMinutes, action.seenCriticalMinutes]) {
-    if (value !== null && value < 15) throw new InvalidAiActionError("critical and Seen intervals must be at least 15 minutes", "settings_shape");
-  }
+  if (action.criticalPostDueMinutes !== null && action.criticalPostDueMinutes < 15)
+    throw new InvalidAiActionError("the critical follow-up interval must be at least 15 minutes", "settings_shape");
 }

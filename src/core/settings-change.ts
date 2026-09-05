@@ -47,9 +47,6 @@ export interface SettingsPatchFields {
   eventReminderOffsetsMinutes?: number[];
   plannedTaskReminderOffsetMinutes?: number;
   criticalPostDueMinutes?: number;
-  seenNormalMinutes?: number;
-  seenRequiredMinutes?: number;
-  seenCriticalMinutes?: number;
 }
 
 export const DEFAULT_QUIET_HOURS = { weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" } as const;

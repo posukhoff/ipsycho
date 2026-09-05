@@ -26,7 +26,6 @@ import {
   completeOccurrenceInTx,
   completeTaskInTx,
   concretiseTaskInTx,
-  occurrenceInteractionInTx,
   parseJsonDate,
   replaceChecklist,
   rescheduleOccurrenceInTx,
@@ -39,7 +38,6 @@ import {
   type CompleteTaskStepResult,
   type ConcretiseTaskStepResult,
   type DbTransaction,
-  type OccurrenceInteractionStepResult,
   type OccurrenceMutableState,
   type RescheduleOccurrenceStepResult,
   type SettingsMutableState,
@@ -86,7 +84,6 @@ export type ActionGroupStep =
   | { kind: "create_task"; plan: PersistedTaskPlan; goalLink: { goalId: string; goalVersion: number; source: LinkSource; confidence: number } | null }
   | { kind: "update_task"; taskId: string; expectedVersion: number; patch: UpdateTaskPatch }
   | { kind: "update_occurrence"; occurrenceId: string; expectedVersion: number; operation: "start" | "skip" | "cancel" }
-  | { kind: "occurrence_interaction"; occurrenceId: string; expectedVersion: number; operation: "seen" | "record_blocker"; details?: string }
   | { kind: "complete_task"; taskId: string; expectedVersion: number }
   | { kind: "complete_occurrence"; occurrenceId: string; expectedVersion: number }
   | { kind: "cancel_task"; taskId: string; expectedVersion: number }
@@ -129,7 +126,6 @@ export type ActionGroupStepResult =
   | CreateTaskStepResult
   | UpdateTaskStepResult
   | UpdateOccurrenceStepResult
-  | OccurrenceInteractionStepResult
   | CompleteTaskStepResult
   | CancelTaskStepResult
   | RescheduleOccurrenceStepResult
@@ -268,18 +264,6 @@ export class ActionGroupRepository {
               occurrenceId: step.occurrenceId,
               expectedVersion: versions.expect("occurrence", step.occurrenceId, step.expectedVersion),
               operation: step.operation,
-            });
-            versions.bump(touched);
-            result.steps.push(stepResult);
-            break;
-          }
-          case "occurrence_interaction": {
-            const { touched, ...stepResult } = await occurrenceInteractionInTx(tx, {
-              ...scope,
-              occurrenceId: step.occurrenceId,
-              expectedVersion: versions.expect("occurrence", step.occurrenceId, step.expectedVersion),
-              operation: step.operation,
-              ...(step.details !== undefined ? { details: step.details } : {}),
             });
             versions.bump(touched);
             result.steps.push(stepResult);
@@ -909,9 +893,6 @@ export class ActionGroupRepository {
             eventReminderOffsetsMinutes: state.eventReminderOffsetsMinutes,
             plannedTaskReminderOffsetMinutes: state.plannedTaskReminderOffsetMinutes,
             criticalPostDueMinutes: state.criticalPostDueMinutes,
-            seenNormalMinutes: state.seenNormalMinutes,
-            seenRequiredMinutes: state.seenRequiredMinutes,
-            seenCriticalMinutes: state.seenCriticalMinutes,
             version: sql`${userSettings.version} + 1`,
             updatedAt: input.now,
           })
@@ -1003,7 +984,6 @@ async function lockTargets(tx: DbTransaction, workspaceId: string, actorUserId: 
         taskIds.add(step.taskId);
         break;
       case "update_occurrence":
-      case "occurrence_interaction":
       case "complete_occurrence":
       case "reschedule_occurrence":
       case "change_reminder":

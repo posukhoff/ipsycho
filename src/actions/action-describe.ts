@@ -30,8 +30,6 @@ const C = {
     start: "Начать",
     skip: "Пропустить",
     cancel: "Отменить",
-    blocker: "Записать блокер",
-    seen: "Отметить увиденной",
     rescheduleSeries: "Изменить расписание серии",
     reschedule: "Перенести",
     clearReminders: "Убрать напоминания",
@@ -89,8 +87,6 @@ const C = {
     start: "Почати",
     skip: "Пропустити",
     cancel: "Скасувати",
-    blocker: "Записати блокер",
-    seen: "Позначити побаченим",
     rescheduleSeries: "Змінити розклад серії",
     reschedule: "Перенести",
     clearReminders: "Прибрати нагадування",
@@ -148,8 +144,6 @@ const C = {
     start: "Start",
     skip: "Skip",
     cancel: "Cancel",
-    blocker: "Record blocker",
-    seen: "Mark seen",
     rescheduleSeries: "Change the series schedule",
     reschedule: "Move",
     clearReminders: "Remove reminders",
@@ -227,8 +221,7 @@ export function describeAction(action: ResolvedAction, locale: Locale = "ru", na
       if (action.state === "done") return `${c.done}${target}`;
       if (action.state === "started") return `${c.start}${target}`;
       if (action.state === "skipped") return `${c.skip}${target}`;
-      if (action.state === "cancelled") return `${c.cancel}${target}${series}`;
-      return action.note ? `${c.blocker}${target}: ${q(action.note.trim().slice(0, 120))}` : `${c.seen}${target}`;
+      return `${c.cancel}${target}${series}`;
     }
     case "reschedule":
       return `${action.target.kind === "series" ? c.rescheduleSeries : c.reschedule}${taskName(action.target.taskId)}${describeWhen(action.when, locale)}${action.reason ? ` (${action.reason})` : ""}`;
@@ -349,9 +342,6 @@ export function settingsChangeFromAction(action: ResolvedActionOf<"settings">, s
         eventOffsets: action.eventOffsets,
         plannedTaskOffsetMinutes: action.plannedTaskOffsetMinutes,
         criticalPostDueMinutes: action.criticalPostDueMinutes,
-        seenNormalMinutes: action.seenNormalMinutes,
-        seenRequiredMinutes: action.seenRequiredMinutes,
-        seenCriticalMinutes: action.seenCriticalMinutes,
       };
   }
 }

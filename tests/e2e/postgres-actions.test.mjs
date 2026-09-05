@@ -9,7 +9,7 @@ import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
 import { TasksRepository } from "../../dist/tasks/tasks.repository.js";
 import { TasksService } from "../../dist/tasks/tasks.service.js";
-import { actionEvents, actionGroups, memoryItems, messages, taskEvents, taskGoals, taskOccurrences, tasks, userSettings } from "../../dist/database/schema.js";
+import { actionEvents, actionGroups, memoryItems, messages, taskGoals, taskOccurrences, tasks, userSettings } from "../../dist/database/schema.js";
 import { composeTurnContext } from "../../dist/core/turn-context.js";
 import { and, eq } from "drizzle-orm";
 
@@ -239,30 +239,6 @@ test("task-card lifecycle and action journal commit in one transaction and undo 
   [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
   assert.equal(occurrence?.status, "open");
   assert.equal(occurrence?.version, 3);
-});
-
-test("Seen interaction and its action group commit atomically", async () => {
-  const { workspaceId, userId } = await fixture();
-  const { occurrenceId } = await createOccurrence(workspaceId, userId);
-  const groupId = randomUUID();
-  const now = new Date();
-  const result = await groups.apply({
-    workspaceId,
-    actorUserId: userId,
-    groupId,
-    groupExists: false,
-    now,
-    undoExpiresAt: new Date(now.getTime() + 60_000),
-    steps: [{ kind: "occurrence_interaction", occurrenceId, expectedVersion: 1, operation: "seen" }],
-  });
-  assert.equal(result.steps[0].kind, "occurrence_interaction");
-  const [group] = await database.db.select().from(actionGroups).where(eq(actionGroups.id, groupId));
-  const events = await database.db
-    .select()
-    .from(taskEvents)
-    .where(and(eq(taskEvents.occurrenceId, occurrenceId), eq(taskEvents.eventType, "occurrence:seen")));
-  assert.equal(group?.status, "applied");
-  assert.equal(events.length, 1);
 });
 
 test("only one concurrent confirmation may claim a pending action group", async () => {

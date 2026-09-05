@@ -112,10 +112,7 @@ async function resolveOne(
     case "set_task_state": {
       const task = await taskRef(action.task.id, refs, deps);
       const target = await taskTarget(task, action.scope, deps, { includeElapsed: action.state === "done", purpose: "state", state: action.state });
-      // A note is the user's blocker text and has a place to be stored only with `seen`. The model
-      // sometimes attaches an explanation to a cancellation instead; dropping it here keeps a
-      // sentence from failing the whole package, and nothing is lost — it was never persisted.
-      return { type: "set_task_state", ...base, target, state: action.state, note: action.state === "seen" ? action.note : null };
+      return { type: "set_task_state", ...base, target, state: action.state };
     }
     case "reschedule": {
       const task = await taskRef(action.task.id, refs, deps);

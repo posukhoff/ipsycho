@@ -14,7 +14,7 @@ export interface TurnContextInput {
   query: string;
   now: Date;
   /** The user pressed a card button and then typed free text: the model sees which task it was about. */
-  focus?: { occurrenceId: string; action: "reschedule" | "blocker" };
+  focus?: { occurrenceId: string };
   /** The live confirmation card, summarised by the caller (the chat layer owns ActionsService). */
   pendingGroup?: { groupId: string; createdAt: Date; titles: string[] } | null;
 }
@@ -63,20 +63,10 @@ export class TurnContextService {
     const selection = selectTasksForContext(taskData.tasks, taskData.occurrencesByTask, mustShow, { now, timezone: input.timezone });
 
     const shownTaskIds = selection.shown.map((task) => task.id);
-    const shownOccurrenceIds = shownTaskIds.flatMap((taskId) => (taskData.occurrencesByTask.get(taskId) ?? []).map((occurrence) => occurrence.id));
-    const [taskGoalLinks, interactionEvents, blockers, checklistByTask] = await Promise.all([
+    const [taskGoalLinks, checklistByTask] = await Promise.all([
       this.context.listTaskGoalLinks(workspaceId, shownTaskIds),
-      this.context.listAvoidanceEvents(workspaceId, shownOccurrenceIds),
-      this.context.listRecentBlockers(workspaceId, shownOccurrenceIds),
       this.tasks.listChecklistsForContext(workspaceId, shownTaskIds),
     ]);
-    const eventTypesByOccurrence = new Map<string, string[]>();
-    for (const row of interactionEvents) {
-      if (!row.occurrenceId) continue;
-      const list = eventTypesByOccurrence.get(row.occurrenceId) ?? [];
-      list.push(row.eventType);
-      eventTypesByOccurrence.set(row.occurrenceId, list);
-    }
 
     const activeRow = topics.find((topic) => topic.status === "active") ?? null;
     const activeTopic: ActiveTopicState | null = activeRow ? { topicId: activeRow.id, clarificationCount: activeRow.clarificationCount, mode: activeRow.mode } : null;
@@ -96,10 +86,8 @@ export class TurnContextService {
       memoryMatches,
       settings,
       topics,
-      eventTypesByOccurrence,
-      blockers,
       pendingProposal: input.pendingGroup ? { createdAt: input.pendingGroup.createdAt, titles: input.pendingGroup.titles } : null,
-      focus: focusTaskId && input.focus ? { taskId: focusTaskId, action: input.focus.action } : null,
+      ...(focusTaskId ? { focus: { taskId: focusTaskId } } : {}),
     });
 
     return {

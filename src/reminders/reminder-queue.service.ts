@@ -3,18 +3,7 @@ import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { and, asc, eq, gt, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../database/database.service.js";
 import { JobQueueService } from "../queue/job-queue.service.js";
-import {
-  briefingDeliveries,
-  reminderDeliveries,
-  reminderRules,
-  taskChecklistItems,
-  taskEvents,
-  taskOccurrences,
-  tasks,
-  users,
-  userSettings,
-  workspaceMembers,
-} from "../database/schema.js";
+import { briefingDeliveries, reminderDeliveries, reminderRules, taskChecklistItems, taskOccurrences, tasks, users, userSettings, workspaceMembers } from "../database/schema.js";
 import { TelegramService } from "../telegram/telegram.service.js";
 import { classifyTelegramSendError } from "../telegram/telegram-send-outcome.js";
 import { reminderCardText } from "../telegram/telegram-ui.js";
@@ -271,18 +260,6 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         .update(reminderDeliveries)
         .set({ status: "sent", sentAt, telegramMessageId })
         .where(and(eq(reminderDeliveries.id, deliveryId), eq(reminderDeliveries.status, "processing")));
-      if (row.rule.purpose === "follow_up" && row.occurrence?.status === "in_progress" && row.rule.origin === "system") {
-        await this.database.db
-          .insert(taskEvents)
-          .values({
-            workspaceId: row.delivery.workspaceId,
-            taskId: row.task.id,
-            occurrenceId: row.occurrence.id,
-            eventType: "occurrence:result_check_sent",
-            createdAt: sentAt,
-          })
-          .catch((error) => logger.error("result-check event persistence failed", { occurrenceId: row.occurrence?.id, error: safeError(error) }));
-      }
       await this.scheduleNextCriticalEscalation(row, sentAt);
     } catch (error) {
       await this.recordSendFailure(deliveryId, row.delivery.attempts, nextAttempt, error);

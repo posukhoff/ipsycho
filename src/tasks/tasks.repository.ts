@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { isTerminalOccurrenceStatus } from "../core/types.js";
-import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, notExists, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, gt, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { tsQueryFor } from "../core/search-query.js";
 import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -364,49 +363,6 @@ export class TasksRepository {
    * event on it came from a person. One query finds them; the marker row it inserts makes the
    * same check drop out of the next scan, so an old backlog can never starve newer checks.
    */
-  async markIgnoredResultChecks(cutoff: Date, now = new Date(), limit = 200): Promise<number> {
-    const later = alias(taskEvents, "later");
-    const sentChecks = await this.database.db
-      .select({ workspaceId: taskEvents.workspaceId, taskId: taskEvents.taskId, occurrenceId: taskEvents.occurrenceId })
-      .from(taskEvents)
-      .innerJoin(taskOccurrences, and(eq(taskOccurrences.workspaceId, taskEvents.workspaceId), eq(taskOccurrences.id, taskEvents.occurrenceId)))
-      .where(
-        and(
-          eq(taskEvents.eventType, "occurrence:result_check_sent"),
-          lte(taskEvents.createdAt, cutoff),
-          eq(taskOccurrences.status, "in_progress"),
-          notExists(
-            this.database.db
-              .select({ one: sql`1` })
-              .from(later)
-              .where(
-                and(
-                  eq(later.workspaceId, taskEvents.workspaceId),
-                  eq(later.occurrenceId, taskEvents.occurrenceId),
-                  gt(later.createdAt, taskEvents.createdAt),
-                  or(eq(later.eventType, "occurrence:result_check_ignored"), isNotNull(later.actorUserId)),
-                ),
-              ),
-          ),
-        ),
-      )
-      .orderBy(asc(taskEvents.createdAt))
-      .limit(limit);
-    const byOccurrence = new Map<string, (typeof sentChecks)[number]>();
-    for (const sent of sentChecks) if (sent.occurrenceId && !byOccurrence.has(sent.occurrenceId)) byOccurrence.set(sent.occurrenceId, sent);
-    if (!byOccurrence.size) return 0;
-    await this.database.db.insert(taskEvents).values(
-      [...byOccurrence.values()].map((sent) => ({
-        workspaceId: sent.workspaceId,
-        taskId: sent.taskId,
-        occurrenceId: sent.occurrenceId,
-        eventType: "occurrence:result_check_ignored",
-        createdAt: now,
-      })),
-    );
-    return byOccurrence.size;
-  }
-
   async clearEventDetailsOlderThan(cutoff: Date, batchSize = CLEANUP_BATCH): Promise<number> {
     return drainInBatches(batchSize, async () => {
       const batch = this.database.db

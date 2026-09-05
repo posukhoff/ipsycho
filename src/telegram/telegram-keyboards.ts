@@ -27,20 +27,16 @@ export function startedTaskKeyboard(occurrenceId: string, locale: TelegramLocale
   const keyboard = new InlineKeyboard().text(label(locale, "done"), `occ:done:${occurrenceId}`).text(label(locale, "later"), `occ:resched:${occurrenceId}`).row();
   if (options.snooze)
     keyboard.text(t(locale, "snooze_15m_button"), `follow:snooze:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:snooze:1h:${occurrenceId}`).row();
-  keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
+  keyboard.text(label(locale, "more"), `occ:more:${occurrenceId}`);
   if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
   return keyboard;
 }
 
 /** The destructive actions live one tap deeper, behind an explicit label rather than "•••". */
-
-/** The destructive actions live one tap deeper, behind an explicit label rather than "•••". */
-export function taskMoreKeyboard(occurrenceId: string, status: TelegramOccurrenceStatus, recurring = false, taskId?: string, locale: TelegramLocale = "ru"): InlineKeyboard {
+export function taskMoreKeyboard(occurrenceId: string, recurring = false, taskId?: string, locale: TelegramLocale = "ru"): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  if (status === "in_progress") keyboard.text(label(locale, "check"), `occ:check:${occurrenceId}`).row();
   if (recurring) keyboard.text(label(locale, "skip"), `occ:skip:${occurrenceId}`).row();
   if (recurring && taskId) keyboard.text(label(locale, "pauseSeries"), `series:pause:${taskId}`).row();
-  if (status !== "in_progress") keyboard.text(label(locale, "stuck"), `occ:cant:${occurrenceId}`).row();
   return keyboard.text(label(locale, "cancel"), `occ:cancel:${occurrenceId}`).row().text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
@@ -76,24 +72,12 @@ export function quickRescheduleReasonText(code: QuickRescheduleReasonCode, local
   return null;
 }
 
-export function resultCheckKeyboard(occurrenceId: string, locale: TelegramLocale = "ru"): InlineKeyboard {
-  return new InlineKeyboard()
-    .text(label(locale, "in15"), `follow:result:15m:${occurrenceId}`)
-    .text(label(locale, "in1h"), `follow:result:1h:${occurrenceId}`)
-    .row()
-    .text(label(locale, "evening"), `follow:result:evening:${occurrenceId}`)
-    .text(label(locale, "noCheck"), `follow:result:none:${occurrenceId}`)
-    .row()
-    .text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
-}
-
 const BUTTON_LABELS = {
   ru: {
     start: "▶️ Начать",
     done: "✅ Готово",
     later: "🕒 Позже",
     more: "⚙️ Ещё",
-    stuck: "🧱 Застрял",
     check: "🔔 Проверить",
     skip: "⏭ Пропустить это",
     pauseSeries: "⏸ Поставить серию на паузу",
@@ -115,7 +99,6 @@ const BUTTON_LABELS = {
     done: "✅ Готово",
     later: "🕒 Пізніше",
     more: "⚙️ Ще",
-    stuck: "🧱 Застряг",
     check: "🔔 Перевірити",
     skip: "⏭ Пропустити це",
     pauseSeries: "⏸ Поставити серію на паузу",
@@ -137,7 +120,6 @@ const BUTTON_LABELS = {
     done: "✅ Done",
     later: "🕒 Later",
     more: "⚙️ More",
-    stuck: "🧱 Stuck",
     check: "🔔 Check",
     skip: "⏭ Skip this one",
     pauseSeries: "⏸ Pause the series",

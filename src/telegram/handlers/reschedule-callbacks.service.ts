@@ -18,7 +18,7 @@ import { ScreensService } from "./screens.service.js";
 const UUID = "[0-9a-f-]{36}";
 const QUICK_RESCHEDULE_CALLBACK = new RegExp(`^resched:(1h|evening|tomorrow|custom):(${UUID})$`);
 const QUICK_RESCHEDULE_REASON_CALLBACK = new RegExp(`^rr:(h|e|t):(t|d|e|o):(${UUID})$`);
-const FOLLOW_UP_CALLBACK = new RegExp(`^follow:(snooze|result):(15m|1h|evening|custom|none):(${UUID})$`);
+const FOLLOW_UP_CALLBACK = new RegExp(`^follow:snooze:(15m|1h|evening|custom):(${UUID})$`);
 
 /**
  * Moving a task in time, and repeating a reminder without moving the task. Both are journaled
@@ -159,26 +159,19 @@ export class RescheduleCallbacksService {
   private async followUp(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
     const match = FOLLOW_UP_CALLBACK.exec(ctx.callbackQuery.data);
-    const mode = match?.[1] as "snooze" | "result" | undefined;
-    const choice = match?.[2] as "15m" | "1h" | "evening" | "custom" | "none" | undefined;
-    const occurrenceId = match?.[3];
-    if (!mode || !choice || !occurrenceId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    const choice = match?.[1] as "15m" | "1h" | "evening" | "custom" | undefined;
+    const occurrenceId = match?.[2];
+    if (!choice || !occurrenceId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     try {
-      if (choice === "none") {
-        if (mode !== "result") return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-        await ctx.answerCallbackQuery({ text: t(locale, "followup_none_toast") });
-        await ctx.editMessageReplyMarkup({ reply_markup: startedTaskKeyboard(occurrenceId, locale) }).catch(() => undefined);
-        return;
-      }
       if (choice === "custom") {
-        await this.settings.setPendingInput(access.user.id, { kind: "follow_up_custom", occurrenceId, mode });
+        await this.settings.setPendingInput(access.user.id, { kind: "follow_up_custom", occurrenceId });
         await ctx.answerCallbackQuery({ text: t(locale, "followup_custom_toast") });
         await ctx.reply(t(locale, "followup_custom_prompt"), { reply_markup: new InlineKeyboard().text(t(locale, "not_now_button"), `occ:back:${occurrenceId}`) });
         return;
       }
-      const scheduled = await this.reminders.scheduleFollowUpChoice({ workspaceId: access.workspaceId, userId: access.user.id, occurrenceId, choice, mode });
+      const scheduled = await this.reminders.scheduleFollowUpChoice({ workspaceId: access.workspaceId, userId: access.user.id, occurrenceId, choice });
       if (!scheduled) return this.stale(ctx, "task_unavailable_toast");
-      await ctx.answerCallbackQuery({ text: t(locale, mode === "snooze" ? "snooze_reminder_toast" : "followup_updated_toast") });
+      await ctx.answerCallbackQuery({ text: t(locale, "snooze_reminder_toast") });
       const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
       const keyboard = context
         ? context.occurrence.status === "in_progress"
@@ -187,7 +180,7 @@ export class RescheduleCallbacksService {
         : new InlineKeyboard();
       await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => undefined);
     } catch (error) {
-      logger.error("follow-up callback failed", { occurrenceId, error: safeError(error) });
+      logger.error("snooze callback failed", { occurrenceId, error: safeError(error) });
       await ctx.answerCallbackQuery({ text: t(locale, "followup_failed_toast") }).catch(() => undefined);
     }
   }

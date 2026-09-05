@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { disposition, groupDisposition, isUndoable } from "../../.core-dist/ai-actions.js";
+import { disposition, groupDisposition } from "../../.core-dist/ai-actions.js";
 
 const base = { timezone: "Europe/Kyiv", reviewTime: "09:00" };
 const body = {
@@ -39,7 +39,6 @@ test("explicit reversible actions apply immediately, inferred ones wait for conf
     },
     { type: "set_task_state", target, state: "done", note: null },
     { type: "set_task_state", target, state: "started", note: null },
-    { type: "set_task_state", target, state: "seen", note: "нет доступа к CRM" },
     { type: "reschedule", target, when: body.when, recurrence: null, reason: null },
     { type: "set_reminder", target, mode: "replace", reminder: { kind: "offset", anchor: "start", minutes: -30, quiet: "respect" } },
     { type: "set_reminder", target, mode: "clear", reminder: null },
@@ -91,9 +90,6 @@ test("explicit reversible actions apply immediately, inferred ones wait for conf
       eventOffsets: null,
       plannedTaskOffsetMinutes: null,
       criticalPostDueMinutes: null,
-      seenNormalMinutes: null,
-      seenRequiredMinutes: null,
-      seenCriticalMinutes: null,
     },
   ];
   for (const row of rows) {
@@ -159,11 +155,4 @@ test("one message is one package: any confirm-level action holds the whole group
   assert.equal(groupDisposition([create, create]), "apply");
   assert.equal(groupDisposition([create, cancel]), "confirm");
   assert.equal(groupDisposition([]), "apply");
-});
-
-test("a group of only seen marks is not offered for undo", () => {
-  const seen = explicit({ type: "set_task_state", target, state: "seen", note: null });
-  const done = explicit({ type: "set_task_state", target, state: "done", note: null });
-  assert.equal(isUndoable([seen]), false);
-  assert.equal(isUndoable([seen, done]), true);
 });

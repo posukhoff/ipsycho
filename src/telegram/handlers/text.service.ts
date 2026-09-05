@@ -84,7 +84,7 @@ export class TextService {
     await this.processWithModel(ctx);
   }
 
-  private async processWithModel(ctx: TextContext, focus?: { occurrenceId: string; action: "reschedule" | "blocker" }): Promise<void> {
+  private async processWithModel(ctx: TextContext, focus?: { occurrenceId: string }): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
     try {
       const result = await this.withTyping(ctx, () =>
@@ -145,11 +145,6 @@ export class TextService {
         else await ctx.reply(t(locale, "rescheduled_text"));
         return;
       }
-      if (pending.kind === "blocker") {
-        await this.tasks.recordBlocker({ workspaceId: access.workspaceId, occurrenceId: pending.occurrenceId, actorUserId: access.user.id, details: ctx.message.text });
-        await this.processWithModel(ctx, { occurrenceId: pending.occurrenceId, action: "blocker" });
-        return;
-      }
       if (pending.kind === "follow_up_custom") {
         const intendedFor = parseCustomFollowUpInput(ctx.message.text, timezone, new Date());
         await this.reminders.scheduleCustomFollowUp({
@@ -157,7 +152,6 @@ export class TextService {
           userId: access.user.id,
           occurrenceId: pending.occurrenceId,
           intendedFor,
-          mode: pending.mode,
         });
         await ctx.reply(t(locale, "followup_done", { when: formatLocalDateTime(intendedFor, timezone, new Date()) }));
         return;
@@ -174,7 +168,7 @@ export class TextService {
       if (!parsed) {
         // Free text after the Reschedule button is the new time in the user's own words:
         // the model reads it with the task in focus instead of a strict format loop.
-        await this.processWithModel(ctx, { occurrenceId: pending.occurrenceId, action: "reschedule" });
+        await this.processWithModel(ctx, { occurrenceId: pending.occurrenceId });
         return;
       }
       const applied = await this.rescheduleCallbacks.applyReschedule(access, pending.occurrenceId, parsed.schedule, parsed.reason);
@@ -187,15 +181,12 @@ export class TextService {
         const count = await this.tasks.countOccurrenceEvents(access.workspaceId, pending.occurrenceId, "occurrence:rescheduled");
         if (count >= 2) {
           await ctx.reply(t(locale, "repeated_reschedule"), {
-            reply_markup: new InlineKeyboard()
-              .text(t(locale, "cant_start_button"), `occ:cant:${pending.occurrenceId}`)
-              .text(t(locale, "started_button"), `occ:start:${pending.occurrenceId}`),
+            reply_markup: new InlineKeyboard().text(t(locale, "started_button"), `occ:start:${pending.occurrenceId}`),
           });
         }
       }
     } catch (error) {
       logger.warn("pending input handling failed", { userId: access.user.id, kind: pending.kind, error: safeError(error) });
-      if (pending.kind === "blocker") return void (await ctx.reply(t(locale, "blocker_failed")));
       if (pending.kind === "reschedule") return void (await ctx.reply(t(locale, "resched_failed_text")));
       if (pending.kind === "timezone") return;
       await this.settings.setPendingInput(access.user.id, pending);

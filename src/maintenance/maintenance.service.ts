@@ -14,7 +14,6 @@ import { TelegramService } from "../telegram/telegram.service.js";
 import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
 import { TasksRepository } from "../tasks/tasks.repository.js";
-import { RESULT_CHECK_IGNORE_GRACE_MINUTES } from "../core/result-check.js";
 import { ReminderSchedulingService } from "../reminders/reminder-scheduling.service.js";
 import { ReminderQueueService } from "../reminders/reminder-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
@@ -56,28 +55,17 @@ export class MaintenanceService extends PeriodicService {
   protected async runTick(): Promise<void> {
     const now = new Date();
     const cutoff = new Date(now.getTime() - RAW_MESSAGE_RETENTION_MS);
-    const ignoredCheckCutoff = new Date(now.getTime() - RESULT_CHECK_IGNORE_GRACE_MINUTES * 60_000);
-    const [
-      messagesDeleted,
-      confirmationsExpired,
-      auditPayloadsCleared,
-      eventDetailsCleared,
-      accountsDeleted,
-      ignoredResultChecks,
-      fuzzyReviewsRebuilt,
-      eventsDeleted,
-      updatesDeleted,
-    ] = await Promise.all([
-      this.messages.deleteRawOlderThan(cutoff),
-      this.actions.cleanupExpiredConfirmations(now),
-      this.actions.cleanupExpiredAuditPayloads(now),
-      this.tasks.clearEventDetailsOlderThan(cutoff),
-      this.access.finalizeExpiredDeletions(now),
-      this.tasks.markIgnoredResultChecks(ignoredCheckCutoff, now),
-      this.reminders.reconcileFuzzyReviews(now),
-      this.tasks.deleteEventsOlderThan(new Date(now.getTime() - TASK_EVENT_RETENTION_DAYS * DAY_MS)),
-      this.deleteTelegramUpdatesOlderThan(new Date(now.getTime() - TELEGRAM_UPDATE_RETENTION_DAYS * DAY_MS)),
-    ]);
+    const [messagesDeleted, confirmationsExpired, auditPayloadsCleared, eventDetailsCleared, accountsDeleted, fuzzyReviewsRebuilt, eventsDeleted, updatesDeleted] =
+      await Promise.all([
+        this.messages.deleteRawOlderThan(cutoff),
+        this.actions.cleanupExpiredConfirmations(now),
+        this.actions.cleanupExpiredAuditPayloads(now),
+        this.tasks.clearEventDetailsOlderThan(cutoff),
+        this.access.finalizeExpiredDeletions(now),
+        this.reminders.reconcileFuzzyReviews(now),
+        this.tasks.deleteEventsOlderThan(new Date(now.getTime() - TASK_EVENT_RETENTION_DAYS * DAY_MS)),
+        this.deleteTelegramUpdatesOlderThan(new Date(now.getTime() - TELEGRAM_UPDATE_RETENTION_DAYS * DAY_MS)),
+      ]);
     // Topic rows may still be referenced by slightly newer assistant messages. Retention
     // therefore scrubs content instead of deleting the topic metadata/foreign-key target.
     const topicSummariesCleared = await this.context.scrubExpiredTopicSummaries(now);
@@ -91,7 +79,6 @@ export class MaintenanceService extends PeriodicService {
       auditPayloadsCleared ||
       eventDetailsCleared ||
       accountsDeleted ||
-      ignoredResultChecks ||
       fuzzyReviewsRebuilt ||
       eventsDeleted ||
       updatesDeleted
@@ -103,7 +90,6 @@ export class MaintenanceService extends PeriodicService {
         auditPayloadsCleared,
         eventDetailsCleared,
         accountsDeleted,
-        ignoredResultChecks,
         fuzzyReviewsRebuilt,
         eventsDeleted,
         updatesDeleted,

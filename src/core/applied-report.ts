@@ -30,7 +30,7 @@ export type AppliedReportItem =
       reason?: string | null;
       fromFuzzy?: string | null;
     }
-  | { kind: "occurrence"; title: string; operation: "done" | "start" | "skip" | "cancel" | "seen" | "record_blocker"; details?: string | null }
+  | { kind: "occurrence"; title: string; operation: "done" | "start" | "skip" | "cancel" }
   | { kind: "reminder"; title: string; mode: "add" | "replace" | "clear"; schedule: OccurrenceScheduleView | null; reminderAt: Date | null }
   | { kind: "series"; title: string; operation: "pause" | "resume" | "stop" | "cancel" | "edit" }
   | { kind: "goal_created"; title: string }
@@ -96,9 +96,9 @@ const IMPORTANCE_LABELS: Record<ReportLocale, Record<Importance, string>> = {
 };
 
 const OCCURRENCE_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "occurrence" }>["operation"], string>> = {
-  ru: { done: "✅ Выполнено", start: "▶️ Начато", skip: "⏭ Пропущено", cancel: "🚫 Отменено", seen: "👀 Увидено", record_blocker: "🧱 Блокер записан" },
-  uk: { done: "✅ Виконано", start: "▶️ Розпочато", skip: "⏭ Пропущено", cancel: "🚫 Скасовано", seen: "👀 Побачено", record_blocker: "🧱 Блокер записано" },
-  en: { done: "✅ Done", start: "▶️ Started", skip: "⏭ Skipped", cancel: "🚫 Cancelled", seen: "👀 Seen", record_blocker: "🧱 Blocker recorded" },
+  ru: { done: "✅ Выполнено", start: "▶️ Начато", skip: "⏭ Пропущено", cancel: "🚫 Отменено" },
+  uk: { done: "✅ Виконано", start: "▶️ Розпочато", skip: "⏭ Пропущено", cancel: "🚫 Скасовано" },
+  en: { done: "✅ Done", start: "▶️ Started", skip: "⏭ Skipped", cancel: "🚫 Cancelled" },
 };
 
 const SERIES_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "series" }>["operation"], string>> = {
@@ -323,7 +323,7 @@ function renderItem(item: Exclude<AppliedReportItem, { kind: "task_created" }>, 
       return extras.length ? `${head}\n${extras.join("\n")}` : head;
     }
     case "occurrence":
-      return `${OCCURRENCE_LABELS[locale][item.operation]}: «${item.title}»${item.operation === "record_blocker" && item.details?.trim() ? ` — ${item.details.trim()}` : ""}`;
+      return `${OCCURRENCE_LABELS[locale][item.operation]}: «${item.title}»`;
     case "reminder": {
       if (item.mode === "clear" || !item.reminderAt) return fill(copy.noReminders, { title: item.title });
       const timezone = item.schedule?.timezone;

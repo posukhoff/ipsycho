@@ -18,9 +18,7 @@ test("AI prompt protects user autonomy and prevents needless clarification", () 
   assert.match(prompt, /at most three provisional next steps/);
 });
 
-test("AI prompt keeps repeated deferral support practical and non-clinical", () => {
-  assert.match(prompt, /first help with the work itself/);
-  assert.match(prompt, /name the observable pattern only if the user opens that door/);
+test("AI prompt keeps its support practical and non-clinical", () => {
   assert.match(prompt, /propose habit mode once, as an experiment/);
   assert.match(prompt, /Do not diagnose, label personality/);
   assert.match(prompt, /immediate danger/);
@@ -79,7 +77,6 @@ test("AI prompt explains When, recurrence and the context hints", () => {
   assert.match(prompt, /tasksNote/);
   assert.match(prompt, /pendingProposal/);
   assert.match(prompt, /reschedule_requested/);
-  assert.match(prompt, /blocker_recorded/);
   assert.match(prompt, /habit_offer/);
   assert.match(prompt, /Anything not listed does not exist/);
 });

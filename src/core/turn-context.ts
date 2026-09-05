@@ -1,4 +1,3 @@
-import { assessAvoidance, deriveAvoidanceSignals } from "./avoidance.js";
 import { assignShortIds, buildRefMap, type RefMap } from "./ai-refs.js";
 import { habitOfferEligible } from "./habit-policy.js";
 import { recurrenceLabel } from "./recurrence-label.js";
@@ -18,11 +17,9 @@ export interface ModelTaskLine {
   importance?: Extract<Importance, "required" | "critical">;
   kind?: "event";
   repeat?: string;
-  state?: "in_progress" | "overdue" | "paused_series" | "seen";
+  state?: "in_progress" | "overdue" | "paused_series";
   goal?: string;
   checklist?: string;
-  blocker?: string;
-  avoided?: true;
 }
 
 export interface ModelGoalLine {
@@ -52,13 +49,10 @@ export interface ModelSettings {
     eventOffsetsMinutes: number[];
     plannedTaskOffsetMinutes: number;
     criticalPostDueMinutes: number;
-    seenNormalMinutes: number;
-    seenRequiredMinutes: number;
-    seenCriticalMinutes: number;
   };
 }
 
-export type ModelHint = { task: string; kind: "avoidance" } | { task: string; kind: "habit_offer" } | { task: string; kind: "reschedule_requested" | "blocker_recorded" };
+export type ModelHint = { task: string; kind: "habit_offer" } | { task: string; kind: "reschedule_requested" };
 
 export interface ModelContext {
   tasks: ModelTaskLine[];
@@ -157,9 +151,6 @@ export interface ContextSettingsRow {
   eventReminderOffsetsMinutes: unknown;
   plannedTaskReminderOffsetMinutes: number;
   criticalPostDueMinutes: number;
-  seenNormalMinutes: number;
-  seenRequiredMinutes: number;
-  seenCriticalMinutes: number;
 }
 
 export interface TaskSelection<T extends ContextTaskRow = ContextTaskRow> {
@@ -277,12 +268,8 @@ export interface TurnContextInput {
   memoryMatches: readonly ContextMemoryRow[];
   settings: ContextSettingsRow | null;
   topics: readonly ContextTopicRow[];
-  /** Interaction event types per occurrence id, oldest first, as `listAvoidanceEvents` returns them. */
-  eventTypesByOccurrence?: ReadonlyMap<string, readonly string[]>;
-  /** Newest first; the first entry per task becomes its `blocker` line. */
-  blockers?: ReadonlyArray<{ taskId: string; details: string | null }>;
   pendingProposal?: { createdAt: Date; titles: readonly string[] } | null;
-  focus?: { taskId: string; action: "reschedule" | "blocker" } | null;
+  focus?: { taskId: string } | null;
   /** The user's interface language; the context's own words (weekdays, notes) follow it so the payload does not pull the model toward Russian. */
   locale?: PresentationLocale;
 }
@@ -336,17 +323,10 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
     tasksByGoal.set(link.goalId, list);
   }
 
-  const blockerByTask = new Map<string, string>();
-  for (const blocker of input.blockers ?? []) {
-    const details = blocker.details?.trim();
-    if (details && !blockerByTask.has(blocker.taskId)) blockerByTask.set(blocker.taskId, details);
-  }
-
   const hints: ModelHint[] = [];
   const tasks: ModelTaskLine[] = taskEntries.map((task) => {
     const occurrences = input.occurrencesByTask.get(task.id) ?? [];
     const current = currentOccurrence(occurrences);
-    const signals = current ? deriveAvoidanceSignals(input.eventTypesByOccurrence?.get(current.id) ?? []) : null;
     const line: ModelTaskLine = {
       id: task.shortId,
       title: task.title,
@@ -356,18 +336,12 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
     if (task.kind === "event") line.kind = "event";
     const repeat = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate ?? null, locale);
     if (repeat) line.repeat = repeat;
-    const state = taskState(task, current, signals?.seenWithoutStart ?? 0, input.now);
+    const state = taskState(task, current, input.now);
     if (state) line.state = state;
     const goal = goalByTask.get(task.id);
     if (goal) line.goal = goal;
     const checklist = input.checklistByTask?.get(task.id);
     if (checklist?.length) line.checklist = `${checklist.filter((item) => item.done).length}/${checklist.length}`;
-    const blocker = blockerByTask.get(task.id);
-    if (blocker) line.blocker = blocker;
-    if (signals && assessAvoidance(signals).detected) {
-      line.avoided = true;
-      hints.push({ task: task.shortId, kind: "avoidance" });
-    }
     if (
       habitOfferEligible({
         recurring: Boolean(task.recurrenceRule),
@@ -382,7 +356,7 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
   });
   if (input.focus) {
     const focused = shortIdByTask.get(input.focus.taskId);
-    if (focused) hints.push({ task: focused, kind: input.focus.action === "reschedule" ? "reschedule_requested" : "blocker_recorded" });
+    if (focused) hints.push({ task: focused, kind: "reschedule_requested" });
   }
 
   const goals: ModelGoalLine[] = goalEntries.map((goal) => {
@@ -441,13 +415,12 @@ export function composeTurnContext(input: TurnContextInput): ComposedTurnContext
   return { model, refs };
 }
 
-function taskState(task: ContextTaskRow, current: ContextOccurrenceRow | null, seenWithoutStart: number, now: Date): ModelTaskLine["state"] | null {
+function taskState(task: ContextTaskRow, current: ContextOccurrenceRow | null, now: Date): ModelTaskLine["state"] | null {
   if (task.status === "paused") return "paused_series";
   if (!current) return null;
   if (current.status === "in_progress") return "in_progress";
   const due = current.dueAt ?? current.plannedEndAt ?? (current.plannedStartAt && task.timeMode === "point" ? current.plannedStartAt : null);
   if (current.overdue || (due !== null && due.getTime() < now.getTime())) return "overdue";
-  if (seenWithoutStart > 0) return "seen";
   return null;
 }
 
@@ -475,9 +448,6 @@ function modelSettings(settings: ContextSettingsRow, now: Date, locale: Presenta
       eventOffsetsMinutes: offsets,
       plannedTaskOffsetMinutes: settings.plannedTaskReminderOffsetMinutes,
       criticalPostDueMinutes: settings.criticalPostDueMinutes,
-      seenNormalMinutes: settings.seenNormalMinutes,
-      seenRequiredMinutes: settings.seenRequiredMinutes,
-      seenCriticalMinutes: settings.seenCriticalMinutes,
     },
   };
 }

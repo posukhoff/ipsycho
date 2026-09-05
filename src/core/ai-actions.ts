@@ -53,11 +53,6 @@ export function groupDisposition(actions: readonly ResolvedAction[]): ActionDisp
   return actions.some((action) => disposition(action) === "confirm") ? "confirm" : "apply";
 }
 
-/** Only `seen` records nothing the user would want to roll back. */
-export function isUndoable(actions: readonly ResolvedAction[]): boolean {
-  return !actions.every((action) => action.type === "set_task_state" && action.state === "seen");
-}
-
 /** The task, goal, memory item or settings operation an action is about; null for a new entity. */
 function actionTarget(action: ResolvedAction): string | null {
   switch (action.type) {

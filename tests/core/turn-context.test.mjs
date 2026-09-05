@@ -62,9 +62,6 @@ const settingsRow = {
   eventReminderOffsetsMinutes: [-60, -15],
   plannedTaskReminderOffsetMinutes: 0,
   criticalPostDueMinutes: 60,
-  seenNormalMinutes: 60,
-  seenRequiredMinutes: 30,
-  seenCriticalMinutes: 15,
   version: 7,
 };
 const compose = (overrides = {}) =>
@@ -131,7 +128,7 @@ test("under the limit every task is shown, sorted by time with unscheduled ones 
   );
 });
 
-test("goal, blocker, avoidance and focus collapse onto the task line and hints", () => {
+test("goal, checklist and focus collapse onto the task line and hints", () => {
   const tasks = [task("call", { recurrenceRule: "FREQ=WEEKLY;BYDAY=MO", importance: "required" }), task("report", { kind: "event" })];
   const occurrencesByTask = new Map([
     ["call", [occurrence("call", { plannedStartAt: new Date("2026-09-07T07:00:00Z") })]],
@@ -147,12 +144,7 @@ test("goal, blocker, avoidance and focus collapse onto the task line and hints",
       { taskId: "call", goalId: "goal-1" },
       { taskId: "missing", goalId: "goal-1" },
     ],
-    eventTypesByOccurrence: new Map([["occ-call", ["occurrence:rescheduled", "occurrence:rescheduled"]]]),
-    blockers: [
-      { taskId: "call", details: "жду ответа юриста" },
-      { taskId: "call", details: "старый блокер" },
-    ],
-    focus: { taskId: "report", action: "reschedule" },
+    focus: { taskId: "report" },
   });
   const [report, call] = model.tasks;
   assert.deepEqual(report, { id: "t1", title: "Задача report", when: "завтра 10:00–11:00", kind: "event" });
@@ -164,12 +156,9 @@ test("goal, blocker, avoidance and focus collapse onto the task line and hints",
     repeat: "каждую неделю: пн",
     goal: "g1",
     checklist: "2/5",
-    blocker: "жду ответа юриста",
-    avoided: true,
   });
   assert.deepEqual(model.goals, [{ id: "g1", title: "Запустить продукт", why: "чтобы", targetDate: "2026-10-01", tasks: ["t2"] }]);
   assert.deepEqual(model.hints, [
-    { task: "t2", kind: "avoidance" },
     { task: "t2", kind: "habit_offer" },
     { task: "t1", kind: "reschedule_requested" },
   ]);
@@ -178,24 +167,21 @@ test("goal, blocker, avoidance and focus collapse onto the task line and hints",
 });
 
 test("task state reflects the current occurrence and the series", () => {
-  const tasks = [task("running"), task("late"), task("paused", { status: "paused" }), task("seen")];
+  const tasks = [task("running"), task("late"), task("paused", { status: "paused" })];
   const occurrencesByTask = new Map([
     ["running", [occurrence("running", { status: "in_progress", plannedStartAt: new Date("2026-09-04T09:00:00Z") })]],
     ["late", [occurrence("late", { status: "open", dueAt: new Date("2026-09-04T08:00:00Z"), overdue: true })]],
     ["paused", [occurrence("paused", { plannedStartAt: new Date("2026-09-08T09:00:00Z") })]],
-    ["seen", [occurrence("seen", { status: "open", plannedStartAt: new Date("2026-09-04T12:00:00Z") })]],
   ]);
   const { model } = compose({
     tasks,
-    tasksTotal: 4,
+    tasksTotal: 3,
     occurrencesByTask,
-    eventTypesByOccurrence: new Map([["occ-seen", ["occurrence:seen"]]]),
   });
   assert.deepEqual(Object.fromEntries(model.tasks.map((line) => [line.title, line.state])), {
     "Задача running": "in_progress",
     "Задача late": "overdue",
     "Задача paused": "paused_series",
-    "Задача seen": "seen",
   });
   assert.equal(model.hints, undefined);
   assert.equal(model.tasks.find((line) => line.title === "Задача late").when, "до сегодня, 11:00");
@@ -252,9 +238,6 @@ test("settings are human-readable without a version and the context carries no I
       eventOffsetsMinutes: [-60, -15],
       plannedTaskOffsetMinutes: 0,
       criticalPostDueMinutes: 60,
-      seenNormalMinutes: 60,
-      seenRequiredMinutes: 30,
-      seenCriticalMinutes: 15,
     },
   });
   assert.equal("version" in model.settings, false);

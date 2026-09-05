@@ -4,9 +4,6 @@ export interface ReminderDefaultPreferences {
   eventOffsetsMinutes?: readonly number[];
   plannedTaskOffsetMinutes?: number;
   criticalPostDueMinutes?: number;
-  seenNormalMinutes?: number;
-  seenRequiredMinutes?: number;
-  seenCriticalMinutes?: number;
 }
 
 export function defaultReminderTemplates(
@@ -65,10 +62,4 @@ export function defaultReminderTemplates(
 
 export function shouldMergeReminderContacts(a: Date, b: Date, minimumMinutes = 15): boolean {
   return Math.abs(a.getTime() - b.getTime()) < minimumMinutes * 60_000;
-}
-
-export function seenFollowUpMinutes(importance: Importance, preferences: ReminderDefaultPreferences = {}): number {
-  if (importance === "critical") return preferences.seenCriticalMinutes ?? 15;
-  if (importance === "required") return preferences.seenRequiredMinutes ?? 30;
-  return preferences.seenNormalMinutes ?? 60;
 }

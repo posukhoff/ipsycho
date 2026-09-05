@@ -449,34 +449,6 @@ export class TasksService {
     });
   }
 
-  async recordInteraction(input: { workspaceId: string; occurrenceId: string; actorUserId: string; eventType: "occurrence:cant_start" }): Promise<void> {
-    const occurrence = await this.repository.findOccurrence(input.workspaceId, input.occurrenceId);
-    if (!occurrence) throw new DomainRuleError("occurrence not found");
-    await this.repository.recordEvent({
-      workspaceId: input.workspaceId,
-      taskId: occurrence.taskId,
-      occurrenceId: occurrence.id,
-      actorUserId: input.actorUserId,
-      eventType: input.eventType,
-    });
-  }
-
-  async recordBlocker(input: { workspaceId: string; occurrenceId: string; actorUserId: string; details: string }): Promise<void> {
-    const occurrence = await this.repository.findOccurrence(input.workspaceId, input.occurrenceId);
-    if (!occurrence) throw new DomainRuleError("occurrence not found");
-    const details = input.details.trim();
-    if (!details) throw new DomainRuleError("blocker cannot be empty");
-    await this.repository.recordEvent({
-      workspaceId: input.workspaceId,
-      taskId: occurrence.taskId,
-      occurrenceId: occurrence.id,
-      actorUserId: input.actorUserId,
-      eventType: "occurrence:blocker",
-      details,
-    });
-  }
-
-  /** Detail fields for a Telegram task card that are not on the task row itself. */
   async getTaskCardExtras(workspaceId: string, taskId: string): Promise<{ checklist: Array<{ text: string; done: boolean }>; goalTitle: string | null }> {
     const [checklist, goalTitle] = await Promise.all([this.repository.listChecklistForTasks(workspaceId, [taskId]), this.repository.findGoalTitleForTask(workspaceId, taskId)]);
     return { checklist: checklist.map((item) => ({ text: item.text, done: item.done })), goalTitle };

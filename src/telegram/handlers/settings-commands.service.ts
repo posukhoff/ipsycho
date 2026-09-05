@@ -65,9 +65,6 @@ export class SettingsCommandsService {
       eventOffsets: null,
       plannedTaskOffsetMinutes: null,
       criticalPostDueMinutes: null,
-      seenNormalMinutes: null,
-      seenRequiredMinutes: null,
-      seenCriticalMinutes: null,
       ...fields,
     };
     const scope = {
@@ -243,15 +240,6 @@ export class SettingsCommandsService {
     const parts = commandArgs(ctx.msg.text ?? "")
       .split(/\s+/u)
       .filter(Boolean);
-    if (parts[0] === "seen" && parts.length === 4) {
-      await this.applySettings(
-        ctx,
-        "reminder_defaults",
-        { seenNormalMinutes: Number(parts[1]), seenRequiredMinutes: Number(parts[2]), seenCriticalMinutes: Number(parts[3]) },
-        "rd_seen",
-      );
-      return;
-    }
     if (parts[0] === "event" && parts[1]) {
       const offsets = parts[1].split(",").map(Number);
       const sorted = [...offsets].sort((a, b) => a - b);

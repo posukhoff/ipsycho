@@ -85,15 +85,7 @@ export class SettingsService {
     return target;
   }
 
-  setReminderDefaults(input: {
-    userId: string;
-    eventOffsets?: number[];
-    plannedTaskOffsetMinutes?: number;
-    criticalPostDueMinutes?: number;
-    seenNormalMinutes?: number;
-    seenRequiredMinutes?: number;
-    seenCriticalMinutes?: number;
-  }): Promise<void> {
+  setReminderDefaults(input: { userId: string; eventOffsets?: number[]; plannedTaskOffsetMinutes?: number; criticalPostDueMinutes?: number }): Promise<void> {
     const { userId, ...fields } = input;
     return this.apply(userId, { operation: "reminder_defaults", ...fields });
   }

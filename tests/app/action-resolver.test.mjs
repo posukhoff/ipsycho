@@ -70,7 +70,7 @@ function makeDeps(overrides = {}) {
   return { deps, calls };
 }
 
-const setState = (over = {}) => ({ type: "set_task_state", intent: "explicit", task: { id: "t1" }, state: "done", note: null, scope: null, ...over });
+const setState = (over = {}) => ({ type: "set_task_state", intent: "explicit", task: { id: "t1" }, state: "done", scope: null, ...over });
 const rescheduleTo = (over = {}) => ({
   type: "reschedule",
   intent: "explicit",
@@ -207,7 +207,7 @@ test("a task without a date can be completed, cancelled or given a date — and 
     assert.deepEqual(result.issues, [], state);
     assert.deepEqual(result.resolved[0].target, { kind: "task", taskId: FUZZY, taskVersion: 2 }, state);
   }
-  for (const state of ["started", "seen", "skipped"]) {
+  for (const state of ["started", "skipped"]) {
     const result = await resolve([setState({ task: { id: "t3" }, state })]);
     assert.equal(onlyIssue(result).code, "fuzzy_no_occurrence", state);
     assert.equal(result.issues[0].kind, "domain", state);
@@ -287,9 +287,6 @@ test("a settings action carries the version the server just read, never one the 
     eventOffsets: null,
     plannedTaskOffsetMinutes: null,
     criticalPostDueMinutes: null,
-    seenNormalMinutes: null,
-    seenRequiredMinutes: null,
-    seenCriticalMinutes: null,
   };
   const result = await resolve([action]);
   assert.deepEqual(result.issues, []);
@@ -330,16 +327,10 @@ test("a package keeps resolving after one action fails, and every issue names it
   );
 });
 
-test("an explanation attached to a cancellation is dropped, not fatal", async () => {
-  // The model narrates why it cancels («объединено с t1»); a note only has a home with `seen`,
-  // and rejecting the package over that sentence used to kill an otherwise correct merge.
-  const result = await resolve([setState({ task: { id: "t1" }, state: "cancelled", note: "Объединено с задачей t2" })]);
+test("a cancellation of a task with no date closes the task itself", async () => {
+  const result = await resolve([setState({ task: { id: "t1" }, state: "cancelled" })]);
   assert.deepEqual(result.issues, []);
-  assert.equal(result.resolved[0].note, null);
-
-  const blocker = await resolve([setState({ task: { id: "t1" }, state: "seen", note: "жду ответа от банка" })]);
-  assert.deepEqual(blocker.issues, []);
-  assert.equal(blocker.resolved[0].note, "жду ответа от банка");
+  assert.equal(result.resolved[0].state, "cancelled");
 });
 
 test("an update that changes nothing is dropped when the message carries other work", async () => {

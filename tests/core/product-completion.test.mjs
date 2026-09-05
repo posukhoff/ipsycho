@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { morningDigestSections, briefingStillUseful } from "../../.core-dist/digest-policy.js";
-import { defaultResultCheckChoice, resultCheckDelayMinutes } from "../../.core-dist/result-check.js";
 import { habitOfferEligible } from "../../.core-dist/habit-policy.js";
 import { estimateAiCostUsd, aiBurstAllowed, shouldWarnMonthlySpend } from "../../.core-dist/ai-usage-policy.js";
 import { seriesOperationState } from "../../.core-dist/series-policy.js";
@@ -18,12 +17,6 @@ test("the morning digest separates priority from normal, and a briefing is never
   );
   assert.equal(briefingStillUseful("weekly", "2026-08-09", "2026-08-09"), true);
   assert.equal(briefingStillUseful("morning", "2026-08-09", "2026-08-10"), false);
-});
-
-test("result-check defaults stay conservative", () => {
-  assert.equal(defaultResultCheckChoice("critical"), "15m");
-  assert.equal(defaultResultCheckChoice("normal"), "1h");
-  assert.equal(resultCheckDelayMinutes("15m"), 15);
 });
 
 test("habit offer is at most once and only for recurring tasks", () => {

@@ -2,19 +2,20 @@ import { randomUUID } from "node:crypto";
 import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { Injectable } from "@nestjs/common";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
-import { seenFollowUpMinutes, shouldMergeReminderContacts } from "../core/reminder-defaults.js";
+import { shouldMergeReminderContacts } from "../core/reminder-defaults.js";
 import { isQuietAt } from "../core/quiet-hours.js";
 import { applyNotificationPolicy, planReminders, resolveReminderIntent, type ReminderRuleSpec } from "../core/reminder-planning.js";
-import { resultCheckDelayMinutes, type ResultCheckChoice } from "../core/result-check.js";
 import { localDateAndTimeToUtc, localDateAt, shiftLocalDate } from "../core/timezone.js";
 import { DatabaseService } from "../database/database.service.js";
-import { reminderDeliveries, reminderRules, taskEvents, taskOccurrences, tasks, userSettings, workspaceMembers, workspaces } from "../database/schema.js";
+import { reminderDeliveries, reminderRules, taskOccurrences, tasks, userSettings, workspaceMembers, workspaces } from "../database/schema.js";
 import { occurrenceProjectionFromRow, reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
 import { ReminderQueueService } from "./reminder-queue.service.js";
 import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
 
-export type FollowUpChoice = ResultCheckChoice | "custom";
+/** What the snooze buttons on a reminder card offer. */
+export type SnoozeChoice = "15m" | "1h" | "evening";
+export type FollowUpChoice = SnoozeChoice | "custom";
 
 @Injectable()
 export class ReminderSchedulingService {
@@ -93,24 +94,11 @@ export class ReminderSchedulingService {
     });
   }
 
-  async scheduleSeenFallback(input: { workspaceId: string; userId: string; occurrenceId: string; now?: Date }): Promise<string | null> {
-    const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
-    if (isTerminal(row.occurrence.status)) return null;
-    const now = input.now ?? new Date();
-    const minutes = seenFollowUpMinutes(row.task.importance, {
-      seenNormalMinutes: row.settings.seenNormalMinutes,
-      seenRequiredMinutes: row.settings.seenRequiredMinutes,
-      seenCriticalMinutes: row.settings.seenCriticalMinutes,
-    });
-    return this.scheduleSystemFollowUp({ ...input, intendedFor: new Date(now.getTime() + minutes * 60_000), now });
-  }
-
   async scheduleFollowUpChoice(input: {
     workspaceId: string;
     userId: string;
     occurrenceId: string;
     choice: Exclude<FollowUpChoice, "custom">;
-    mode: "snooze" | "result";
     now?: Date;
   }): Promise<string | null> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
@@ -119,23 +107,14 @@ export class ReminderSchedulingService {
     const intendedFor =
       input.choice === "evening"
         ? nextReferenceTime(now, row.settings.timezone, row.settings.eveningReferenceTime)
-        : new Date(now.getTime() + resultCheckDelayMinutes(input.choice) * 60_000);
-    if (input.mode === "result" && row.occurrence.status !== "in_progress") throw new Error("result check requires an in-progress occurrence");
+        : new Date(now.getTime() + (input.choice === "15m" ? 15 : 60) * 60_000);
     return this.scheduleSystemFollowUp({ ...input, intendedFor, now });
   }
 
-  async scheduleCustomFollowUp(input: {
-    workspaceId: string;
-    userId: string;
-    occurrenceId: string;
-    intendedFor: Date;
-    mode: "snooze" | "result";
-    now?: Date;
-  }): Promise<string | null> {
+  async scheduleCustomFollowUp(input: { workspaceId: string; userId: string; occurrenceId: string; intendedFor: Date; now?: Date }): Promise<string | null> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
     if (isTerminal(row.occurrence.status)) return null;
     if (input.intendedFor <= (input.now ?? new Date())) throw new Error("follow-up must be in the future");
-    if (input.mode === "result" && row.occurrence.status !== "in_progress") throw new Error("result check requires an in-progress occurrence");
     return this.scheduleSystemFollowUp({ ...input, now: input.now ?? new Date() });
   }
 
@@ -459,14 +438,7 @@ export class ReminderSchedulingService {
     return created.length;
   }
 
-  private async scheduleSystemFollowUp(input: {
-    workspaceId: string;
-    userId: string;
-    occurrenceId: string;
-    intendedFor: Date;
-    now: Date;
-    mode?: "snooze" | "result";
-  }): Promise<string> {
+  private async scheduleSystemFollowUp(input: { workspaceId: string; userId: string; occurrenceId: string; intendedFor: Date; now: Date }): Promise<string> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
     const rule: ReminderRuleSpec = { triggerKind: "exact", exactAt: input.intendedFor, purpose: "follow_up", quietPolicy: "respect", origin: "system" };
     const policy = applyNotificationPolicy({
@@ -534,15 +506,6 @@ export class ReminderSchedulingService {
         ...(policy.suppressedReason ? { suppressedReason: policy.suppressedReason } : {}),
         deduplicationKey: `${ruleId}:${row.occurrence.id}:${input.intendedFor.toISOString()}`,
       });
-      if (input.mode === "result") {
-        await tx.insert(taskEvents).values({
-          workspaceId: input.workspaceId,
-          taskId: row.task.id,
-          occurrenceId: row.occurrence.id,
-          actorUserId: input.userId,
-          eventType: "occurrence:result_check_scheduled",
-        });
-      }
     });
     if (!policy.suppressedReason)
       await this.queue.enqueue(deliveryId, policy.scheduledFor).catch((error) => {

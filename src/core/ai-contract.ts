@@ -110,9 +110,7 @@ export const SetTaskStateActionSchema = z
     type: z.literal("set_task_state"),
     ...ActionBase,
     task: RefSchema,
-    state: z.enum(["done", "started", "seen", "skipped", "cancelled"]),
-    /** With state=seen: the user's concrete blocker text. */
-    note: NullableText(1000),
+    state: z.enum(["done", "started", "skipped", "cancelled"]),
     scope: TaskScopeSchema.nullable(),
   })
   .strict();
@@ -198,9 +196,6 @@ export const SettingsActionSchema = z
     eventOffsets: z.array(z.number().int()).max(12).nullable(),
     plannedTaskOffsetMinutes: z.number().int().nullable(),
     criticalPostDueMinutes: z.number().int().nullable(),
-    seenNormalMinutes: z.number().int().nullable(),
-    seenRequiredMinutes: z.number().int().nullable(),
-    seenCriticalMinutes: z.number().int().nullable(),
   })
   .strict();
 
@@ -315,7 +310,7 @@ const ResolvedBase = { intent: IntentSchema, timezone: z.string(), reviewTime: L
 export const ResolvedActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("create_task"), ...ResolvedBase, body: TaskBodySchema, goal: z.object({ goalId: Uuid, goalVersion: Version }).strict().nullable() }).strict(),
   z.object({ type: z.literal("update_task"), ...ResolvedBase, taskId: Uuid, taskVersion: Version, patch: UpdateTaskPatchSchema }).strict(),
-  z.object({ type: z.literal("set_task_state"), ...ResolvedBase, target: TaskTargetSchema, state: SetTaskStateActionSchema.shape.state, note: NullableText(1000) }).strict(),
+  z.object({ type: z.literal("set_task_state"), ...ResolvedBase, target: TaskTargetSchema, state: SetTaskStateActionSchema.shape.state }).strict(),
   z
     .object({ type: z.literal("reschedule"), ...ResolvedBase, target: TaskTargetSchema, when: WhenSchema, recurrence: RecurrenceSchema.nullable(), reason: NullableText(500) })
     .strict(),

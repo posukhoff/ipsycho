@@ -10,13 +10,13 @@ import { SettingsService } from "../../settings/settings.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
 import { t } from "../copy/index.js";
 import { activeState, type ActiveAccess, type AppContext } from "../telegram-context.js";
-import { quickRescheduleKeyboard, resultCheckKeyboard, taskMoreKeyboard, terminalTaskText } from "../telegram-ui.js";
+import { quickRescheduleKeyboard, taskMoreKeyboard, terminalTaskText } from "../telegram-ui.js";
 import { ScreensService, type OccurrenceContext } from "./screens.service.js";
 import { logger } from "../../observability/logger.js";
 
 const UUID = "[0-9a-f-]{36}";
 const VIEW_CALLBACK = new RegExp(`^view:(occ|task):(${UUID})$`);
-const OCCURRENCE_CALLBACK = new RegExp(`^occ:(start|done|skip|cant|cancel|cancel_one|resched|more|back|check):(${UUID})$`);
+const OCCURRENCE_CALLBACK = new RegExp(`^occ:(start|done|skip|cancel|cancel_one|resched|more|back):(${UUID})$`);
 const SERIES_CALLBACK = new RegExp(`^series:(pause|resume|cancel):(${UUID})$`);
 const REMINDER_CALLBACK = new RegExp(`^rem:(cancel|mute):(${UUID})$`);
 const ACTION_CALLBACK = new RegExp(`^act:(confirm|cancel|undo):(${UUID})$`);
@@ -67,7 +67,7 @@ export class TaskCallbacksService {
 
       if (action === "more") {
         await ctx.answerCallbackQuery();
-        await ctx.editMessageReplyMarkup({ reply_markup: taskMoreKeyboard(occurrenceId, context.occurrence.status, recurring, context.task.id, locale) }).catch(() => undefined);
+        await ctx.editMessageReplyMarkup({ reply_markup: taskMoreKeyboard(occurrenceId, recurring, context.task.id, locale) }).catch(() => undefined);
         return;
       }
       if (action === "back") {
@@ -77,46 +77,11 @@ export class TaskCallbacksService {
         await ctx.editMessageReplyMarkup({ reply_markup: this.screens.occurrenceKeyboard(ctx, context) }).catch(() => undefined);
         return;
       }
-      if (action === "check") {
-        if (context.occurrence.status !== "in_progress") return void (await ctx.answerCallbackQuery({ text: t(locale, "not_in_progress_toast") }));
-        await ctx.answerCallbackQuery({ text: t(locale, "check_prompt_toast") });
-        await ctx.editMessageReplyMarkup({ reply_markup: resultCheckKeyboard(occurrenceId, locale) }).catch(() => undefined);
-        return;
-      }
       if (action === "resched") {
         await ctx.answerCallbackQuery({ text: t(locale, "resched_prompt_toast") });
         await ctx.editMessageReplyMarkup({ reply_markup: quickRescheduleKeyboard(occurrenceId, locale) }).catch(() => undefined);
         return;
       }
-      if (action === "cant") {
-        await this.tasks.recordInteraction({ workspaceId: access.workspaceId, occurrenceId, actorUserId: access.user.id, eventType: "occurrence:cant_start" });
-        await this.settings.setPendingInput(access.user.id, { kind: "blocker", occurrenceId });
-        await ctx.answerCallbackQuery({ text: t(locale, "blocker_prompt_toast") });
-        await ctx
-          .editMessageText(t(locale, "blocker_prompt_text", { title: context.task.title }), {
-            reply_markup: new InlineKeyboard()
-              .text(t(locale, "reschedule_button"), `occ:resched:${occurrenceId}`)
-              .text(t(locale, "cancel_task_button"), `occ:cancel:${occurrenceId}`)
-              .row()
-              .text(t(locale, "not_now_button"), `occ:back:${occurrenceId}`),
-          })
-          .catch(() => undefined);
-        return;
-      }
-      if (action === "cancel" && recurring) {
-        await ctx.answerCallbackQuery({ text: t(locale, "cancel_what_toast") });
-        await ctx
-          .editMessageReplyMarkup({
-            reply_markup: new InlineKeyboard()
-              .text(t(locale, "cancel_one_button"), `occ:cancel_one:${occurrenceId}`)
-              .text(t(locale, "cancel_series_button"), `series:cancel:${context.task.id}`)
-              .row()
-              .text(t(locale, "back_button"), `occ:back:${occurrenceId}`),
-          })
-          .catch(() => undefined);
-        return;
-      }
-
       const state = action === "start" ? "started" : action === "done" ? "done" : action === "skip" ? "skipped" : "cancelled";
       const applied = await this.applyState(access, context, state);
       await ctx.answerCallbackQuery({
@@ -159,7 +124,6 @@ export class TaskCallbacksService {
         timezone: context.occurrence.timezone,
       },
       state,
-      note: null,
     };
     return this.actions.applyResolved([action], { workspaceId: access.workspaceId, actorUserId: access.user.id, recipientUserId: access.user.id });
   }

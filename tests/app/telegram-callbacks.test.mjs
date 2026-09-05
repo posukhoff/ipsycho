@@ -14,7 +14,6 @@ import {
   quickRescheduleKeyboard,
   quickRescheduleReasonKeyboard,
   remindersKeyboard,
-  resultCheckKeyboard,
   screenFooterKeyboard,
   settingsKeyboard,
   startedTaskKeyboard,
@@ -54,10 +53,10 @@ const MULTI_GROUP = groupOf([listRow("Позвонить маме", OCCURRENCE_I
 // Every pattern the bot registers. A generated payload that matches none of them is a dead button.
 const ROUTES = [
   /^view:(occ|task):[0-9a-f-]{36}$/,
-  /^occ:(start|done|skip|cant|cancel|cancel_one|resched|more|back|check):[0-9a-f-]{36}$/,
+  /^occ:(start|done|skip|cancel|cancel_one|resched|more|back):[0-9a-f-]{36}$/,
   /^resched:(1h|evening|tomorrow|custom):[0-9a-f-]{36}$/,
   /^rr:(h|e|t):(t|d|e|o):[0-9a-f-]{36}$/,
-  /^follow:(snooze|result):(15m|1h|evening|custom|none):[0-9a-f-]{36}$/,
+  /^follow:snooze:(15m|1h|evening|custom):[0-9a-f-]{36}$/,
   /^series:(pause|resume|cancel):[0-9a-f-]{36}$/,
   /^rem:(cancel|mute):[0-9a-f-]{36}$/,
   /^act:(confirm|cancel|undo):[0-9a-f-]{36}$/,
@@ -88,10 +87,9 @@ const ROUTES = [
 const KEYBOARDS = {
   taskKeyboard: taskKeyboard(OCCURRENCE_ID, "open", "ru", { snooze: true, mute: true }),
   startedTaskKeyboard: startedTaskKeyboard(OCCURRENCE_ID, "uk", { snooze: true, mute: true }),
-  taskMoreKeyboard: taskMoreKeyboard(OCCURRENCE_ID, "in_progress", true, TASK_ID, "en"),
+  taskMoreKeyboard: taskMoreKeyboard(OCCURRENCE_ID, true, TASK_ID, "en"),
   quickRescheduleKeyboard: quickRescheduleKeyboard(OCCURRENCE_ID, "ru"),
   quickRescheduleReasonKeyboard: quickRescheduleReasonKeyboard(OCCURRENCE_ID, "tomorrow", "ru"),
-  resultCheckKeyboard: resultCheckKeyboard(OCCURRENCE_ID, "ru"),
   taskDetailKeyboard: taskDetailKeyboard(OCCURRENCE_ID, "open", "ru"),
   fuzzyTaskDetailKeyboard: fuzzyTaskDetailKeyboard("ru"),
   remindersKeyboard: remindersKeyboard([{ deliveryId: OCCURRENCE_ID, title: "Позвонить", when: "сегодня 10:00" }], "ru"),

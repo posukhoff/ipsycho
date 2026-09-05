@@ -37,7 +37,7 @@ const actions = {
     task: { id: "t1" },
     patch: { title: "Новое имя", why: null, nextAction: null, context: null, checklist: null, importance: null, habit: null },
   },
-  set_task_state: { type: "set_task_state", intent: "explicit", task: { id: "t2" }, state: "done", note: null, scope: null },
+  set_task_state: { type: "set_task_state", intent: "explicit", task: { id: "t2" }, state: "done", scope: null },
   reschedule: {
     type: "reschedule",
     intent: "explicit",
@@ -72,9 +72,6 @@ const actions = {
     eventOffsets: null,
     plannedTaskOffsetMinutes: null,
     criticalPostDueMinutes: null,
-    seenNormalMinutes: null,
-    seenRequiredMinutes: null,
-    seenCriticalMinutes: null,
   },
 };
 
@@ -182,7 +179,6 @@ test("ResolvedActionSchema accepts a resolved create_task and set_task_state", (
     type: "set_task_state",
     ...base,
     state: "done",
-    note: null,
     target: {
       kind: "occurrence",
       taskId: "00000000-0000-4000-8000-000000000001",
@@ -193,7 +189,7 @@ test("ResolvedActionSchema accepts a resolved create_task and set_task_state", (
     },
   });
   assert.equal(done.target.kind, "occurrence");
-  assert.equal(ResolvedActionSchema.safeParse({ type: "set_task_state", ...base, state: "done", note: null, task: { id: "t1" } }).success, false);
+  assert.equal(ResolvedActionSchema.safeParse({ type: "set_task_state", ...base, state: "done", task: { id: "t1" } }).success, false);
 });
 
 test("DeepSeek manual JSON contract carries every action array and intent", () => {

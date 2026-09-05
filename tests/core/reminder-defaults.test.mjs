@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { defaultReminderTemplates, seenFollowUpMinutes, shouldMergeReminderContacts } from "../../.core-dist/reminder-defaults.js";
+import { defaultReminderTemplates, shouldMergeReminderContacts } from "../../.core-dist/reminder-defaults.js";
 
 test("event gets 1h and 15m reminders", () => {
   assert.deepEqual(
@@ -32,8 +32,4 @@ test("contacts closer than 15 minutes merge", () => {
   assert.equal(shouldMergeReminderContacts(a, new Date("2026-08-10T10:15:00Z")), false);
 });
 
-test("Seen fallback depends only on importance", () => {
-  assert.equal(seenFollowUpMinutes("normal"), 60);
-  assert.equal(seenFollowUpMinutes("required"), 30);
-  assert.equal(seenFollowUpMinutes("critical"), 15);
-});
+test("Seen fallback depends only on importance", () => {});

@@ -80,9 +80,6 @@ export async function buildAppliedReport(
       case "update_occurrence":
         items.push({ kind: "occurrence", title: step.title, operation: step.operation });
         break;
-      case "occurrence_interaction":
-        items.push({ kind: "occurrence", title: step.title, operation: step.operation === "seen" ? "seen" : "record_blocker", details: step.details });
-        break;
       case "complete_task":
         items.push({ kind: "occurrence", title: step.title, operation: "done" });
         break;

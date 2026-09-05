@@ -3,7 +3,7 @@ import { Injectable, type OnApplicationBootstrap } from "@nestjs/common";
 import { ResolvedActionSchema, type AiAction, type ResolvedAction, type ResolvedActionOf, type TaskTarget } from "../core/ai-contract.js";
 import { AI_ACTION_TYPES } from "../core/ai-contract.js";
 import { ACTION_CONFIRMATION_TTL_MS, ACTION_UNDO_TTL_MS, actionExpiry } from "../core/action-lifecycle.js";
-import { groupDisposition, isUndoable, type ActionIssue } from "../core/ai-actions.js";
+import { groupDisposition, type ActionIssue } from "../core/ai-actions.js";
 import type { RefMap } from "../core/ai-refs.js";
 import { rescheduledDefinition, rescheduledOccurrenceStatus } from "../core/reschedule.js";
 import { localDateAndTimeToUtc } from "../core/timezone.js";
@@ -48,7 +48,6 @@ export interface ProposedActionsResult {
   applied?: {
     groupId: string;
     /** False for interaction-only actions such as Seen that have no reversible state transition. */
-    undoable?: boolean;
     count: number;
     titles: string[];
     /** Persisted facts for the user-facing applied report. */
@@ -205,7 +204,6 @@ export class ActionsService implements OnApplicationBootstrap {
       groupId,
       count: actions.length,
       titles: result.steps.map(stepTitle).filter((title): title is string => Boolean(title)),
-      undoable: isUndoable(actions),
       items,
     };
   }
@@ -586,15 +584,6 @@ export class ActionsService implements OnApplicationBootstrap {
         this.tasks.reconcileRecurringTask(scope.workspaceId, taskId, now).catch((error) => logger.error("series reconciliation deferred", { taskId, error: safeError(error) })),
       ),
     );
-    await Promise.all(
-      result.steps
-        .filter((step): step is Extract<ActionGroupStepResult, { kind: "occurrence_interaction" }> => step.kind === "occurrence_interaction" && step.operation === "seen")
-        .map((step) =>
-          this.reminders
-            .scheduleSeenFallback({ workspaceId: scope.workspaceId, userId: scope.recipientUserId, occurrenceId: step.occurrenceId, now })
-            .catch((error) => logger.error("seen fallback deferred", { occurrenceId: step.occurrenceId, error: safeError(error) })),
-        ),
-    );
     void actions;
   }
 }
@@ -636,10 +625,7 @@ function taskStateStep(action: ResolvedActionOf<"set_task_state">): ActionGroupS
   }
   if (target.kind !== "occurrence") throw new InvalidAiActionError("a task without a date has no occurrence to change", "fuzzy_no_occurrence");
   if (action.state === "started") return { kind: "update_occurrence", occurrenceId: target.occurrenceId, expectedVersion: target.occurrenceVersion, operation: "start" };
-  if (action.state === "skipped") return { kind: "update_occurrence", occurrenceId: target.occurrenceId, expectedVersion: target.occurrenceVersion, operation: "skip" };
-  return action.note?.trim()
-    ? { kind: "occurrence_interaction", occurrenceId: target.occurrenceId, expectedVersion: target.occurrenceVersion, operation: "record_blocker", details: action.note.trim() }
-    : { kind: "occurrence_interaction", occurrenceId: target.occurrenceId, expectedVersion: target.occurrenceVersion, operation: "seen" };
+  return { kind: "update_occurrence", occurrenceId: target.occurrenceId, expectedVersion: target.occurrenceVersion, operation: "skip" };
 }
 
 function stepTitle(step: ActionGroupStepResult): string | null {

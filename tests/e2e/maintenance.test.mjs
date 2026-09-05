@@ -60,40 +60,6 @@ after(async () => {
   await database.onApplicationShutdown();
 });
 
-test("markIgnoredResultChecks handles a backlog larger than one page and never re-marks a check", async () => {
-  const scope = await fixture();
-  const sentAt = new Date(Date.now() - 2 * 60 * 60_000);
-  const occurrenceIds = [];
-  for (let index = 0; index < 250; index += 1) {
-    const { taskId } = await createTask(scope, `Задача ${index}`);
-    const { rows } = await database.pool.query("select id from task_occurrences where task_id=$1", [taskId]);
-    const occurrenceId = rows[0].id;
-    occurrenceIds.push(occurrenceId);
-    await database.pool.query("update task_occurrences set status='in_progress' where id=$1", [occurrenceId]);
-    await database.pool.query("insert into task_events(workspace_id, task_id, occurrence_id, event_type, created_at) values ($1, $2, $3, 'occurrence:result_check_sent', $4)", [
-      scope.workspaceId,
-      taskId,
-      occurrenceId,
-      sentAt,
-    ]);
-  }
-  // One check was answered by the user: a later event with an actor.
-  await database.pool.query(
-    "insert into task_events(workspace_id, task_id, occurrence_id, actor_user_id, event_type) select workspace_id, task_id, id, $2, 'occurrence:seen' from task_occurrences where id=$1",
-    [occurrenceIds[0], scope.userId],
-  );
-
-  const cutoff = new Date(Date.now() - 60 * 60_000);
-  const first = await tasksRepository.markIgnoredResultChecks(cutoff, new Date(), 200);
-  const second = await tasksRepository.markIgnoredResultChecks(cutoff, new Date(), 200);
-  const third = await tasksRepository.markIgnoredResultChecks(cutoff, new Date(), 200);
-  assert.equal(first, 200);
-  assert.equal(second, 49);
-  assert.equal(third, 0);
-  const { rows } = await database.pool.query("select count(*)::int as count from task_events where event_type='occurrence:result_check_ignored'");
-  assert.equal(rows[0].count, 249);
-});
-
 test("retention cleanups run in bounded batches and report the total", async () => {
   const scope = await fixture();
   const old = new Date(Date.now() - 100 * 24 * 60 * 60_000);

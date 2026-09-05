@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, inArray, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { tsQueryFor } from "../core/search-query.js";
 import { CLEANUP_BATCH, drainInBatches } from "../database/batched.js";
 import { DatabaseService } from "../database/database.service.js";
-import { conversationTopics, goals, memoryItems, messages, taskEvents, taskGoals, tasks } from "../database/schema.js";
+import { conversationTopics, goals, memoryItems, messages, taskGoals, tasks } from "../database/schema.js";
 
 @Injectable()
 export class ContextRepository {
@@ -315,39 +315,5 @@ export class ContextRepository {
       .select()
       .from(taskGoals)
       .where(and(eq(taskGoals.workspaceId, workspaceId), inArray(taskGoals.taskId, [...taskIds])));
-  }
-
-  async listAvoidanceEvents(workspaceId: string, occurrenceIds: readonly string[]) {
-    if (!occurrenceIds.length) return [];
-    return this.database.db
-      .select({
-        occurrenceId: taskEvents.occurrenceId,
-        eventType: taskEvents.eventType,
-        createdAt: taskEvents.createdAt,
-      })
-      .from(taskEvents)
-      .where(
-        and(
-          eq(taskEvents.workspaceId, workspaceId),
-          inArray(taskEvents.occurrenceId, [...occurrenceIds]),
-          inArray(taskEvents.eventType, ["occurrence:rescheduled", "occurrence:seen", "occurrence:in_progress", "occurrence:result_check_ignored"]),
-        ),
-      )
-      .orderBy(asc(taskEvents.createdAt));
-  }
-
-  async listRecentBlockers(workspaceId: string, occurrenceIds: readonly string[], limit = 8) {
-    if (!occurrenceIds.length) return [];
-    return this.database.db
-      .select({
-        occurrenceId: taskEvents.occurrenceId,
-        taskId: taskEvents.taskId,
-        details: taskEvents.details,
-        createdAt: taskEvents.createdAt,
-      })
-      .from(taskEvents)
-      .where(and(eq(taskEvents.workspaceId, workspaceId), inArray(taskEvents.occurrenceId, [...occurrenceIds]), eq(taskEvents.eventType, "occurrence:blocker")))
-      .orderBy(desc(taskEvents.createdAt))
-      .limit(limit);
   }
 }

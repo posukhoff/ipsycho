@@ -49,7 +49,6 @@ export type ChatProcessResult =
 
 export interface ChatFocus {
   occurrenceId: string;
-  action: "reschedule" | "blocker";
 }
 
 interface TurnScope {
@@ -494,7 +493,7 @@ export class ChatService {
         kind: "ok",
         text: renderTurn(turn.reply, turn.question, MODEL_REPLY_MAX),
         ...(report ? { report } : {}),
-        ...(actionResult.applied && actionResult.applied.undoable !== false ? { appliedGroupId: actionResult.applied.groupId } : {}),
+        ...(actionResult.applied ? { appliedGroupId: actionResult.applied.groupId } : {}),
         ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId, pendingTitles: actionResult.pending.titles } : {}),
         ...(supersededPendingGroupId ? { supersededPendingGroupId } : {}),
         appliedCount: actionResult.applied?.count ?? 0,
@@ -570,7 +569,7 @@ export class ChatService {
         kind: "ok",
         text: confirmationCopy(input.language).confirmed,
         ...(report ? { report } : {}),
-        ...(applied.undoable !== false ? { appliedGroupId: applied.groupId } : {}),
+        appliedGroupId: applied.groupId,
         appliedCount: applied.count,
         pendingCount: 0,
         warnings: [],
