@@ -62,7 +62,7 @@ export const GoalScopeSchema = z.enum(["active", "paused", "completed"]);
 
 /**
  * Paging is offset-based because the domain reads the whole set and narrows in memory
- * (`listGroupedForTelegram`), so a cursor would have nothing stable to point at.
+ * (`listGrouped`), so a cursor would have nothing stable to point at.
  * The app asks for larger pages than the bot's eight lines: it renders an infinite list.
  */
 export const DEFAULT_PAGE_SIZE = 30;

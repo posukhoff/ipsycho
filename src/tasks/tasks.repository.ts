@@ -331,6 +331,78 @@ export class TasksRepository {
       .orderBy(asc(taskOccurrences.plannedStartAt), asc(taskOccurrences.dueAt));
   }
 
+  /**
+   * Every date of one task, terminal ones included. `listActiveOccurrencesForTasks` answers what a
+   * list line may act on; a task screen has to show the series as it actually stands, including the
+   * dates that were skipped or cancelled, or «раскрыть повтор» describes a different series.
+   */
+  async listOccurrencesForTask(workspaceId: string, taskId: string, limit = 200) {
+    return this.database.db
+      .select()
+      .from(taskOccurrences)
+      .where(and(eq(taskOccurrences.workspaceId, workspaceId), eq(taskOccurrences.taskId, taskId)))
+      .orderBy(
+        sql`coalesce(${taskOccurrences.plannedStartAt}, ${taskOccurrences.dueAt}) asc nulls last`,
+        asc(taskOccurrences.plannedLocalDate),
+        asc(taskOccurrences.dueLocalDate),
+        asc(taskOccurrences.id),
+      )
+      .limit(limit);
+  }
+
+  /** The journal of one task, newest first: `task_events`, with the actor and any stored details. */
+  async listTaskEvents(workspaceId: string, taskId: string, limit = 50) {
+    return this.database.db
+      .select()
+      .from(taskEvents)
+      .where(and(eq(taskEvents.workspaceId, workspaceId), eq(taskEvents.taskId, taskId)))
+      .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
+      .limit(limit);
+  }
+
+  /**
+   * When each of these series was last paused. `tasks` keeps no `paused_at` column and adding one
+   * would be a migration; the journal already records the moment, so the screen reads it there.
+   */
+  async findSeriesPausedAt(workspaceId: string, taskIds: readonly string[]): Promise<Map<string, Date>> {
+    if (!taskIds.length) return new Map();
+    const rows = await this.database.db
+      .select({ taskId: taskEvents.taskId, pausedAt: sql<Date>`max(${taskEvents.createdAt})` })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.workspaceId, workspaceId), inArray(taskEvents.taskId, [...taskIds]), eq(taskEvents.eventType, "series:pause")))
+      .groupBy(taskEvents.taskId);
+    return new Map(rows.flatMap((row) => (row.pausedAt ? [[row.taskId, new Date(row.pausedAt)] as const] : [])));
+  }
+
+  /** The active reminder rules of one task, each with the next delivery still queued for it. */
+  async listReminderRulesForTask(workspaceId: string, taskId: string) {
+    const rules = await this.database.db
+      .select()
+      .from(reminderRules)
+      .where(and(eq(reminderRules.workspaceId, workspaceId), eq(reminderRules.taskId, taskId), eq(reminderRules.active, true)))
+      .orderBy(asc(reminderRules.createdAt), asc(reminderRules.id));
+    if (!rules.length) return [];
+    const deliveries = await this.database.db
+      .select({ reminderRuleId: reminderDeliveries.reminderRuleId, nextAt: sql<Date>`min(${reminderDeliveries.scheduledFor})` })
+      .from(reminderDeliveries)
+      .where(and(eq(reminderDeliveries.workspaceId, workspaceId), eq(reminderDeliveries.taskId, taskId), eq(reminderDeliveries.status, "pending")))
+      .groupBy(reminderDeliveries.reminderRuleId);
+    const nextByRule = new Map(deliveries.flatMap((row) => (row.nextAt ? [[row.reminderRuleId, new Date(row.nextAt)] as const] : [])));
+    return rules.map((rule) => ({ rule, nextAt: nextByRule.get(rule.id) ?? null }));
+  }
+
+  /**
+   * The tasks one action group created. A write that answers with the row it wrote needs the id,
+   * and `tasks.source_action_group_id` is already recorded and indexed for exactly this question.
+   */
+  async listTasksForActionGroup(workspaceId: string, groupId: string) {
+    return this.database.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.sourceActionGroupId, groupId)))
+      .orderBy(asc(tasks.createdAt), asc(tasks.id));
+  }
+
   async findTask(workspaceId: string, taskId: string) {
     const [row] = await this.database.db
       .select()
@@ -456,6 +528,8 @@ export class TasksRepository {
     nextTaskStatus?: "active" | "paused" | "closed" | "cancelled";
     actorUserId?: string;
     eventType: string;
+    /** The user's own words about the change — a blocker note. Journalled, never shown elsewhere. */
+    details?: string;
     patch?: Partial<typeof taskOccurrences.$inferInsert>;
   }) {
     return this.database.db.transaction(async (tx) => {
@@ -503,6 +577,7 @@ export class TasksRepository {
         occurrenceId: updated.id,
         ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
         eventType: input.eventType,
+        ...(input.details?.trim() ? { details: input.details.trim() } : {}),
       });
       return updated;
     });

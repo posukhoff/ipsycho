@@ -14,8 +14,8 @@ export class ContextService {
    * Goals for one filter. The repository already returns active, paused and completed together,
    * so the filter is applied here rather than as a third query shape.
    */
-  async goalsOverview(workspaceId: string, status?: "active" | "paused" | "completed") {
-    const rows = await this.repository.listGoalsWithTasks(workspaceId);
+  async goalsOverview(workspaceId: string, status?: "active" | "paused" | "completed", limit?: number) {
+    const rows = await this.repository.listGoalsWithTasks(workspaceId, limit);
     return status ? rows.filter((row) => row.goal.status === status) : rows;
   }
 
@@ -139,5 +139,20 @@ export class ContextService {
 
   findGoal(workspaceId: string, goalId: string) {
     return this.repository.findGoal(workspaceId, goalId);
+  }
+
+  /** One goal with its active tasks, addressed by id rather than found inside the capped overview. */
+  findGoalWithTasks(workspaceId: string, goalId: string) {
+    return this.repository.findGoalWithTasks(workspaceId, goalId);
+  }
+
+  /** The goal a task is attached to, with the version an unlink write has to carry. */
+  findGoalForTask(workspaceId: string, taskId: string) {
+    return this.repository.findGoalForTask(workspaceId, taskId);
+  }
+
+  /** The goals one action group created, so a create can answer with the row it actually wrote. */
+  listGoalsForActionGroup(workspaceId: string, groupId: string) {
+    return this.repository.listGoalsForActionGroup(workspaceId, groupId);
   }
 }

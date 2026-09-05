@@ -74,7 +74,7 @@ export class ScreensService {
   async tasks_(ctx: AppContext, edit = false, scope: TaskScope = DEFAULT_TASK_SCOPE, page = 0): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
     const localDate = localDateAt(new Date(), settings.timezone);
-    const { groups, counts, pausedCount } = await this.tasks.listGroupedForTelegram(access.workspaceId, { scope, localDate });
+    const { groups, counts, pausedCount } = await this.tasks.listGrouped(access.workspaceId, { scope, localDate });
     const view = paginate(groups, page, PAGE_SIZE);
     const keyboard = taskListKeyboard(view.items, locale, {
       source: "tasks",
@@ -132,8 +132,8 @@ export class ScreensService {
     const localDate = localDateAt(new Date(), settings.timezone);
     const groups =
       source === "today"
-        ? (await this.tasks.listTodayGroupedForTelegram(access.workspaceId, localDate)).groups
-        : (await this.tasks.listGroupedForTelegram(access.workspaceId, { scope: "all", localDate })).groups;
+        ? (await this.tasks.listTodayGrouped(access.workspaceId, localDate)).groups
+        : (await this.tasks.listGrouped(access.workspaceId, { scope: "all", localDate })).groups;
     const group = groups.find((candidate) => candidate.rows.some((row) => (row.occurrence?.id ?? row.task.id) === key));
     if (!group) return false;
     await this.present(ctx, taskGroupText(group, locale), taskGroupKeyboard(group, source, locale, scope), true);
@@ -164,7 +164,7 @@ export class ScreensService {
     const now = new Date();
     const localDate = localDateAt(now, settings.timezone);
     const [{ groups, staleCount }, completed] = await Promise.all([
-      this.tasks.listTodayGroupedForTelegram(access.workspaceId, localDate),
+      this.tasks.listTodayGrouped(access.workspaceId, localDate),
       this.tasks.listCompletedTodayForTelegram(access.workspaceId, localDate),
     ]);
     const view = paginate(groups, page, PAGE_SIZE);

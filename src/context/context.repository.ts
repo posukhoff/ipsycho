@@ -325,6 +325,46 @@ export class ContextRepository {
     return row ?? null;
   }
 
+  /**
+   * One goal with its active tasks, addressed by id. `listGoalsWithTasks` reads the newest thirty
+   * and the overview narrows in memory, so a goal past that cap is invisible to it — acceptable for
+   * a list, not for a screen the user navigated to by name.
+   */
+  async findGoalWithTasks(workspaceId: string, goalId: string) {
+    const goal = await this.findGoal(workspaceId, goalId);
+    if (!goal) return null;
+    const rows = await this.database.db
+      .select({ task: tasks })
+      .from(taskGoals)
+      .innerJoin(tasks, and(eq(tasks.workspaceId, taskGoals.workspaceId), eq(tasks.id, taskGoals.taskId)))
+      .where(and(eq(taskGoals.workspaceId, workspaceId), eq(taskGoals.goalId, goalId), eq(tasks.status, "active")))
+      .orderBy(desc(tasks.updatedAt));
+    return { goal, tasks: rows.map((row) => row.task) };
+  }
+
+  /**
+   * The goal one task is attached to. `findGoalTitleForTask` answers the card's question — a name
+   * to print — but a screen that offers «отвязать» needs the id and the version that write carries.
+   */
+  async findGoalForTask(workspaceId: string, taskId: string) {
+    const [row] = await this.database.db
+      .select({ goal: goals })
+      .from(taskGoals)
+      .innerJoin(goals, and(eq(goals.workspaceId, taskGoals.workspaceId), eq(goals.id, taskGoals.goalId)))
+      .where(and(eq(taskGoals.workspaceId, workspaceId), eq(taskGoals.taskId, taskId)))
+      .limit(1);
+    return row?.goal ?? null;
+  }
+
+  /** The goals one action group created, so a create can answer with the row it actually wrote. */
+  async listGoalsForActionGroup(workspaceId: string, groupId: string) {
+    return this.database.db
+      .select()
+      .from(goals)
+      .where(and(eq(goals.workspaceId, workspaceId), eq(goals.sourceActionGroupId, groupId)))
+      .orderBy(desc(goals.createdAt));
+  }
+
   async findTaskGoalLink(workspaceId: string, taskId: string, goalId: string) {
     const [row] = await this.database.db
       .select()

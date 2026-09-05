@@ -36,7 +36,7 @@ test("Today includes fuzzy tasks whose planning review falls on the requested lo
   };
   const service = new TasksService(repository, {}, {});
 
-  const { groups, staleCount } = await service.listTodayGroupedForTelegram("workspace", "2026-08-23");
+  const { groups, staleCount } = await service.listTodayGrouped("workspace", "2026-08-23");
 
   assert.deepEqual(
     groups.map((group) => group.lead.task.id),
@@ -69,7 +69,7 @@ test("Today lists the day itself and only counts what was left unclosed before i
   };
   const service = new TasksService(repository, {}, {});
 
-  const { groups, staleCount } = await service.listTodayGroupedForTelegram("workspace", "2026-08-23");
+  const { groups, staleCount } = await service.listTodayGrouped("workspace", "2026-08-23");
 
   assert.deepEqual(
     groups.map((group) => group.title),
@@ -92,7 +92,7 @@ test("the task list collapses same-titled rows and every filter reports its own 
   };
   const service = new TasksService(repository, {}, {});
 
-  const week = await service.listGroupedForTelegram("workspace", { scope: "week", localDate: "2026-08-23" });
+  const week = await service.listGrouped("workspace", { scope: "week", localDate: "2026-08-23" });
 
   assert.deepEqual(
     week.groups.map((group) => group.title),
@@ -103,7 +103,7 @@ test("the task list collapses same-titled rows and every filter reports its own 
   // A paused series is in no window; the screen offers it as its own list instead of hiding it.
   assert.equal(week.pausedCount, 1);
 
-  const all = await service.listGroupedForTelegram("workspace", { scope: "all", localDate: "2026-08-23" });
+  const all = await service.listGrouped("workspace", { scope: "all", localDate: "2026-08-23" });
   assert.equal(all.groups.find((group) => group.title === "Позвонить маме").rows.length, 3);
 });
 

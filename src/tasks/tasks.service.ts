@@ -253,7 +253,7 @@ export class TasksService {
   }
 
   /** The task list for one filter: groups in reading order, plus what every other filter would show. */
-  async listGroupedForTelegram(workspaceId: string, input: { scope: TaskScope; localDate: string }) {
+  async listGrouped(workspaceId: string, input: { scope: TaskScope; localDate: string }) {
     const [rows, pausedCount] = await Promise.all([this.listScreenRows(workspaceId), this.repository.countPausedSeries(workspaceId)]);
     const groups = groupTaskRows(filterByScope(rows, input.scope, input.localDate), input.localDate);
     return { groups, counts: scopeCounts(rows, input.localDate), total: groups.length, pausedCount };
@@ -292,7 +292,7 @@ export class TasksService {
    * Today is the requested day only. Work dated before it is counted, not listed: an occurrence
    * stays overdue until it is closed, and three weeks of unclosed work used to bury the day.
    */
-  async listTodayGroupedForTelegram(workspaceId: string, localDate: string) {
+  async listTodayGrouped(workspaceId: string, localDate: string) {
     const [actionable, fuzzy] = await Promise.all([
       this.repository.listActionableForTelegram(workspaceId),
       this.repository.listFuzzyReviewsForLocalDate(workspaceId, localDate, 20),
@@ -357,6 +357,40 @@ export class TasksService {
     return this.repository.findTask(workspaceId, taskId);
   }
 
+  /**
+   * Every date of one task, terminal ones included. The task screen shows the other dates of the
+   * same series next to the one it is about, so «раскрыть повтор» needs no second round trip.
+   */
+  listOccurrencesForTask(workspaceId: string, taskId: string) {
+    return this.repository.listOccurrencesForTask(workspaceId, taskId);
+  }
+
+  /** The dates a series skips. `getTaskCardExtras` also reads them, alongside two lists a screen
+   * that already has its checklist and its goal does not need a second time. */
+  listRecurrenceExclusions(workspaceId: string, taskId: string): Promise<string[]> {
+    return this.repository.listRecurrenceExclusions(workspaceId, taskId);
+  }
+
+  /** The journal of one task, newest first; the only truthful record of what happened to it. */
+  listTaskEvents(workspaceId: string, taskId: string, limit = 50) {
+    return this.repository.listTaskEvents(workspaceId, taskId, limit);
+  }
+
+  /** The reminder rules attached to one task, each with the next delivery still queued for it. */
+  listTaskReminders(workspaceId: string, taskId: string) {
+    return this.repository.listReminderRulesForTask(workspaceId, taskId);
+  }
+
+  /** When each of these series was paused. `tasks` has no such column; the journal is the record. */
+  findSeriesPausedAt(workspaceId: string, taskIds: readonly string[]) {
+    return this.repository.findSeriesPausedAt(workspaceId, taskIds);
+  }
+
+  /** The tasks one action group created, so a create can answer with the row it actually wrote. */
+  listTasksForActionGroup(workspaceId: string, groupId: string) {
+    return this.repository.listTasksForActionGroup(workspaceId, groupId);
+  }
+
   countActiveCritical(workspaceId: string): Promise<number> {
     return this.repository.countActiveCritical(workspaceId);
   }
@@ -382,6 +416,12 @@ export class TasksService {
     expectedVersion: number;
     nextStatus: "scheduled" | "open" | "in_progress" | "done" | "skipped" | "cancelled" | "elapsed";
     actorUserId?: string;
+    /**
+     * What the user said about the change — «что мешает» when an occurrence is acknowledged rather
+     * than done. It is journalled as the event's details and lives nowhere else: the occurrence row
+     * has no field for it, and the journal is the only place that can answer «почему» later.
+     */
+    note?: string;
     now?: Date;
     eventElapseGraceMinutes?: number;
     systemExpire?: boolean;
@@ -427,6 +467,7 @@ export class TasksService {
       ...(nextTaskStatus ? { nextTaskStatus } : {}),
       ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
       eventType: `occurrence:${input.nextStatus}`,
+      ...(input.note?.trim() ? { details: input.note.trim() } : {}),
       patch,
     });
   }
