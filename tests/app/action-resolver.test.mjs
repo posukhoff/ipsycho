@@ -346,3 +346,19 @@ test("an update that changes nothing is dropped when the message carries other w
   assert.equal(alone.resolved.length, 1);
   assert.equal(alone.resolved[0].type, "update_task");
 });
+
+test("a message with more actions than one package allows is refused whole", async () => {
+  // The wire shape caps each kind separately, so nine actions can arrive. Truncating them
+  // applied eight and reported success, and the ninth thing the user asked for vanished.
+  const nine = Array.from({ length: 9 }, (_, index) => createTask({ title: `Задача ${index + 1}` }));
+  const result = await resolve(nine);
+  assert.equal(result.resolved.length, 0);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["too_many_actions"],
+  );
+
+  const eight = await resolve(nine.slice(0, 8));
+  assert.deepEqual(eight.issues, []);
+  assert.equal(eight.resolved.length, 8);
+});

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AiTurnSchema, AI_ACTION_TYPES, ResolvedActionSchema, WhenSchema } from "../../dist/ai/ai-contracts.js";
+import { AiTurnSchema, AI_ACTION_TYPES, AiTurnWireSchema, MAX_TURN_ACTIONS, ResolvedActionSchema, WhenSchema, flattenTurn } from "../../dist/ai/ai-contracts.js";
 import { DEEPSEEK_JSON_INSTRUCTION } from "../../dist/ai/deepseek.provider.js";
 
 const turn = (actions, overrides = {}) => ({
@@ -200,4 +200,27 @@ test("DeepSeek manual JSON contract carries every action array and intent", () =
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /"explicit"/);
   assert.match(DEEPSEEK_JSON_INSTRUCTION, /"inferred"/);
   assert.doesNotMatch(DEEPSEEK_JSON_INSTRUCTION, /expectedVersion|task_batch|occurrenceId|localTimes|criticalExplicit/);
+});
+
+test("flattening the wire turn keeps every action, even past the package limit", () => {
+  // Each wire array is capped on its own, so the kinds together can exceed the package limit.
+  // Cutting the list here applied a prefix and reported success; the resolver refuses instead.
+  const wire = AiTurnWireSchema.parse({
+    reply: "Записал.",
+    question: null,
+    createTasks: Array.from({ length: 8 }, (_, index) => ({ ...taskBody({ title: `Задача ${index + 1}` }), intent: "explicit", goal: null })),
+    updateTasks: [],
+    setTaskStates: [{ intent: "explicit", task: { id: "t1" }, state: "done", scope: null }],
+    reschedules: [],
+    setReminders: [],
+    goalOps: [],
+    plans: [],
+    memories: [],
+    settingsChanges: [],
+    topic: { mode: "none", title: null, summary: null },
+  });
+  const flattened = flattenTurn(wire);
+  assert.equal(flattened.actions.length, 9);
+  assert.equal(flattened.actions.length > MAX_TURN_ACTIONS, true);
+  assert.equal(flattened.actions.at(-1).type, "set_task_state");
 });

@@ -141,7 +141,6 @@ export const uk: Record<keyof typeof ru, string> = {
   week_released_toast: "Повернув у пул",
   week_full_toast: "На тиждень уже взято {limit} завдань. Поверни одне, щоб додати інше.",
   week_pick_gone_toast: "Це завдання вже не в пулі",
-  week_taken_section: "Взято на тиждень:",
   week_take_today_toast: "Поставив на сьогодні",
   week_take_today_row: "▶️ Сьогодні: {title}",
   week_take_today_failed_toast: "Не зміг поставити на сьогодні",
@@ -243,11 +242,7 @@ export const uk: Record<keyof typeof ru, string> = {
   reason_too_short: "Не вдалося перенести. Напиши коротко, чому переносиш, ще раз.",
   repeated_reschedule: "Це вже повторне перенесення. Якщо проблема не лише в часі, можна зафіксувати, що саме заважає почати.",
 
-  followup_custom_toast: "Напиши час",
-  followup_custom_prompt: "Напиши: кількість хвилин (мінімум 15), HH:MM або YYYY-MM-DD HH:MM.",
   followup_failed_toast: "Не вдалося змінити перевірку",
-  followup_done: "Готово. Нагадаю {when}.",
-  followup_parse_failed: "Не зрозумів час. Напиши хвилини, HH:MM або YYYY-MM-DD HH:MM.",
   snooze_reminder_toast: "Нагадаю пізніше",
   snooze_15m_button: "⏰ Через 15 хв",
   snooze_1h_button: "⏰ Через годину",
@@ -256,9 +251,6 @@ export const uk: Record<keyof typeof ru, string> = {
   series_cancelled: "Серію скасовано",
   series_not_found_toast: "Серію не знайдено",
   series_changed_toast: "Серія вже змінилася",
-
-  topic_ended_toast: "Закінчено",
-  topic_already_ended_toast: "Уже завершено",
 
   quiet_deferred_notice: "🔕 Було в тихі години, показую зараз",
   escalation_header: "🔴 Термін минув — {n}-те нагадування",

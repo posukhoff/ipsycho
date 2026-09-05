@@ -70,6 +70,8 @@ export const userSettings = pgTable("user_settings", {
   digestTimezone: varchar("digest_timezone", { length: 128 }).notNull().default("Europe/Kyiv"),
   quietHoursTimezone: varchar("quiet_hours_timezone", { length: 128 }).notNull().default("Europe/Kyiv"),
   pinnedLanguage: varchar("pinned_language", { length: 16 }),
+  /** Last interface language Telegram reported; the fallback for pushes sent outside an update. */
+  telegramLanguage: varchar("telegram_language", { length: 16 }),
   quietHoursEnabled: boolean("quiet_hours_enabled").notNull().default(true),
   weekdayQuietStart: varchar("weekday_quiet_start", { length: 5 }).notNull().default("22:00"),
   weekdayQuietEnd: varchar("weekday_quiet_end", { length: 5 }).notNull().default("08:00"),

@@ -1,4 +1,4 @@
-export type SeriesOperation = "pause" | "resume" | "stop" | "cancel";
+export type SeriesOperation = "pause" | "resume" | "cancel";
 
 export interface SeriesProjectionState {
   parentStatus: "active" | "paused" | "closed" | "cancelled";
@@ -17,10 +17,5 @@ export function seriesOperationState(operation: SeriesOperation, hasCurrentNonte
   if (operation === "cancel") {
     return { parentStatus: "cancelled", currentOccurrenceAction: hasCurrentNonterminal ? "cancel" : "keep", deleteUntouchedFuture: true, rematerializeFuture: false };
   }
-  return {
-    parentStatus: hasCurrentNonterminal ? "active" : "closed",
-    currentOccurrenceAction: "keep",
-    deleteUntouchedFuture: true,
-    rematerializeFuture: false,
-  };
+  throw new Error(`unsupported series operation: ${operation as string}`);
 }

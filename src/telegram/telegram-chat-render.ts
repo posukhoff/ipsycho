@@ -4,7 +4,7 @@ import { MODEL_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 import { t } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 
-export type RenderedChatResult = { responseText: string; persistedText: string; keyboard: InlineKeyboard | undefined };
+export type RenderedChatResult = { persistedText: string; keyboard: InlineKeyboard | undefined };
 
 /** Telegram limits a message to 4096 characters; the cap leaves room for the review header. */
 export const MAX_REPLY_LENGTH = 3_900;
@@ -20,17 +20,11 @@ export function renderChatResult(result: Extract<ChatProcessResult, { kind: "ok"
   const body = compactText(result.text, MODEL_REPLY_MAX);
   const reportText = result.report ? `\n\n${result.report}` : "";
   const persistedText = compactText(`${body}${reportText}${suffix ? `\n\n${suffix}` : ""}${warningText}`, MAX_REPLY_LENGTH);
-  const keyboard = chatResultKeyboard(result.appliedGroupId, result.pendingGroupId, result.checkpointTopicId, result.topicId, locale);
-  return { responseText: persistedText, persistedText, keyboard };
+  const keyboard = chatResultKeyboard(result.appliedGroupId, result.pendingGroupId, locale);
+  return { persistedText, keyboard };
 }
 
-export function chatResultKeyboard(
-  appliedGroupId?: string,
-  pendingGroupId?: string,
-  _checkpointTopicId?: string,
-  _topicId?: string,
-  locale: TelegramLocale = "ru",
-): InlineKeyboard | undefined {
+export function chatResultKeyboard(appliedGroupId?: string, pendingGroupId?: string, locale: TelegramLocale = "ru"): InlineKeyboard | undefined {
   if (!appliedGroupId && !pendingGroupId) return undefined;
   const keyboard = new InlineKeyboard();
   let hasRow = false;

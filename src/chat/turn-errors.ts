@@ -15,6 +15,11 @@ export function rejectionLocale(language: string | null | undefined): Locale {
  * code first; the regex fallback covers domain rules that still throw plain messages.
  */
 const BY_CODE: Record<string, Copy> = {
+  too_many_actions: {
+    ru: "Не сохранил: в одном сообщении слишком много дел, я применяю их только вместе. Раздели на два-три сообщения.",
+    uk: "Не зберіг: в одному повідомленні надто багато справ, я застосовую їх лише разом. Розділи на два-три повідомлення.",
+    en: "Not saved: that is too many things for one message, and I apply them only together. Split it into two or three messages.",
+  },
   time_past: {
     ru: "Не сохранил: получившееся время уже в прошлом. Назови новую дату и время или скажи «считай от сейчас».",
     uk: "Не зберіг: отриманий час уже в минулому. Назви нову дату й час або скажи «рахуй від зараз».",
@@ -245,13 +250,12 @@ function genericRejection(locale: Locale): string {
   return "Не сохранил: не сработало одно из правил. Сформулируй задачу и время одной фразой — или скажи, что именно сделать.";
 }
 
-export function clarificationForCandidates(candidates: ReadonlyArray<{ title: string }>, language: string | null | undefined, question?: string): string {
+export function clarificationForCandidates(candidates: ReadonlyArray<{ title: string }>, language: string | null | undefined): string {
   const locale = rejectionLocale(language);
   const titles = candidates
     .slice(0, 5)
     .map((candidate) => `«${candidate.title.trim().replace(/[«»]/g, "")}»`)
     .join(", ");
-  if (question) return `${question} ${titles}.`.replace(/\?\s/u, "? ");
   if (locale === "uk") return `Бачу кілька варіантів: ${titles}. Який саме?`;
   if (locale === "en") return `I see several options: ${titles}. Which one do you mean?`;
   return `Вижу несколько вариантов: ${titles}. Какой именно?`;

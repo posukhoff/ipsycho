@@ -72,23 +72,6 @@ export function scheduleLabel(schedule: OccurrenceScheduleView, now: Date, local
   return words.noTime;
 }
 
-/** Human-readable time confirmed by persisted occurrence state. */
-export function formatOccurrenceSchedule(schedule: OccurrenceScheduleView, locale = "ru-RU", now?: Date): string | null {
-  const exact = schedule.plannedStartAt ?? schedule.dueAt ?? schedule.plannedEndAt;
-  if (exact) {
-    return `📅 Запланировано: ${formatLocalDateTime(exact, schedule.timezone, now, locale)} (${schedule.timezone})`;
-  }
-  const date = schedule.plannedLocalDate ?? schedule.dueLocalDate;
-  return date ? `📅 Запланировано: ${date} (${schedule.timezone})` : null;
-}
-
-/** Do not repeat a reminder when Telegram would render it as the same minute as the displayed schedule anchor. */
-export function reminderAddsTimingInformation(schedule: OccurrenceScheduleView, reminderAt: Date): boolean {
-  const displayedExact = schedule.plannedStartAt ?? schedule.dueAt ?? schedule.plannedEndAt;
-  if (!displayedExact) return true;
-  return Math.floor(displayedExact.getTime() / 60_000) !== Math.floor(reminderAt.getTime() / 60_000);
-}
-
 /** What the model needs to know about a task's time: an occurrence schedule, or a fuzzy horizon with its review date. */
 export interface ModelWhenView {
   plannedStartAt?: Date | null;

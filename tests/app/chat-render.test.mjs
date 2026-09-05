@@ -6,8 +6,8 @@ const base = { kind: "ok", appliedCount: 0, pendingCount: 0, warnings: [] };
 
 test("an over-long model reply is capped for Telegram while the report survives", () => {
   const rendered = renderChatResult({ ...base, text: "а".repeat(5000), report: "✅ Создана задача «Зарядка»" });
-  assert.ok(rendered.responseText.length <= MAX_REPLY_LENGTH);
-  assert.match(rendered.responseText, /Создана задача «Зарядка»/);
+  assert.ok(rendered.persistedText.length <= MAX_REPLY_LENGTH);
+  assert.match(rendered.persistedText, /Создана задача «Зарядка»/);
   assert.equal(rendered.keyboard, undefined);
 });
 

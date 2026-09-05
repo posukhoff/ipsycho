@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compareGroups, filterByScope, groupLocalDates, groupTaskRows, normalizeGroupTitle, paginate, rowLocalDate, scopeCounts } from "../../.core-dist/task-list-view.js";
+import { compareGroups, filterByScope, groupTaskRows, normalizeGroupTitle, paginate, rowLocalDate, scopeCounts } from "../../.core-dist/task-list-view.js";
 
 const TZ = "Europe/Kyiv";
 const TODAY = "2026-09-05";
@@ -24,7 +24,7 @@ test("three separate tasks with the same title collapse into one group", () => {
   const groups = groupTaskRows(rows, TODAY);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].rows.length, 3);
-  assert.deepEqual(groupLocalDates(groups[0]), ["2026-09-06", "2026-09-09", "2026-09-11"]);
+  assert.deepEqual(groups[0].rows.map(rowLocalDate), ["2026-09-06", "2026-09-09", "2026-09-11"]);
   assert.equal(groups[0].lead.task.id, "a");
   assert.equal(groups[0].key, groups[0].lead.occurrence.id);
 });
@@ -43,7 +43,7 @@ test("two times of one task on the same day are one group with one date", () => 
   const groups = groupTaskRows([row("Таблетки", { date: TODAY, time: "10:00", taskId: "pill" }), row("Таблетки", { date: TODAY, time: "18:00", taskId: "pill" })], TODAY);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].rows.length, 2);
-  assert.deepEqual(groupLocalDates(groups[0]), [TODAY]);
+  assert.deepEqual(groups[0].rows.map(rowLocalDate), [TODAY, TODAY]);
 });
 
 test("scopes are windows of local days and always keep past work", () => {

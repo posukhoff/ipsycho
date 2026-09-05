@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { AiRetryService } from "../../dist/chat/ai-retry.service.js";
 
 /** One row as `findDueAiRetries` returns it, for a message whose automatic attempts are running out. */
-function row(aiRetryCount) {
+function row(aiRetryCount, settings = { timezone: "Europe/Kyiv", pinnedLanguage: "ru", telegramLanguage: null }) {
   return {
     message: {
       id: "00000000-0000-4000-8000-000000000001",
@@ -13,7 +13,7 @@ function row(aiRetryCount) {
       aiRetryCount,
     },
     user: { telegramUserId: 4242 },
-    settings: { timezone: "Europe/Kyiv", pinnedLanguage: "ru" },
+    settings,
   };
 }
 
@@ -21,7 +21,7 @@ function harness(aiRetryCount, options = {}) {
   const sent = [];
   const deferred = [];
   const messages = {
-    findDueAiRetries: async () => [row(aiRetryCount)],
+    findDueAiRetries: async () => [options.settings ? row(aiRetryCount, options.settings) : row(aiRetryCount)],
     setStatus: async () => undefined,
     deferAiUntil: async (_workspaceId, _userId, messageId, until) => {
       deferred.push({ messageId, until });
@@ -69,4 +69,21 @@ test("a provider that is not configured gets a new due time instead of being re-
   assert.equal(sent.length, 0);
   assert.equal(deferred.length, 1);
   assert.ok(deferred[0].until.getTime() > Date.now());
+});
+
+test("a user who never pinned a language is written to in the language Telegram reports, not English", () => {
+  // Nothing here can read `from.language_code`: there is no update. Before the language was
+  // remembered on the settings row every such push went out in English.
+  const cases = [
+    { telegramLanguage: "uk", expect: /Так і не зміг/u },
+    { telegramLanguage: "ru-RU", expect: /Так и не смог/u },
+    { telegramLanguage: null, expect: /I still could not/u },
+  ];
+  return Promise.all(
+    cases.map(async ({ telegramLanguage, expect }) => {
+      const { service, sent } = harness(2, { settings: { timezone: "Europe/Kyiv", pinnedLanguage: null, telegramLanguage } });
+      await service.runTick();
+      assert.match(sent[0].text, expect);
+    }),
+  );
 });

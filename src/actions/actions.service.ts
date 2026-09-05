@@ -209,7 +209,7 @@ export class ActionsService implements OnApplicationBootstrap {
   }
 
   /** Deterministic series buttons (pause/cancel) bypass the model but share the journal. */
-  async applySeriesOperation(scope: ActionScope, taskId: string, expectedVersion: number, operation: "pause" | "resume" | "stop" | "cancel"): Promise<ProposedActionsResult> {
+  async applySeriesOperation(scope: ActionScope, taskId: string, expectedVersion: number, operation: "pause" | "resume" | "cancel"): Promise<ProposedActionsResult> {
     const now = scope.now ?? new Date();
     const groupId = randomUUID();
     const result = await this.groups.apply({

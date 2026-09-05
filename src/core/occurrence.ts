@@ -19,7 +19,6 @@ export interface TransitionContext {
   eventElapseGraceMinutes: number;
   explicitUserAction: boolean;
   systemExpire: boolean;
-  isUndo?: boolean;
 }
 
 export function deriveInitialOccurrenceStatus(now: Date, plannedStartAt?: Date): "scheduled" | "open" {
@@ -27,7 +26,6 @@ export function deriveInitialOccurrenceStatus(now: Date, plannedStartAt?: Date):
 }
 
 export function validateOccurrenceTransition(from: OccurrenceStatus, to: OccurrenceStatus, context: TransitionContext): { ok: true } | { ok: false; reason: string } {
-  if (context.isUndo) return { ok: true };
   if (!transitions[from].includes(to)) return { ok: false, reason: `illegal transition ${from} -> ${to}` };
 
   if (to === "skipped") {

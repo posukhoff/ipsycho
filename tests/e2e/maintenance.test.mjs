@@ -262,9 +262,31 @@ test("every settings write bumps the version once and a pending input is consume
   assert.equal(afterTimezone.timezone, "Europe/Berlin");
   assert.ok(afterTimezone.version > afterDigest.version);
 
-  await settings.setPendingInput(scope.userId, { kind: "blocker", occurrenceId: "11111111-1111-1111-1111-111111111111" });
+  await settings.setPendingInput(scope.userId, { kind: "reschedule", occurrenceId: "11111111-1111-1111-1111-111111111111" });
   const first = await settings.consumePendingInput(scope.userId);
   const second = await settings.consumePendingInput(scope.userId);
-  assert.deepEqual(first, { kind: "blocker", occurrenceId: "11111111-1111-1111-1111-111111111111" });
+  assert.deepEqual(first, { kind: "reschedule", occurrenceId: "11111111-1111-1111-1111-111111111111" });
   assert.equal(second, null);
+});
+
+test("the Telegram interface language is remembered on change only, so pushes outside an update know it", async () => {
+  const scope = await fixture();
+  const settings = new SettingsService(new SettingsRepository(database));
+  const read = async () => (await database.pool.query("select telegram_language, version from user_settings where user_id=$1", [scope.userId])).rows[0];
+
+  const start = await read();
+  assert.equal(start.telegram_language, null);
+
+  await settings.rememberTelegramLanguage(scope.userId, "uk", null);
+  const remembered = await read();
+  assert.equal(remembered.telegram_language, "uk");
+  // Not a settings change the user made: the version must stay put so nothing reads as stale.
+  assert.equal(remembered.version, start.version);
+
+  await settings.rememberTelegramLanguage(scope.userId, "uk", "uk");
+  await settings.rememberTelegramLanguage(scope.userId, undefined, "uk");
+  assert.equal((await read()).telegram_language, "uk");
+
+  await settings.rememberTelegramLanguage(scope.userId, "ru", "uk");
+  assert.equal((await read()).telegram_language, "ru");
 });

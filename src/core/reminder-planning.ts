@@ -1,5 +1,6 @@
 import type { QuietHours, ReminderTemplate, TaskDefinition } from "./types.js";
 import type { OccurrenceProjection } from "./recurrence.js";
+import { MINIMUM_CONTACT_GAP_MINUTES } from "./reminder-defaults.js";
 import { isQuietAt } from "./quiet-hours.js";
 import { localDateAndTimeToUtc, localDateAt, shiftLocalDate } from "./timezone.js";
 
@@ -202,7 +203,6 @@ export function planReminders(input: {
   rules: ReminderRuleSpec[];
   settings: ReminderSettings;
   now: Date;
-  minimumMinutes?: number;
 }): PlannedReminder[] {
   const candidates = input.rules
     .map((rule, ruleIndex) => {
@@ -214,7 +214,7 @@ export function planReminders(input: {
     .filter((candidate): candidate is PlannedReminder => candidate !== null)
     .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime());
 
-  const minimumMs = (input.minimumMinutes ?? 15) * 60_000;
+  const minimumMs = MINIMUM_CONTACT_GAP_MINUTES * 60_000;
   const merged: PlannedReminder[] = [];
   for (const candidate of candidates) {
     if (candidate.suppressedReason) {

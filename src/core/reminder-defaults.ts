@@ -1,5 +1,8 @@
 import type { Importance, ReminderTemplate, TaskKind, TimeMode } from "./types.js";
 
+/** Two reminders closer than this read as one nagging contact, so the later one is dropped. */
+export const MINIMUM_CONTACT_GAP_MINUTES = 15;
+
 export interface ReminderDefaultPreferences {
   eventOffsetsMinutes?: readonly number[];
   plannedTaskOffsetMinutes?: number;
@@ -60,6 +63,6 @@ export function defaultReminderTemplates(
   return result;
 }
 
-export function shouldMergeReminderContacts(a: Date, b: Date, minimumMinutes = 15): boolean {
-  return Math.abs(a.getTime() - b.getTime()) < minimumMinutes * 60_000;
+export function shouldMergeReminderContacts(a: Date, b: Date): boolean {
+  return Math.abs(a.getTime() - b.getTime()) < MINIMUM_CONTACT_GAP_MINUTES * 60_000;
 }

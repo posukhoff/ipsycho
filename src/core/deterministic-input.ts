@@ -1,4 +1,4 @@
-import { localDateAndTimeToUtc, localDateAt, parseLocalDate, parseLocalTime, shiftLocalDate } from "./timezone.js";
+import { localDateAndTimeToUtc, parseLocalDate, parseLocalTime, shiftLocalDate } from "./timezone.js";
 import type { RescheduleFields } from "./reschedule.js";
 import type { TimeMode } from "./types.js";
 
@@ -63,27 +63,4 @@ export function parseRescheduleInput(value: string, timeMode: TimeMode, timezone
   parseLocalDate(point[1]);
   parseLocalTime(point[2]);
   return { schedule: { plannedStartAt: localDateAndTimeToUtc(point[1], point[2], timezone).date }, ...(reason ? { reason } : {}) };
-}
-
-export function parseCustomFollowUpInput(value: string, timezone: string, now: Date): Date {
-  const normalized = value.trim();
-  if (/^\d{1,4}$/u.test(normalized)) {
-    const minutes = Number(normalized);
-    if (!Number.isInteger(minutes) || minutes < 15 || minutes > 7 * 24 * 60) throw new Error("minutes must be between 15 and 10080");
-    return new Date(now.getTime() + minutes * 60_000);
-  }
-  if (/^\d{2}:\d{2}$/u.test(normalized)) {
-    parseLocalTime(normalized);
-    const today = localDateAt(now, timezone);
-    let target = localDateAndTimeToUtc(today, normalized, timezone).date;
-    if (target <= now) target = localDateAndTimeToUtc(shiftLocalDate(today, 1), normalized, timezone).date;
-    return target;
-  }
-  const exact = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/u.exec(normalized);
-  if (!exact?.[1] || !exact[2]) throw new Error("custom time must be minutes, HH:MM, or YYYY-MM-DD HH:MM");
-  parseLocalDate(exact[1]);
-  parseLocalTime(exact[2]);
-  const target = localDateAndTimeToUtc(exact[1], exact[2], timezone).date;
-  if (target <= now) throw new Error("custom time must be in the future");
-  return target;
 }

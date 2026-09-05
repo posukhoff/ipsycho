@@ -5,7 +5,6 @@ import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { shouldMergeReminderContacts } from "../core/reminder-defaults.js";
 import { isQuietAt } from "../core/quiet-hours.js";
 import { applyNotificationPolicy, planReminders, resolveReminderIntent, type ReminderRuleSpec } from "../core/reminder-planning.js";
-import { localDateAndTimeToUtc, localDateAt, shiftLocalDate } from "../core/timezone.js";
 import { DatabaseService } from "../database/database.service.js";
 import { reminderDeliveries, reminderRules, taskOccurrences, tasks, userSettings, workspaceMembers, workspaces } from "../database/schema.js";
 import { occurrenceProjectionFromRow, reminderRuleSpecFromRow, reminderSettingsFromRow, taskDefinitionFromRow } from "../tasks/task-record-mappers.js";
@@ -14,8 +13,8 @@ import { safeError } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
 
 /** What the snooze buttons on a reminder card offer. */
-export type SnoozeChoice = "15m" | "1h" | "evening";
-export type FollowUpChoice = SnoozeChoice | "custom";
+/** What the snooze buttons on a reminder card offer. */
+export type SnoozeChoice = "15m" | "1h";
 
 @Injectable()
 export class ReminderSchedulingService {
@@ -94,28 +93,13 @@ export class ReminderSchedulingService {
     });
   }
 
-  async scheduleFollowUpChoice(input: {
-    workspaceId: string;
-    userId: string;
-    occurrenceId: string;
-    choice: Exclude<FollowUpChoice, "custom">;
-    now?: Date;
-  }): Promise<string | null> {
+  /** The snooze buttons on a reminder card: repeat this contact later without moving the task. */
+  async scheduleFollowUpChoice(input: { workspaceId: string; userId: string; occurrenceId: string; choice: SnoozeChoice; now?: Date }): Promise<string | null> {
     const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
     if (isTerminal(row.occurrence.status)) return null;
     const now = input.now ?? new Date();
-    const intendedFor =
-      input.choice === "evening"
-        ? nextReferenceTime(now, row.settings.timezone, row.settings.eveningReferenceTime)
-        : new Date(now.getTime() + (input.choice === "15m" ? 15 : 60) * 60_000);
+    const intendedFor = new Date(now.getTime() + (input.choice === "15m" ? 15 : 60) * 60_000);
     return this.scheduleSystemFollowUp({ ...input, intendedFor, now });
-  }
-
-  async scheduleCustomFollowUp(input: { workspaceId: string; userId: string; occurrenceId: string; intendedFor: Date; now?: Date }): Promise<string | null> {
-    const row = await this.getOccurrenceSettings(input.workspaceId, input.userId, input.occurrenceId);
-    if (isTerminal(row.occurrence.status)) return null;
-    if (input.intendedFor <= (input.now ?? new Date())) throw new Error("follow-up must be in the future");
-    return this.scheduleSystemFollowUp({ ...input, now: input.now ?? new Date() });
   }
 
   async validateExplicitReminderChange(input: {
@@ -548,11 +532,4 @@ export class ReminderSchedulingService {
 
 function isTerminal(status: string): boolean {
   return isTerminalOccurrenceStatus(status);
-}
-
-function nextReferenceTime(now: Date, timezone: string, localTime: string): Date {
-  const today = localDateAt(now, timezone);
-  let value = localDateAndTimeToUtc(today, localTime, timezone).date;
-  if (value <= now) value = localDateAndTimeToUtc(shiftLocalDate(today, 1), localTime, timezone).date;
-  return value;
 }

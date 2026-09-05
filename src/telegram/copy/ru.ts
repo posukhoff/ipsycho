@@ -150,7 +150,6 @@ export const ru = {
   week_released_toast: "Вернул в пул",
   week_full_toast: "На неделю уже взято {limit} задач. Верни одну, чтобы добавить другую.",
   week_pick_gone_toast: "Эта задача уже не в пуле",
-  week_taken_section: "Взято на неделю:",
   week_take_today_toast: "Поставил на сегодня",
   week_take_today_row: "▶️ Сегодня: {title}",
   week_take_today_failed_toast: "Не смог поставить на сегодня",
@@ -258,11 +257,7 @@ export const ru = {
   repeated_reschedule: "Это уже повторный перенос. Если проблема не только во времени, можно зафиксировать, что именно мешает начать.",
 
   // Follow-ups / snooze
-  followup_custom_toast: "Напиши время",
-  followup_custom_prompt: "Напиши: количество минут (минимум 15), HH:MM или YYYY-MM-DD HH:MM.",
   followup_failed_toast: "Не удалось изменить проверку",
-  followup_done: "Готово. Напомню {when}.",
-  followup_parse_failed: "Не понял время. Напиши минуты, HH:MM или YYYY-MM-DD HH:MM.",
   snooze_reminder_toast: "Напомню позже",
   snooze_15m_button: "⏰ Через 15 мин",
   snooze_1h_button: "⏰ Через час",
@@ -274,8 +269,6 @@ export const ru = {
   series_changed_toast: "Серия уже изменилась",
 
   // Topics / reviews
-  topic_ended_toast: "Закончено",
-  topic_already_ended_toast: "Уже завершено",
 
   // Reminder notices
   quiet_deferred_notice: "🔕 Было в тихие часы, показываю сейчас",

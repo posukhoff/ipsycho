@@ -22,9 +22,6 @@ export type SettingsChange =
       eventOffsets?: number[] | null;
       plannedTaskOffsetMinutes?: number | null;
       criticalPostDueMinutes?: number | null;
-      seenNormalMinutes?: number | null;
-      seenRequiredMinutes?: number | null;
-      seenCriticalMinutes?: number | null;
     };
 
 export interface SettingsPatchFields {
@@ -39,7 +36,6 @@ export interface SettingsPatchFields {
   weekendQuietEnd?: string;
   notificationsSnoozedUntil?: Date | null;
   morningReferenceTime?: string;
-  eveningReferenceTime?: string;
   morningDigestEnabled?: boolean;
   weeklyReviewEnabled?: boolean;
   weeklyReviewWeekday?: number;
@@ -143,17 +139,11 @@ export function buildSettingsPatch(change: SettingsChange, current: { timezone: 
         throw new DomainRuleError("plannedTaskOffsetMinutes must be integer minutes", "settings_shape");
       }
       const critical = atLeast15(change.criticalPostDueMinutes, "criticalPostDueMinutes");
-      const seenNormal = atLeast15(change.seenNormalMinutes, "seenNormalMinutes");
-      const seenRequired = atLeast15(change.seenRequiredMinutes, "seenRequiredMinutes");
-      const seenCritical = atLeast15(change.seenCriticalMinutes, "seenCriticalMinutes");
       const offsets = change.eventOffsets ? [...new Set(change.eventOffsets)].sort((a, b) => a - b) : undefined;
       const patch: SettingsPatchFields = {
         ...(offsets ? { eventReminderOffsetsMinutes: offsets } : {}),
         ...(change.plannedTaskOffsetMinutes !== null && change.plannedTaskOffsetMinutes !== undefined ? { plannedTaskReminderOffsetMinutes: change.plannedTaskOffsetMinutes } : {}),
         ...(critical !== undefined ? { criticalPostDueMinutes: critical } : {}),
-        ...(seenNormal !== undefined ? { seenNormalMinutes: seenNormal } : {}),
-        ...(seenRequired !== undefined ? { seenRequiredMinutes: seenRequired } : {}),
-        ...(seenCritical !== undefined ? { seenCriticalMinutes: seenCritical } : {}),
       };
       if (!Object.keys(patch).length) throw new DomainRuleError("at least one reminder default is required", "settings_shape");
       return patch;

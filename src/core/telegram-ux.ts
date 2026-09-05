@@ -72,7 +72,6 @@ function formatLocalTime(at: Date, timezone: string): string {
 
 /** Model prose per reply; the deterministic report is appended separately and never cut. */
 export const MODEL_REPLY_MAX = 600;
-export const REVIEW_REPLY_MAX = 800;
 
 export function compactText(value: string, max = 500): string {
   const normalized = value.replace(/\n{3,}/gu, "\n\n").trim();

@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { localDateAndTimeToUtc, localDateAt, shiftLocalDate } from "../core/timezone.js";
-import { normalizeLanguageTag } from "../core/language.js";
 import { buildSettingsPatch, type SettingsChange } from "../core/settings-change.js";
 import { SettingsRepository, type PendingInput } from "./settings.repository.js";
 
@@ -20,6 +19,12 @@ export class SettingsService {
 
   get(userId: string) {
     return this.repository.find(userId);
+  }
+
+  /** Nothing is written when the language did not change: this runs on every update. */
+  async rememberTelegramLanguage(userId: string, language: string | undefined, current: string | null): Promise<void> {
+    if (!language || language === current) return;
+    await this.repository.rememberTelegramLanguage(userId, language.slice(0, 16));
   }
 
   completeOnboarding(userId: string, now = new Date()): Promise<void> {
@@ -57,12 +62,6 @@ export class SettingsService {
     await this.repository.copyProfileTimezone(userId, current.timezone, target, new Date());
   }
 
-  async setLanguage(userId: string, language: string | null): Promise<string | null> {
-    const normalized = language === null ? null : normalizeLanguageTag(language);
-    await this.apply(userId, { operation: "language", language: normalized });
-    return normalized;
-  }
-
   setDigest(input: { userId: string; kind: "morning"; enabled: boolean; time?: string }): Promise<void> {
     return this.apply(input.userId, { operation: "digest", kind: input.kind, enabled: input.enabled, time: input.time ?? null });
   }
@@ -83,11 +82,6 @@ export class SettingsService {
     if (target <= now) target = localDateAndTimeToUtc(shiftLocalDate(localToday, 1), settings.morningReferenceTime, settings.timezone).date;
     await this.snoozeUntil(userId, target);
     return target;
-  }
-
-  setReminderDefaults(input: { userId: string; eventOffsets?: number[]; plannedTaskOffsetMinutes?: number; criticalPostDueMinutes?: number }): Promise<void> {
-    const { userId, ...fields } = input;
-    return this.apply(userId, { operation: "reminder_defaults", ...fields });
   }
 
   setPendingInput(userId: string, input: PendingInput | null): Promise<void> {

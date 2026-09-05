@@ -139,7 +139,6 @@ export const en: Record<keyof typeof ru, string> = {
   week_released_toast: "Back in the pool",
   week_full_toast: "This week already holds {limit} tasks. Put one back to add another.",
   week_pick_gone_toast: "That task is no longer in the pool",
-  week_taken_section: "Taken this week:",
   week_take_today_toast: "Set for today",
   week_take_today_row: "▶️ Today: {title}",
   week_take_today_failed_toast: "Could not set it for today",
@@ -241,11 +240,7 @@ export const en: Record<keyof typeof ru, string> = {
   reason_too_short: "Could not move it. Write briefly why you are moving it, once more.",
   repeated_reschedule: "This is a repeated move. If the problem is not only the time, you can record what is stopping you from starting.",
 
-  followup_custom_toast: "Send the time",
-  followup_custom_prompt: "Send: a number of minutes (at least 15), HH:MM or YYYY-MM-DD HH:MM.",
   followup_failed_toast: "Could not change the check",
-  followup_done: "Done. I will remind you {when}.",
-  followup_parse_failed: "I did not get the time. Send minutes, HH:MM or YYYY-MM-DD HH:MM.",
   snooze_reminder_toast: "I will remind you later",
   snooze_15m_button: "⏰ In 15 min",
   snooze_1h_button: "⏰ In an hour",
@@ -254,9 +249,6 @@ export const en: Record<keyof typeof ru, string> = {
   series_cancelled: "Series cancelled",
   series_not_found_toast: "Series not found",
   series_changed_toast: "The series has already changed",
-
-  topic_ended_toast: "Ended",
-  topic_already_ended_toast: "Already ended",
 
   quiet_deferred_notice: "🔕 Was in quiet hours, showing it now",
   escalation_header: "🔴 Past the deadline — reminder #{n}",

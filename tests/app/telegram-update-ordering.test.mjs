@@ -31,7 +31,13 @@ function fakeUpdates() {
 }
 const known = new Set([100, 200]);
 const fakeAccess = { resolveActiveUser: async (id) => (known.has(id) ? { user: { id: `u${id}`, aiStatus: "enabled", telegramUserId: id }, workspaceId: `w${id}` } : null) };
-const fakeSettings = { get: async (userId) => ({ userId, timezone: "Europe/Kyiv", pinnedLanguage: userId === "u200" ? "en" : null }) };
+const remembered = [];
+const fakeSettings = {
+  get: async (userId) => ({ userId, timezone: "Europe/Kyiv", pinnedLanguage: userId === "u200" ? "en" : null, telegramLanguage: null }),
+  rememberTelegramLanguage: async (userId, language, current) => {
+    if (language && language !== current) remembered.push({ userId, language });
+  },
+};
 
 function service() {
   const instance = new TelegramService(config, fakeUpdates(), fakeAccess, fakeSettings);
@@ -101,6 +107,16 @@ test("access and locale are resolved once per update and handed to the handler",
   assert.equal(seen.access.workspaceId, "w200");
   assert.equal(seen.settings.timezone, "Europe/Kyiv");
   assert.equal(seen.locale, "en", "a pinned language wins over the Telegram language");
+});
+
+test("the Telegram interface language is stored while an update carries it", async () => {
+  // Briefings and reminders are sent with no update in hand, so this is the only place that
+  // can learn the language of a user who never pinned one.
+  remembered.length = 0;
+  const telegram = service();
+  telegram.bot.on("message:text", async () => undefined);
+  await telegram.bot.handleUpdate(messageUpdate(40, 100, "hi"));
+  assert.deepEqual(remembered, [{ userId: "u100", language: "ru" }]);
 });
 
 test("an unknown user gets one consistent refusal on every command, text and button", async () => {

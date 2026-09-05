@@ -159,7 +159,7 @@ function service(overrides = {}) {
     occurrenceKeyboard: () => new InlineKeyboard().text("ok", `occ:done:${OCCURRENCE_ID}`),
     pausedSeries_: async () => void rerendered.push(true),
   };
-  return { service: new TaskCallbacksService(tasks, {}, settings, actions, {}, screens), applied, seriesOperations, rerendered };
+  return { service: new TaskCallbacksService(tasks, {}, settings, actions, screens), applied, seriesOperations, rerendered };
 }
 
 const context = {

@@ -7,9 +7,7 @@ import { userSettings } from "../database/schema.js";
 export type PendingInput =
   | { kind: "timezone"; onboarding: boolean }
   | { kind: "reschedule"; occurrenceId: string }
-  | { kind: "quick_reschedule_reason"; occurrenceId: string; choice: "1h" | "evening" | "tomorrow" }
-  | { kind: "blocker"; occurrenceId: string }
-  | { kind: "follow_up_custom"; occurrenceId: string };
+  | { kind: "quick_reschedule_reason"; occurrenceId: string; choice: "1h" | "evening" | "tomorrow" };
 
 export type SettingsRow = typeof userSettings.$inferSelect;
 
@@ -21,6 +19,11 @@ export class SettingsRepository {
   async find(userId: string): Promise<SettingsRow | null> {
     const [row] = await this.database.db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
     return row ?? null;
+  }
+
+  /** Remembered on change only: background jobs have no update to read the Telegram language from. */
+  async rememberTelegramLanguage(userId: string, language: string): Promise<void> {
+    await this.database.db.update(userSettings).set({ telegramLanguage: language }).where(eq(userSettings.userId, userId));
   }
 
   async markOnboardingCompleted(userId: string, now: Date): Promise<void> {

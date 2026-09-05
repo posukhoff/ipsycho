@@ -7,7 +7,7 @@ import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefiniti
 import { localDateAt } from "../core/timezone.js";
 import { comparePoolRows, previousWeekRange, targetWeekStart, WEEK_PICK_LIMIT } from "../core/week-plan.js";
 import { occurrenceFallsOnLocalDate } from "../core/local-schedule.js";
-import { filterByScope, groupTaskRows, isStaleRow, scopeCounts, type TaskGroup, type TaskScope } from "../core/task-list-view.js";
+import { filterByScope, groupTaskRows, isStaleRow, scopeCounts, type TaskScope } from "../core/task-list-view.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
 import type { TaskDefinition } from "../core/types.js";
 import type { reminderDeliveries, taskChecklistItems, taskOccurrences, taskRecurrenceExclusions, tasks } from "../database/schema.js";
@@ -51,8 +51,6 @@ export interface BuiltTaskPlan {
 
 /** One line a list screen can show: a live occurrence, or a fuzzy task that has none. */
 export type TelegramScreenRow = { task: typeof tasks.$inferSelect; occurrence: typeof taskOccurrences.$inferSelect | null };
-
-export type TelegramTaskGroup = TaskGroup<TelegramScreenRow>;
 
 @Injectable()
 export class TasksService {

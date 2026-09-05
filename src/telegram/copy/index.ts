@@ -18,14 +18,9 @@ export function t(locale: TelegramLocale, key: CopyKey, params: Record<string, s
 }
 
 /** Count with the right plural form: `plural(locale, 3, "task")` → "3 задачи". */
-export function plural(locale: TelegramLocale, count: number, noun: "task" | "message" | "point" | "day" | "week" | "month" | "goal" | "step" | "date"): string {
+export function plural(locale: TelegramLocale, count: number, noun: "task" | "date"): string {
   const forms = PLURALS[locale][noun];
   return `${count} ${pickForm(locale, count, forms)}`;
-}
-
-/** The noun alone in the form that fits `count`; for sentences that place the number elsewhere. */
-export function pluralNoun(locale: TelegramLocale, count: number, noun: keyof (typeof PLURALS)["ru"]): string {
-  return pickForm(locale, count, PLURALS[locale][noun]);
 }
 
 function pickForm(locale: TelegramLocale, count: number, forms: readonly [string, string, string]): string {
@@ -40,35 +35,14 @@ function pickForm(locale: TelegramLocale, count: number, forms: readonly [string
 const PLURALS = {
   ru: {
     task: ["задача", "задачи", "задач"],
-    message: ["сообщение", "сообщения", "сообщений"],
-    point: ["пункт", "пункта", "пунктов"],
-    day: ["день", "дня", "дней"],
-    week: ["неделю", "недели", "недель"],
-    month: ["месяц", "месяца", "месяцев"],
-    goal: ["цель", "цели", "целей"],
-    step: ["шаг", "шага", "шагов"],
     date: ["дата", "даты", "дат"],
   },
   uk: {
     task: ["завдання", "завдання", "завдань"],
-    message: ["повідомлення", "повідомлення", "повідомлень"],
-    point: ["пункт", "пункти", "пунктів"],
-    day: ["день", "дні", "днів"],
-    week: ["тиждень", "тижні", "тижнів"],
-    month: ["місяць", "місяці", "місяців"],
-    goal: ["ціль", "цілі", "цілей"],
-    step: ["крок", "кроки", "кроків"],
     date: ["дата", "дати", "дат"],
   },
   en: {
     task: ["task", "tasks", "tasks"],
-    message: ["message", "messages", "messages"],
-    point: ["item", "items", "items"],
-    day: ["day", "days", "days"],
-    week: ["week", "weeks", "weeks"],
-    month: ["month", "months", "months"],
-    goal: ["goal", "goals", "goals"],
-    step: ["step", "steps", "steps"],
     date: ["date", "dates", "dates"],
   },
 } as const satisfies Record<TelegramLocale, Record<string, readonly [string, string, string]>>;

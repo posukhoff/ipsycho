@@ -34,9 +34,9 @@ export type AppliedReportItem =
       reason?: string | null;
       fromFuzzy?: string | null;
     }
-  | { kind: "occurrence"; title: string; operation: "done" | "start" | "skip" | "cancel" }
+  | { kind: "occurrence"; title: string; operation: "done" | "skip" | "cancel" }
   | { kind: "reminder"; title: string; mode: "add" | "replace" | "clear"; schedule: OccurrenceScheduleView | null; reminderAt: Date | null }
-  | { kind: "series"; title: string; operation: "pause" | "resume" | "stop" | "cancel" | "edit" }
+  | { kind: "series"; title: string; operation: "pause" | "resume" | "cancel" | "edit" }
   | { kind: "goal_created"; title: string }
   | { kind: "goal_updated"; title: string }
   | { kind: "goal_plan"; goalTitle: string; tasks: Array<Extract<AppliedReportItem, { kind: "task_created" }>> }
@@ -88,15 +88,15 @@ const IMPORTANCE_LABELS: Record<ReportLocale, Record<Importance, string>> = {
 };
 
 const OCCURRENCE_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "occurrence" }>["operation"], string>> = {
-  ru: { done: "✅ Выполнено", start: "▶️ Начато", skip: "⏭ Пропущено", cancel: "🚫 Отменено" },
-  uk: { done: "✅ Виконано", start: "▶️ Розпочато", skip: "⏭ Пропущено", cancel: "🚫 Скасовано" },
-  en: { done: "✅ Done", start: "▶️ Started", skip: "⏭ Skipped", cancel: "🚫 Cancelled" },
+  ru: { done: "✅ Выполнено", skip: "⏭ Пропущено", cancel: "🚫 Отменено" },
+  uk: { done: "✅ Виконано", skip: "⏭ Пропущено", cancel: "🚫 Скасовано" },
+  en: { done: "✅ Done", skip: "⏭ Skipped", cancel: "🚫 Cancelled" },
 };
 
 const SERIES_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "series" }>["operation"], string>> = {
-  ru: { pause: "приостановлена", resume: "возобновлена", stop: "остановлена, текущая задача остаётся", cancel: "отменена", edit: "расписание изменено" },
-  uk: { pause: "призупинена", resume: "відновлена", stop: "зупинена, поточне завдання лишається", cancel: "скасована", edit: "розклад змінено" },
-  en: { pause: "paused", resume: "resumed", stop: "stopped, the current task stays", cancel: "cancelled", edit: "schedule changed" },
+  ru: { pause: "приостановлена", resume: "возобновлена", cancel: "отменена", edit: "расписание изменено" },
+  uk: { pause: "призупинена", resume: "відновлена", cancel: "скасована", edit: "розклад змінено" },
+  en: { pause: "paused", resume: "resumed", cancel: "cancelled", edit: "schedule changed" },
 };
 
 const SETTINGS_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "settings" }>["operation"], string>> = {

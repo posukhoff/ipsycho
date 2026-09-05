@@ -67,7 +67,7 @@ export class BriefingQueueService implements OnApplicationBootstrap {
     const now = new Date();
     if (row.delivery.scheduledFor > now) return this.enqueue(deliveryId, row.delivery.scheduledFor);
     const currentLocalDate = localDateAt(now, row.settings.digestTimezone);
-    if (!briefingStillUseful(row.delivery.kind as BriefingKind, row.delivery.localDate, currentLocalDate)) return this.suppress(deliveryId, "no_longer_applicable");
+    if (!briefingStillUseful(row.delivery.localDate, currentLocalDate)) return this.suppress(deliveryId, "no_longer_applicable");
 
     let next = now;
     let deferredBySnooze = false;
@@ -106,7 +106,7 @@ export class BriefingQueueService implements OnApplicationBootstrap {
         localDate: row.delivery.localDate,
         timezone: row.settings.digestTimezone,
         now,
-        locale: telegramLocale(row.settings.pinnedLanguage),
+        locale: telegramLocale(row.settings.pinnedLanguage, row.settings.telegramLanguage ?? undefined),
       });
       if (!built.hasContent) {
         await this.database.db
@@ -119,7 +119,7 @@ export class BriefingQueueService implements OnApplicationBootstrap {
         row.user.telegramUserId,
         row.delivery.kind as BriefingKind,
         built.text,
-        telegramLocale(row.settings.pinnedLanguage),
+        telegramLocale(row.settings.pinnedLanguage, row.settings.telegramLanguage ?? undefined),
         built.weekTasks,
       );
       await this.database.db

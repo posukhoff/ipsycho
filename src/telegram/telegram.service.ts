@@ -72,7 +72,9 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       const telegramUserId = ctx.from?.id;
       const access = telegramUserId ? await this.access.resolveActiveUser(telegramUserId) : null;
       const settings = access ? await this.settings.get(access.user.id) : null;
-      ctx.state = { access, settings, locale: telegramLocale(settings?.pinnedLanguage, ctx.from?.language_code) };
+      ctx.state = { access, settings, locale: telegramLocale(settings?.pinnedLanguage, ctx.from?.language_code ?? settings?.telegramLanguage ?? undefined) };
+      // Pushes sent outside an update have no `from` to read: remember the language while there is one.
+      if (access && settings) await this.settings.rememberTelegramLanguage(access.user.id, ctx.from?.language_code, settings.telegramLanguage);
       // Every line logged while this update is handled carries the update id and the internal user id.
       if (access && settings) return runWithLogContext({ updateId: ctx.update.update_id, userId: access.user.id }, () => next());
       if (access && !settings) {
@@ -132,7 +134,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     // One tap gives a task taken for this week its day, so those rows come before the navigation.
     if (kind === "morning") keyboard = weekTakeTodayKeyboard(weekTasks, locale);
     if (kind === "weekly") {
-      keyboard ??= new InlineKeyboard();
+      keyboard = new InlineKeyboard();
       keyboard.text(t(locale, "week_plan_button"), "nav:week");
     }
     const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), keyboard ? { reply_markup: keyboard } : {});

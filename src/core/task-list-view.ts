@@ -160,16 +160,6 @@ export function scopeCounts<Row extends ListRow>(rows: readonly Row[], todayLoca
   return counts;
 }
 
-/** The distinct local days a group covers, oldest first; undated rows contribute nothing. */
-export function groupLocalDates(group: TaskGroup<ListRow>): string[] {
-  const dates: string[] = [];
-  for (const row of group.rows) {
-    const localDate = rowLocalDate(row);
-    if (localDate && !dates.includes(localDate)) dates.push(localDate);
-  }
-  return dates.sort(compareLocalDates);
-}
-
 export function paginate<Item>(items: readonly Item[], page: number, pageSize: number): { items: Item[]; page: number; pages: number; rest: number } {
   const pages = Math.max(1, Math.ceil(items.length / pageSize));
   const current = Math.min(Math.max(page, 0), pages - 1);

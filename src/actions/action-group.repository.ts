@@ -98,7 +98,7 @@ export type ActionGroupStep =
       reason?: string;
     }
   | { kind: "change_reminder"; occurrenceId: string; expectedVersion: number; mode: "add" | "replace" | "clear"; rule?: ReminderRuleSpec }
-  | { kind: "change_series"; taskId: string; expectedVersion: number; operation: "pause" | "resume" | "stop" | "cancel" | "edit"; editDefinition?: TaskDefinition }
+  | { kind: "change_series"; taskId: string; expectedVersion: number; operation: "pause" | "resume" | "cancel" | "edit"; editDefinition?: TaskDefinition }
   | { kind: "create_goal"; title: string; why?: string; targetLocalDate?: string }
   | {
       kind: "update_goal";
@@ -754,10 +754,6 @@ export class ActionGroupRepository {
             recurrenceTimezone: state.recurrenceTimezone,
             recurrenceEndLocalDate: state.recurrenceEndLocalDate,
             missPolicy: state.missPolicy,
-            habitMode: state.habitMode,
-            minimumAction: state.minimumAction,
-            desiredAction: state.desiredAction,
-            habitTrigger: state.habitTrigger,
             habitOfferSentAt: parseJsonDate(state.habitOfferSentAt),
             seriesRevision: state.seriesRevision,
             version: sql`${tasks.version} + 1`,
@@ -891,7 +887,6 @@ export class ActionGroupRepository {
             morningReferenceTime: state.morningReferenceTime,
             eveningReferenceTime: state.eveningReferenceTime,
             morningDigestEnabled: state.morningDigestEnabled,
-            eveningDigestEnabled: state.eveningDigestEnabled,
             weeklyReviewEnabled: state.weeklyReviewEnabled,
             weeklyReviewWeekday: state.weeklyReviewWeekday,
             weeklyReviewTime: state.weeklyReviewTime,

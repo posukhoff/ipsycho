@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InlineKeyboard, type Bot, type CallbackQueryContext } from "grammy";
 import { ActionStateUncertainError, ActionsService } from "../../actions/actions.service.js";
-import { ChatService } from "../../chat/chat.service.js";
 import type { ResolvedAction } from "../../core/ai-contract.js";
 import { renderAppliedReport } from "../../core/applied-report.js";
 import { safeError } from "../../observability/safe-error.js";
@@ -20,7 +19,6 @@ const OCCURRENCE_CALLBACK = new RegExp(`^occ:(done|skip|cancel|cancel_one|resche
 const SERIES_CALLBACK = new RegExp(`^series:(pause|resume|cancel):(${UUID})$`);
 const REMINDER_CALLBACK = new RegExp(`^rem:(cancel|mute):(${UUID})$`);
 const ACTION_CALLBACK = new RegExp(`^act:(confirm|cancel|undo):(${UUID})$`);
-const TOPIC_CONTROL_CALLBACK = new RegExp(`^topic:end:(${UUID})$`);
 
 /** Buttons on task, reminder and confirmation cards. Every state change goes through the action journal so it can be undone. */
 @Injectable()
@@ -30,7 +28,6 @@ export class TaskCallbacksService {
     private readonly reminders: ReminderSchedulingService,
     private readonly settings: SettingsService,
     private readonly actions: ActionsService,
-    private readonly chat: ChatService,
     private readonly screens: ScreensService,
   ) {}
 
@@ -40,7 +37,6 @@ export class TaskCallbacksService {
     bot.callbackQuery(SERIES_CALLBACK, (ctx) => this.series(ctx));
     bot.callbackQuery(REMINDER_CALLBACK, (ctx) => this.cancelReminder(ctx));
     bot.callbackQuery(ACTION_CALLBACK, (ctx) => this.action(ctx));
-    bot.callbackQuery(TOPIC_CONTROL_CALLBACK, (ctx) => this.endTopic(ctx));
   }
 
   private async view(ctx: CallbackQueryContext<AppContext>): Promise<void> {
@@ -218,16 +214,6 @@ export class TaskCallbacksService {
       if (error instanceof ActionStateUncertainError) return void (await ctx.answerCallbackQuery({ text: t(locale, "action_uncertain_toast") }).catch(() => undefined));
       await this.stale(ctx, "action_stale_toast");
     }
-  }
-
-  private async endTopic(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
-    const topicId = TOPIC_CONTROL_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (!topicId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    const ended = await this.chat.endConversation(access.workspaceId, access.user.id, topicId);
-    await ctx.answerCallbackQuery({ text: t(locale, ended ? "topic_ended_toast" : "topic_already_ended_toast") });
-    await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
-    if (ended) await ctx.reply(t(locale, "end_done")).catch(() => undefined);
   }
 
   /** A stale button answers with a toast and loses its keyboard, so the card stops inviting the same failing tap. */

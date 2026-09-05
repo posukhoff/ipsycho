@@ -248,6 +248,13 @@ export const AiTurnWireSchema = z
 
 export type AiTurnWire = z.infer<typeof AiTurnWireSchema>;
 
+/**
+ * How many actions one message may carry. The wire shape caps each kind separately, so a turn
+ * can still add up past this; the resolver refuses the whole package instead of quietly
+ * applying a prefix of it and reporting success.
+ */
+export const MAX_TURN_ACTIONS = 8;
+
 /** Wire → internal. Creations come first so that n1, n2 … always resolve to a task in the same package. */
 export function flattenTurn(wire: AiTurnWire): AiTurn {
   const actions = [
@@ -260,7 +267,7 @@ export function flattenTurn(wire: AiTurnWire): AiTurn {
     ...wire.setReminders.map((body) => ({ ...body, type: "set_reminder" as const })),
     ...wire.memories.map((body) => ({ ...body, type: "memory" as const })),
     ...wire.settingsChanges.map((body) => ({ ...body, type: "settings" as const })),
-  ].slice(0, 8);
+  ];
   return { reply: wire.reply, question: wire.question, actions, topic: wire.topic };
 }
 
@@ -268,14 +275,13 @@ export const AiTurnSchema = z
   .object({
     reply: z.string().min(1).max(4000),
     question: NullableText(1000),
-    actions: z.array(AiActionSchema).max(8),
+    actions: z.array(AiActionSchema).max(MAX_TURN_ACTIONS),
     topic: TopicDirectiveSchema,
   })
   .strict();
 
 export type AiTurn = z.infer<typeof AiTurnSchema>;
 export type AiAction = z.infer<typeof AiActionSchema>;
-export type AiActionType = AiAction["type"];
 export type Intent = z.infer<typeof IntentSchema>;
 export type When = z.infer<typeof WhenSchema>;
 export type Recurrence = z.infer<typeof RecurrenceSchema>;
@@ -284,9 +290,6 @@ export type TaskBody = z.infer<typeof TaskBodySchema>;
 export type UpdateTaskPatch = z.infer<typeof UpdateTaskPatchSchema>;
 export type TaskScope = z.infer<typeof TaskScopeSchema>;
 export type TopicDirective = z.infer<typeof TopicDirectiveSchema>;
-export type SettingsAction = z.infer<typeof SettingsActionSchema>;
-export type GoalAction = z.infer<typeof GoalActionSchema>;
-export type MemoryAction = z.infer<typeof MemoryActionSchema>;
 
 /**
  * Server-resolved form persisted in pending_actions.payload. Same shapes as the model

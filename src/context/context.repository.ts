@@ -109,23 +109,6 @@ export class ContextRepository {
     });
   }
 
-  async updateReviewState(input: { workspaceId: string; userId: string; topicId: string; reviewState: unknown; now: Date }) {
-    const [row] = await this.database.db
-      .update(conversationTopics)
-      .set({ reviewState: input.reviewState, updatedAt: input.now })
-      .where(
-        and(
-          eq(conversationTopics.workspaceId, input.workspaceId),
-          eq(conversationTopics.userId, input.userId),
-          eq(conversationTopics.id, input.topicId),
-          eq(conversationTopics.reviewKind, "weekly"),
-          inArray(conversationTopics.status, ["active", "paused"]),
-        ),
-      )
-      .returning();
-    return row ?? null;
-  }
-
   async updateTopic(input: {
     workspaceId: string;
     userId: string;

@@ -37,7 +37,7 @@ export function guideIndexText(locale: TelegramLocale): string {
 export function guideText(section: GuideSection, locale: TelegramLocale): string {
   const ru: Record<GuideSection, string> = {
     tasks:
-      "📋 Задачи\n\nЗадача может быть точной по времени, с окном, с дедлайном или с примерным горизонтом. Сразу добавляй «зачем», ограничения, людей, материалы и следующий шаг — это контекст задачи. Он попадёт в планирование и еженедельный обзор.\n\nЕсли дело состоит из шагов, перечисли их: AI предложит чек-лист. Незакрытые пункты не отмечаются автоматически при выполнении задачи.\n\n/tasks по умолчанию показывает просроченное и ближайшие 7 дней; кнопками под списком можно переключиться на сегодня, месяц, все или задачи без даты. Одинаковые дела собираются в одну строку — стрелка ▸ раскрывает все её даты.",
+      "📋 Задачи\n\nЗадача может быть точной по времени, с окном, с дедлайном или с примерным горизонтом. Сразу добавляй «зачем», ограничения, людей, материалы и следующий шаг — это контекст задачи. Он попадёт в план дня и недели.\n\nЕсли дело состоит из шагов, перечисли их: AI предложит чек-лист. Незакрытые пункты не отмечаются автоматически при выполнении задачи.\n\n/tasks по умолчанию показывает просроченное и ближайшие 7 дней; кнопками под списком можно переключиться на сегодня, месяц, все или задачи без даты. Одинаковые дела собираются в одну строку — стрелка ▸ раскрывает все её даты.",
     goals:
       "🎯 Цели\n\nЦель отвечает на «зачем»: она связывает задачи и помогает выбирать, чему уделить внимание. У неё можно менять название, формулировку «зачем» и контекст обычным сообщением.\n\nСвязанные задачи показываются в /goals. Цель ничего не меняет сама: она помогает выбрать, что взять на неделю в /week.",
     reminders:
@@ -49,7 +49,7 @@ export function guideText(section: GuideSection, locale: TelegramLocale): string
   if (locale === "ru") return ru[section];
   const uk: Record<GuideSection, string> = {
     tasks:
-      "📋 Завдання\n\nЗавдання може мати точний час, проміжок, дедлайн або приблизний горизонт. Одразу додавай «навіщо», обмеження, людей, матеріали й наступний крок — це контекст завдання для планування та щотижневого огляду.\n\nЯкщо справа складається з кроків, переліч їх: AI запропонує чекліст. Незакриті пункти не відмічаються автоматично разом із завданням.\n\n/tasks типово показує прострочене та найближчі 7 днів; кнопками під списком можна перемкнутися на сьогодні, місяць, усі або завдання без дати. Однакові справи збираються в один рядок — стрілка ▸ розкриває всі його дати.",
+      "📋 Завдання\n\nЗавдання може мати точний час, проміжок, дедлайн або приблизний горизонт. Одразу додавай «навіщо», обмеження, людей, матеріали й наступний крок — це контекст завдання для плану дня і тижня.\n\nЯкщо справа складається з кроків, переліч їх: AI запропонує чекліст. Незакриті пункти не відмічаються автоматично разом із завданням.\n\n/tasks типово показує прострочене та найближчі 7 днів; кнопками під списком можна перемкнутися на сьогодні, місяць, усі або завдання без дати. Однакові справи збираються в один рядок — стрілка ▸ розкриває всі його дати.",
     goals:
       "🎯 Цілі\n\nЦіль відповідає на «навіщо»: вона пов'язує завдання й допомагає обирати пріоритет. Назву, «навіщо» та контекст можна змінювати звичайним повідомленням.\n\nПов'язані завдання видно в /goals. Ціль нічого не змінює сама: вона допомагає вибрати, що взяти на тиждень у /week.",
     reminders:
@@ -60,7 +60,7 @@ export function guideText(section: GuideSection, locale: TelegramLocale): string
   };
   const en: Record<GuideSection, string> = {
     tasks:
-      "📋 Tasks\n\nA task can have an exact time, time window, deadline, or deliberately approximate horizon. Include why it matters, constraints, people, materials, and a next step — that becomes task context for planning and the weekly review.\n\nFor a multi-step job, list the steps and AI can propose a checklist. Unchecked items are never silently completed with the task.\n\n/tasks shows overdue work and the next 7 days by default; the buttons under the list switch to today, the month, everything, or tasks without a date. Identical items collapse into one line — the ▸ arrow opens all of its dates.",
+      "📋 Tasks\n\nA task can have an exact time, time window, deadline, or deliberately approximate horizon. Include why it matters, constraints, people, materials, and a next step — that becomes task context for the day and week plan.\n\nFor a multi-step job, list the steps and AI can propose a checklist. Unchecked items are never silently completed with the task.\n\n/tasks shows overdue work and the next 7 days by default; the buttons under the list switch to today, the month, everything, or tasks without a date. Identical items collapse into one line — the ▸ arrow opens all of its dates.",
     goals:
       "🎯 Goals\n\nA goal answers “why”: it connects related tasks and helps choose priorities. You can change its title, why, and context in an ordinary message.\n\nLinked tasks appear in /goals. A goal changes nothing by itself: it helps choose what to take for the week in /week.",
     reminders:

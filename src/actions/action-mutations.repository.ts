@@ -45,10 +45,6 @@ export type UpdateTaskPatch = {
   context?: string | null;
   importance?: "normal" | "required" | "critical";
   checklist?: Array<{ text: string; done: boolean }>;
-  habitMode?: boolean;
-  minimumAction?: string | null;
-  desiredAction?: string | null;
-  habitTrigger?: string | null;
 };
 
 export type SettingsPatch = Partial<
@@ -67,7 +63,6 @@ export type SettingsPatch = Partial<
     | "morningReferenceTime"
     | "eveningReferenceTime"
     | "morningDigestEnabled"
-    | "eveningDigestEnabled"
     | "weeklyReviewEnabled"
     | "weeklyReviewWeekday"
     | "weeklyReviewTime"
@@ -145,7 +140,7 @@ export interface ChangeReminderInput extends GroupScope {
 export interface ChangeSeriesInput extends GroupScope {
   taskId: string;
   expectedVersion: number;
-  operation: "pause" | "resume" | "stop" | "cancel" | "edit";
+  operation: "pause" | "resume" | "cancel" | "edit";
   editDefinition?: TaskDefinition;
   now: Date;
 }
@@ -213,30 +208,11 @@ export interface ChangeSeriesStepResult {
   kind: "change_series";
   taskId: string;
   title: string;
-  operation: "pause" | "resume" | "stop" | "cancel" | "edit";
+  operation: "pause" | "resume" | "cancel" | "edit";
   reconcile: boolean;
 }
 
 export type InTx<T> = T & { touched: TouchedVersion[] };
-
-/** Result shape of the single-action wrappers, kept for the Telegram button flows. */
-export interface MutationAppliedResult {
-  groupId: string;
-  undoable?: boolean;
-  count: 1;
-  titles: string[];
-  reminderRebuildOccurrenceId?: string;
-  reminderRebuildTaskId?: string;
-  recurrenceReconcileTaskId?: string;
-  occurrenceSchedule?: OccurrenceScheduleView;
-  /** Previous title when an update_task changed it, so the reply can show old → new. */
-  renamedFrom?: string;
-  /** Field-level diff of an update_task, rendered verbatim in the applied report. */
-  changes?: TaskFieldChange[];
-  /** Schedule before a reschedule, so the report can show old → new. */
-  previousSchedule?: OccurrenceScheduleView;
-  scheduledReminderAt?: Date;
-}
 
 export async function updateSettingsInTx(tx: DbTransaction, input: UpdateSettingsInput): Promise<InTx<UpdateSettingsStepResult>> {
   const [before] = await tx
@@ -354,11 +330,6 @@ export async function updateTaskInTx(tx: DbTransaction, input: UpdateTaskInput):
     .where(and(eq(taskChecklistItems.workspaceId, input.workspaceId), eq(taskChecklistItems.taskId, input.taskId)))
     .orderBy(taskChecklistItems.sortOrder);
   const { checklist, ...taskPatch } = input.patch;
-  if (taskPatch.habitMode === false) {
-    taskPatch.minimumAction = null;
-    taskPatch.desiredAction = null;
-    taskPatch.habitTrigger = null;
-  }
   const [after] = await tx
     .update(tasks)
     .set({
@@ -837,7 +808,7 @@ export async function changeReminderInTx(tx: DbTransaction, input: ChangeReminde
 
 export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInput): Promise<InTx<ChangeSeriesStepResult>> {
   const task = await loadTask(tx, input.workspaceId, input.taskId, input.expectedVersion, "series task is stale or missing");
-  if (!task.recurrenceRule && input.operation !== "resume") throw new DomainRuleError("task is not a recurring series");
+  if (!task.recurrenceRule) throw new DomainRuleError("task is not a recurring series");
   if (input.operation === "resume" && (task.status !== "paused" || !task.recurrenceRule)) throw new DomainRuleError("only a paused recurring series can resume");
   if (input.operation === "edit" && !input.editDefinition) throw new DomainRuleError("series edit definition is required");
   const touched: TouchedVersion[] = [];
@@ -854,12 +825,6 @@ export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInp
   const parentStatus = input.operation === "edit" ? task.status : seriesOperationState(input.operation, hasCurrent).parentStatus;
 
   const taskPatch: Partial<typeof tasks.$inferInsert> = { status: parentStatus, updatedAt: input.now };
-  if (input.operation === "stop") {
-    taskPatch.recurrenceRule = null;
-    taskPatch.recurrenceTimezone = null;
-    taskPatch.recurrenceEndLocalDate = null;
-    taskPatch.missPolicy = null;
-  }
   if (input.operation === "edit") {
     const definition = input.editDefinition!;
     taskPatch.timezone = definition.timezone;
@@ -882,7 +847,7 @@ export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInp
     .returning();
   if (!afterTask) throw new DomainRuleError("series task changed");
   touched.push({ entity: "task", id: input.taskId, version: afterTask.version });
-  if (input.operation === "stop" || input.operation === "edit") {
+  if (input.operation === "edit") {
     await tx.delete(taskRecurrenceExclusions).where(and(eq(taskRecurrenceExclusions.workspaceId, input.workspaceId), eq(taskRecurrenceExclusions.taskId, input.taskId)));
     if (input.operation === "edit" && input.editDefinition?.recurrenceExcludedLocalDates?.length) {
       await tx.insert(taskRecurrenceExclusions).values(
@@ -894,8 +859,7 @@ export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInp
       );
     }
   }
-  const afterExcludedDates =
-    input.operation === "edit" ? [...(input.editDefinition?.recurrenceExcludedLocalDates ?? [])] : input.operation === "stop" ? [] : beforeExclusions.map((row) => row.localDate);
+  const afterExcludedDates = input.operation === "edit" ? [...(input.editDefinition?.recurrenceExcludedLocalDates ?? [])] : beforeExclusions.map((row) => row.localDate);
   await tx.insert(actionEvents).values({
     workspaceId: input.workspaceId,
     groupId: input.groupId,
@@ -919,10 +883,6 @@ export async function changeSeriesInTx(tx: DbTransaction, input: ChangeSeriesInp
     if (input.operation === "pause" && future && nonterminal && occurrence.status !== "in_progress") {
       nextStatus = "cancelled";
       skipReason = "series_paused_projection";
-    }
-    if (input.operation === "stop" && future && nonterminal && occurrence.status !== "in_progress") {
-      nextStatus = "cancelled";
-      skipReason = "series_stopped_projection";
     }
     if (input.operation === "edit" && future && nonterminal && occurrence.status !== "in_progress") {
       nextStatus = "cancelled";
@@ -1183,10 +1143,6 @@ export function taskMutableState(row: typeof tasks.$inferSelect, recurrenceExclu
     recurrenceEndLocalDate: row.recurrenceEndLocalDate,
     recurrenceExcludedLocalDates: [...recurrenceExcludedLocalDates],
     missPolicy: row.missPolicy,
-    habitMode: row.habitMode,
-    minimumAction: row.minimumAction,
-    desiredAction: row.desiredAction,
-    habitTrigger: row.habitTrigger,
     habitOfferSentAt: row.habitOfferSentAt?.toISOString() ?? null,
     seriesRevision: row.seriesRevision,
   };
@@ -1209,7 +1165,6 @@ export function settingsMutableState(row: typeof userSettings.$inferSelect) {
     morningReferenceTime: row.morningReferenceTime,
     eveningReferenceTime: row.eveningReferenceTime,
     morningDigestEnabled: row.morningDigestEnabled,
-    eveningDigestEnabled: row.eveningDigestEnabled,
     weeklyReviewEnabled: row.weeklyReviewEnabled,
     weeklyReviewWeekday: row.weeklyReviewWeekday,
     weeklyReviewTime: row.weeklyReviewTime,

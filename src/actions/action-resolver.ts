@@ -1,4 +1,4 @@
-import type { AiAction, ResolvedAction, TaskTarget, When } from "../core/ai-contract.js";
+import { MAX_TURN_ACTIONS, type AiAction, type ResolvedAction, type TaskTarget, type When } from "../core/ai-contract.js";
 import type { ActionIssue } from "../core/ai-actions.js";
 import { refKindOf, type RefMap } from "../core/ai-refs.js";
 import type { OccurrenceStatus, TaskStatus, TimeMode } from "../core/types.js";
@@ -34,6 +34,9 @@ const domain = (code: string, message: string): ResolveError => new ResolveError
 const reference = (code: string, message: string): ResolveError => new ResolveError({ kind: "reference", code, message });
 
 export async function resolveActions(actions: readonly AiAction[], refs: RefMap, deps: ResolverDeps, now: Date = new Date()): Promise<ResolveResult> {
+  if (actions.length > MAX_TURN_ACTIONS) {
+    return { resolved: [], issues: [{ index: 0, kind: "domain", code: "too_many_actions", message: `one message applies at most ${MAX_TURN_ACTIONS} actions` }] };
+  }
   const settings = await deps.settings();
   const resolved: ResolvedAction[] = [];
   const issues: ActionIssue[] = [];

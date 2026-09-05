@@ -34,7 +34,7 @@ export class AiRetryService extends PeriodicService {
           workspaceId: row.message.workspaceId,
           userId: row.message.userId,
           timezone: row.settings.timezone,
-          language: row.settings.pinnedLanguage,
+          language: row.settings.pinnedLanguage ?? row.settings.telegramLanguage,
           messageId: row.message.id,
         });
         if (result.kind === "consent_required") {
@@ -52,7 +52,7 @@ export class AiRetryService extends PeriodicService {
         if (result.supersededPendingGroupId) await this.dropCardButtons(row.message.workspaceId, result.supersededPendingGroupId);
         // The bot only serves private chats, where the chat id is the user's Telegram id.
         const telegramChatId = row.user.telegramUserId;
-        const telegramMessageId = await this.telegram.sendMessage(telegramChatId, rendered.responseText, rendered.keyboard);
+        const telegramMessageId = await this.telegram.sendMessage(telegramChatId, rendered.persistedText, rendered.keyboard);
         if (result.skipAssistantHistory) continue;
         await this.chat.recordAssistantMessage({
           workspaceId: row.message.workspaceId,
@@ -75,8 +75,12 @@ export class AiRetryService extends PeriodicService {
   }
 
   /** The last automatic attempt failed: name the message that was lost and offer the manual retry. */
-  private async notifyRetriesExhausted(row: { message: { content: string }; user: { telegramUserId: number }; settings: { pinnedLanguage: string | null } }): Promise<void> {
-    const locale = telegramLocale(row.settings.pinnedLanguage);
+  private async notifyRetriesExhausted(row: {
+    message: { content: string };
+    user: { telegramUserId: number };
+    settings: { pinnedLanguage: string | null; telegramLanguage: string | null };
+  }): Promise<void> {
+    const locale = telegramLocale(row.settings.pinnedLanguage, row.settings.telegramLanguage ?? undefined);
     const preview = row.message.content.trim().replace(/\s+/gu, " ").slice(0, 60);
     await this.telegram.sendMessage(row.user.telegramUserId, t(locale, "ai_retry_exhausted", { preview })).catch(() => undefined);
   }

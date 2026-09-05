@@ -243,7 +243,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         .where(and(eq(taskChecklistItems.workspaceId, row.task.workspaceId), eq(taskChecklistItems.taskId, row.task.id)))
         .orderBy(taskChecklistItems.sortOrder)
         .catch(() => []);
-      const locale = telegramLocale(row.settings.pinnedLanguage);
+      const locale = telegramLocale(row.settings.pinnedLanguage, row.settings.telegramLanguage ?? undefined);
       // A reminder pushed out of quiet hours says so; an escalation says which one it is and offers to stop.
       const deferredByQuiet = row.settings.quietHoursEnabled && row.delivery.scheduledFor.getTime() - row.delivery.intendedFor.getTime() > 60_000;
       const escalation = isCriticalEscalation(row) ? await this.escalationNumber(row) : 0;

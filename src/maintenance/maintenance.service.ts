@@ -159,7 +159,7 @@ export class MaintenanceService extends PeriodicService {
       const marked = await this.settings.markSpendWarning(row.user.id, month);
       if (!marked) continue;
       const amount = spend.toFixed(2);
-      const locale = interfaceLocale(row.settings.pinnedLanguage);
+      const locale = interfaceLocale(row.settings.pinnedLanguage ?? row.settings.telegramLanguage);
       await this.telegram.sendMessage(row.user.telegramUserId, t(locale, "ai_spend_warning", { amount })).catch(() => undefined);
       if (this.config.ownerTelegramUserId && this.config.ownerTelegramUserId !== row.user.telegramUserId) {
         await this.telegram.sendMessage(this.config.ownerTelegramUserId, t("ru", "ai_spend_owner_notice", { userId: row.user.id, amount })).catch(() => undefined);

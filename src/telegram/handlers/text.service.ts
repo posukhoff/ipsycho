@@ -4,10 +4,9 @@ import { ActionStateUncertainError } from "../../actions/actions.service.js";
 import { ChatService } from "../../chat/chat.service.js";
 import { renderAppliedReport } from "../../core/applied-report.js";
 import { detectConversationControl } from "../../core/conversation-control.js";
-import { parseCustomFollowUpInput, parseRescheduleInput } from "../../core/deterministic-input.js";
+import { parseRescheduleInput } from "../../core/deterministic-input.js";
 import { formatLocalDateTime } from "../../core/time-presentation.js";
 import { safeError, safeMessageMetadata } from "../../observability/safe-error.js";
-import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.service.js";
 import { SettingsService, type PendingInput } from "../../settings/settings.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
 import { t } from "../copy/index.js";
@@ -29,7 +28,6 @@ export class TextService {
   constructor(
     private readonly settings: SettingsService,
     private readonly tasks: TasksService,
-    private readonly reminders: ReminderSchedulingService,
     private readonly chat: ChatService,
     private readonly chatReply: TelegramChatReplyService,
     private readonly screens: ScreensService,
@@ -74,7 +72,7 @@ export class TextService {
           userId: access.user.id,
           aiStatus: access.user.aiStatus,
           timezone: settings.timezone,
-          language: settings.pinnedLanguage,
+          language: settings.pinnedLanguage ?? ctx.from.language_code ?? null,
         }),
       );
       await this.chatReply.reply(ctx, access, result);
@@ -145,18 +143,6 @@ export class TextService {
         else await ctx.reply(t(locale, "rescheduled_text"));
         return;
       }
-      if (pending.kind === "follow_up_custom") {
-        const intendedFor = parseCustomFollowUpInput(ctx.message.text, timezone, new Date());
-        await this.reminders.scheduleCustomFollowUp({
-          workspaceId: access.workspaceId,
-          userId: access.user.id,
-          occurrenceId: pending.occurrenceId,
-          intendedFor,
-        });
-        await ctx.reply(t(locale, "followup_done", { when: formatLocalDateTime(intendedFor, timezone, new Date()) }));
-        return;
-      }
-
       const context = await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId);
       if (!context) throw new Error("occurrence not found");
       let parsed: ReturnType<typeof parseRescheduleInput> | null = null;
@@ -189,7 +175,7 @@ export class TextService {
       if (pending.kind === "timezone") return;
       await this.settings.setPendingInput(access.user.id, pending);
       if (pending.kind === "quick_reschedule_reason") return void (await ctx.reply(t(locale, "reason_too_short")));
-      await ctx.reply(t(locale, "followup_parse_failed"), { reply_markup: new InlineKeyboard().text(t(locale, "not_now_button"), `occ:back:${pending.occurrenceId}`) });
+      await ctx.reply(t(locale, "resched_failed_text"));
     }
   }
 }

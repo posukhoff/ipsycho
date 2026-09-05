@@ -365,22 +365,6 @@ export class TasksRepository {
     });
   }
 
-  async recordEvent(input: { workspaceId: string; taskId: string; occurrenceId?: string; actorUserId?: string; eventType: string; details?: string }): Promise<void> {
-    await this.database.db.insert(taskEvents).values({
-      workspaceId: input.workspaceId,
-      taskId: input.taskId,
-      ...(input.occurrenceId ? { occurrenceId: input.occurrenceId } : {}),
-      ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
-      eventType: input.eventType,
-      ...(input.details ? { details: input.details } : {}),
-    });
-  }
-
-  /**
-   * A result check the user never answered: the occurrence is still in progress and no later
-   * event on it came from a person. One query finds them; the marker row it inserts makes the
-   * same check drop out of the next scan, so an old backlog can never starve newer checks.
-   */
   async clearEventDetailsOlderThan(cutoff: Date, batchSize = CLEANUP_BATCH): Promise<number> {
     return drainInBatches(batchSize, async () => {
       const batch = this.database.db
@@ -473,38 +457,6 @@ export class TasksRepository {
           .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, updated.taskId), eq(tasks.version, input.expectedTaskVersion)))
           .returning({ id: tasks.id });
         if (!updatedTask) throw new DomainRuleError("stale or missing task");
-      }
-
-      if (input.nextStatus === "in_progress") {
-        const followUpRules = await tx
-          .select({ id: reminderRules.id })
-          .from(reminderRules)
-          .where(
-            and(
-              eq(reminderRules.workspaceId, input.workspaceId),
-              eq(reminderRules.occurrenceId, updated.id),
-              eq(reminderRules.purpose, "follow_up"),
-              eq(reminderRules.active, true),
-            ),
-          );
-        const followUpRuleIds = followUpRules.map((item) => item.id);
-        if (followUpRuleIds.length) {
-          await tx
-            .update(reminderDeliveries)
-            .set({ status: "cancelled", suppressedReason: "superseded" })
-            .where(
-              and(
-                eq(reminderDeliveries.workspaceId, input.workspaceId),
-                eq(reminderDeliveries.occurrenceId, updated.id),
-                inArray(reminderDeliveries.status, ["pending", "processing"]),
-                inArray(reminderDeliveries.reminderRuleId, followUpRuleIds),
-              ),
-            );
-          await tx
-            .update(reminderRules)
-            .set({ active: false })
-            .where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, followUpRuleIds)));
-        }
       }
 
       if (isTerminalOccurrenceStatus(input.nextStatus)) {

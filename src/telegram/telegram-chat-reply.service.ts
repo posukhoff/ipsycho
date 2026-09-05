@@ -33,10 +33,10 @@ export class TelegramChatReplyService {
       return;
     }
 
-    const { responseText, persistedText, keyboard } = renderChatResult(result, locale);
+    const { persistedText, keyboard } = renderChatResult(result, locale);
     try {
       if (result.supersededPendingGroupId) await this.dropCardButtons(ctx, access, result.supersededPendingGroupId);
-      const sent = await ctx.reply(responseText, keyboard ? { reply_markup: keyboard } : {});
+      const sent = await ctx.reply(persistedText, keyboard ? { reply_markup: keyboard } : {});
       if (result.skipAssistantHistory) return;
       await this.chat
         .recordAssistantMessage({

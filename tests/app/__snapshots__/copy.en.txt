@@ -41,7 +41,7 @@ Limits: 60 messages / 60 AI calls per hour; voice up to 5 min and 20 MB.
 ### guide: tasks
 📋 Tasks
 
-A task can have an exact time, time window, deadline, or deliberately approximate horizon. Include why it matters, constraints, people, materials, and a next step — that becomes task context for planning and the weekly review.
+A task can have an exact time, time window, deadline, or deliberately approximate horizon. Include why it matters, constraints, people, materials, and a next step — that becomes task context for the day and week plan.
 
 For a multi-step job, list the steps and AI can propose a checklist. Unchecked items are never silently completed with the task.
 
