@@ -256,6 +256,16 @@ export class TasksRepository {
     return { done: done?.count ?? 0, takenNotStarted: taken?.count ?? 0 };
   }
 
+  /** The dates a series skips, oldest first; a card that hides them describes a different series. */
+  async listRecurrenceExclusions(workspaceId: string, taskId: string): Promise<string[]> {
+    const rows = await this.database.db
+      .select({ localDate: taskRecurrenceExclusions.localDate })
+      .from(taskRecurrenceExclusions)
+      .where(and(eq(taskRecurrenceExclusions.workspaceId, workspaceId), eq(taskRecurrenceExclusions.taskId, taskId)))
+      .orderBy(asc(taskRecurrenceExclusions.localDate));
+    return rows.map((row) => row.localDate);
+  }
+
   async listFuzzyForTelegram(workspaceId: string, limit = 12) {
     return this.database.db
       .select()

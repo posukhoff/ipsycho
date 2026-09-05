@@ -27,7 +27,7 @@ export function taskCardText(task: TelegramTaskCard, occurrence: TelegramOccurre
   const head = [title];
   const when = scheduleLine(task, occurrence, now, "", locale);
   if (when) head.push(when);
-  const recurrence = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate, locale);
+  const recurrence = recurrenceLabel(task.recurrenceRule, task.recurrenceEndLocalDate, locale, task.recurrenceExcludedLocalDates ?? []);
   if (recurrence) head.push(`🔁 ${recurrence}`);
   const state = occurrence.status === "in_progress" ? copy.inProgress : occurrence.overdue ? `${copy.overdue}${overdueFor(occurrence, now, locale)}` : "";
   if (state) head.push(state);
@@ -66,7 +66,7 @@ export function reminderCardText(input: {
   } else if (input.task.fuzzyHorizonText) {
     lines.push(`🫧 ${input.task.fuzzyHorizonText}`);
   }
-  const recurrence = recurrenceLabel(input.task.recurrenceRule, input.task.recurrenceEndLocalDate, locale);
+  const recurrence = recurrenceLabel(input.task.recurrenceRule, input.task.recurrenceEndLocalDate, locale, input.task.recurrenceExcludedLocalDates ?? []);
   if (recurrence) lines.push(`🔁 ${recurrence}`);
   // At the moment of the reminder the next concrete step matters more than the rationale.
   const details = selectCardDetails(input.task);

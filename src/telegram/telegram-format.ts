@@ -21,6 +21,8 @@ export interface TelegramTaskCard {
   kind?: "task" | "event";
   recurrenceRule?: string | null;
   recurrenceEndLocalDate?: string | null;
+  /** Dates the series skips; the rhythm line names them so it does not describe a series the user lacks. */
+  recurrenceExcludedLocalDates?: readonly string[] | null;
   fuzzyHorizonText?: string | null;
   reviewAt?: Date | string | null;
   timezone: string;

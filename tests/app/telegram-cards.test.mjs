@@ -232,6 +232,20 @@ test("pending confirmation describes the concrete change", () => {
   );
 });
 
+test("a repeating card names the dates the series skips", () => {
+  // «каждый вторник» with the nearest Tuesday excluded describes a series the user does not have.
+  const task = {
+    title: "Английский",
+    importance: "normal",
+    timezone: "Europe/Kyiv",
+    recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=TU",
+    recurrenceExcludedLocalDates: ["2026-09-08"],
+  };
+  const occurrence = { id: "1", status: "open", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-09-15T16:00:00Z") };
+  assert.match(taskCardText(task, occurrence, new Date("2026-09-05T09:00:00Z"), "ru"), /🔁 каждую неделю: вт, кроме 08\.09/u);
+  assert.match(taskCardText({ ...task, recurrenceExcludedLocalDates: [] }, occurrence, new Date("2026-09-05T09:00:00Z"), "ru"), /🔁 каждую неделю: вт$/u);
+});
+
 test("settings show the quiet-hours window instead of hiding it", () => {
   const row = {
     timezone: "Europe/Kyiv",

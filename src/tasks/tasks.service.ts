@@ -431,9 +431,16 @@ export class TasksService {
     });
   }
 
-  async getTaskCardExtras(workspaceId: string, taskId: string): Promise<{ checklist: Array<{ text: string; done: boolean }>; goalTitle: string | null }> {
-    const [checklist, goalTitle] = await Promise.all([this.repository.listChecklistForTasks(workspaceId, [taskId]), this.repository.findGoalTitleForTask(workspaceId, taskId)]);
-    return { checklist: checklist.map((item) => ({ text: item.text, done: item.done })), goalTitle };
+  async getTaskCardExtras(
+    workspaceId: string,
+    taskId: string,
+  ): Promise<{ checklist: Array<{ text: string; done: boolean }>; goalTitle: string | null; recurrenceExcludedLocalDates: string[] }> {
+    const [checklist, goalTitle, excluded] = await Promise.all([
+      this.repository.listChecklistForTasks(workspaceId, [taskId]),
+      this.repository.findGoalTitleForTask(workspaceId, taskId),
+      this.repository.listRecurrenceExclusions(workspaceId, taskId),
+    ]);
+    return { checklist: checklist.map((item) => ({ text: item.text, done: item.done })), goalTitle, recurrenceExcludedLocalDates: excluded };
   }
 
   /** The occurrence an action on this task addresses; null for a task with no live occurrence. */

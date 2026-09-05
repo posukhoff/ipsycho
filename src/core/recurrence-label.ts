@@ -18,6 +18,7 @@ const WORDS: Record<
     everyMonths: (n: number) => string;
     monthDay: (d: string) => string;
     until: string;
+    except: string;
   }
 > = {
   ru: {
@@ -29,6 +30,7 @@ const WORDS: Record<
     everyMonths: (n) => `каждые ${n} ${plural("ru", n, "месяц", "месяца", "месяцев")}`,
     monthDay: (d) => `${d}-го`,
     until: "до",
+    except: "кроме",
   },
   uk: {
     daily: "щодня",
@@ -39,6 +41,7 @@ const WORDS: Record<
     everyMonths: (n) => `кожні ${n} ${plural("uk", n, "місяць", "місяці", "місяців")}`,
     monthDay: (d) => `${d}-го`,
     until: "до",
+    except: "крім",
   },
   en: {
     daily: "every day",
@@ -49,10 +52,20 @@ const WORDS: Record<
     everyMonths: (n) => `every ${n} months`,
     monthDay: (d) => ordinal(Number(d)),
     until: "until",
+    except: "except",
   },
 };
 
-export function recurrenceLabel(rule: string | null | undefined, endLocalDate?: string | null, locale: LabelLocale = "ru"): string | null {
+/**
+ * The rhythm as one line. Excluded dates belong here: a label that says «каждый вторник» while the
+ * nearest Tuesday is skipped describes a series the user does not have.
+ */
+export function recurrenceLabel(
+  rule: string | null | undefined,
+  endLocalDate?: string | null,
+  locale: LabelLocale = "ru",
+  excludedLocalDates: readonly string[] = [],
+): string | null {
   if (!rule) return null;
   const parts = Object.fromEntries(
     rule.split(";").map((part) => {
@@ -85,7 +98,18 @@ export function recurrenceLabel(rule: string | null | undefined, endLocalDate?: 
     const [year, month, day] = endLocalDate.split("-");
     if (year && month && day) text = `${text} ${words.until} ${day}.${month}.${year}`;
   }
+  const skipped = [...excludedLocalDates].sort();
+  if (skipped.length) {
+    const shown = skipped.slice(0, 3).map(dayMonth).filter(Boolean);
+    const rest = skipped.length - shown.length;
+    if (shown.length) text = `${text}, ${words.except} ${shown.join(", ")}${rest > 0 ? ` +${rest}` : ""}`;
+  }
   return text;
+}
+
+function dayMonth(localDate: string): string | null {
+  const [, month, day] = localDate.split("-");
+  return month && day ? `${day}.${month}` : null;
 }
 
 function ordinal(day: number): string {

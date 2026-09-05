@@ -95,9 +95,11 @@ const OCCURRENCE_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, 
 };
 
 const SERIES_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "series" }>["operation"], string>> = {
-  ru: { pause: "приостановлена", resume: "возобновлена", cancel: "отменена", edit: "расписание изменено" },
-  uk: { pause: "призупинена", resume: "відновлена", cancel: "скасована", edit: "розклад змінено" },
-  en: { pause: "paused", resume: "resumed", cancel: "cancelled", edit: "schedule changed" },
+  // An edit does not adjust the dates in place: every future occurrence is dropped and rebuilt from
+  // the new rule, so anything that hung on one of them is gone. Saying so is the point.
+  ru: { pause: "приостановлена", resume: "возобновлена", cancel: "отменена", edit: "расписание изменено, будущие даты пересозданы" },
+  uk: { pause: "призупинена", resume: "відновлена", cancel: "скасована", edit: "розклад змінено, майбутні дати перестворені" },
+  en: { pause: "paused", resume: "resumed", cancel: "cancelled", edit: "schedule changed, future dates rebuilt" },
 };
 
 const SETTINGS_LABELS: Record<ReportLocale, Record<Extract<AppliedReportItem, { kind: "settings" }>["operation"], string>> = {
