@@ -130,8 +130,20 @@ machine, or every encrypted dump becomes unreadable with the disk.
 
 Runtime alerts go to `OWNER_TELEGRAM_USER_ID`: the hourly maintenance tick
 reports reminders pending more than ten minutes past their time, non-empty
-dead-letter queues and ambiguous deliveries, once per change. Set
-`HEALTHCHECK_PING_URL` to have the same tick ping a dead-man switch. At least monthly, verify a selected encrypted backup without touching the
+dead-letter queues and ambiguous deliveries, once per change. `HEALTHCHECK_PING_URL`
+makes the same tick ping a dead-man switch, so silence from the whole machine
+is noticed by someone outside it.
+
+Two watchers run in production since 2026-09-05:
+
+```cron
+*/5 * * * *  cd /opt/ipsycho && ./scripts/watchdog.sh >> /opt/ipsycho/backups/watchdog.log 2>&1
+```
+
+`scripts/watchdog.sh` polls `/ready` and, after two consecutive failures, sends
+one Telegram message to the owner and one more when the app recovers. It shares
+the machine's fate, so it catches a crash-looping app, not a dead host — that is
+what the hourly ping to healthchecks.io covers. At least monthly, verify a selected encrypted backup without touching the
 production database:
 
 ```sh
