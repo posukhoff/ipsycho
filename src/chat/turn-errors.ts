@@ -51,9 +51,9 @@ const BY_CODE: Record<string, Copy> = {
     en: "Not saved: I mixed up what the action refers to. Name the task or goal again.",
   },
   fuzzy_reminder: {
-    ru: "У задачи нет даты, поэтому напоминание поставить некуда. Скажи, на какой день её поставить — тогда добавлю напоминание.",
-    uk: "У завдання немає дати, тому нагадування нема куди ставити. Скажи, на який день його поставити — тоді додам нагадування.",
-    en: "The task has no date, so there is nothing to attach a reminder to. Give it a day and I will add the reminder.",
+    ru: "У этой задачи нет дня, а напоминание к уже созданной задаче я ставлю только на день. Назови день — и напоминание будет.",
+    uk: "У цього завдання немає дня, а нагадування до вже створеного завдання я ставлю лише на день. Назви день — і нагадування буде.",
+    en: "This task has no day, and on an existing task I can only put a reminder on a day. Name the day and the reminder is yours.",
   },
   fuzzy_no_occurrence: {
     ru: "У этой задачи ещё нет конкретного дня, поэтому её нельзя начать, отметить увиденной или пропустить. Можно завершить, отменить или назначить дату.",

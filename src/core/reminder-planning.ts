@@ -11,6 +11,13 @@ export type SuppressedReason = "quiet_stale" | "snooze_stale" | "no_longer_appli
 /** Allows queue/rebuild latency without reviving genuinely stale reminders. */
 export const IMMEDIATE_DELIVERY_GRACE_MS = 60_000;
 
+/**
+ * How far behind its intended minute a contact may still be delivered after a deferral. Quiet hours
+ * cannot push a reminder further than this by construction; a long snooze can, and a reminder from
+ * three days ago is not worth waking someone for.
+ */
+export const MAX_DEFERRED_DELIVERY_MS = 36 * 60 * 60_000;
+
 export interface ReminderRuleSpec {
   triggerKind: ReminderTriggerKind;
   exactAt?: Date;
@@ -146,11 +153,9 @@ export function applyNotificationPolicy(input: {
   rule: ReminderRuleSpec;
   settings: ReminderSettings;
 }): { scheduledFor: Date; suppressedReason?: SuppressedReason } {
-  const latenessMs = input.now.getTime() - input.intendedFor.getTime();
-  if (latenessMs > IMMEDIATE_DELIVERY_GRACE_MS) {
-    return { scheduledFor: input.now, suppressedReason: "no_longer_applicable" };
-  }
-  if (latenessMs > 0) return { scheduledFor: input.now };
+  // Deferral is resolved before lateness. A contact pushed out of quiet hours or held by a snooze is
+  // late against its intended minute by design; measuring staleness against that minute discarded
+  // every deferred reminder at delivery time instead of sending it when the window opened.
   let scheduledFor = input.intendedFor;
 
   if (input.settings.notificationsSnoozedUntil && scheduledFor < input.settings.notificationsSnoozedUntil) {
@@ -166,6 +171,18 @@ export function applyNotificationPolicy(input: {
     scheduledFor = boundary && scheduledFor <= boundary && deferred > boundary ? boundary : deferred;
     if (staleForEvent(input.task, input.occurrence, scheduledFor)) return { scheduledFor, suppressedReason: "quiet_stale" };
   }
+
+  // A deferral moves a contact, it does not resurrect one. Snooze can be set for days, and without
+  // this bound the reminder it held would arrive when the snooze ends, however old it is.
+  if (input.now.getTime() - input.intendedFor.getTime() > MAX_DEFERRED_DELIVERY_MS) {
+    return { scheduledFor: input.now, suppressedReason: "no_longer_applicable" };
+  }
+
+  const latenessMs = input.now.getTime() - scheduledFor.getTime();
+  if (latenessMs > IMMEDIATE_DELIVERY_GRACE_MS) {
+    return { scheduledFor: input.now, suppressedReason: "no_longer_applicable" };
+  }
+  if (latenessMs > 0) return { scheduledFor: input.now };
 
   return { scheduledFor };
 }

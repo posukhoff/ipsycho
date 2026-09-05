@@ -173,3 +173,79 @@ test("a genuinely old reminder remains suppressed", () => {
   });
   assert.equal(policy.suppressedReason, "no_longer_applicable");
 });
+
+test("a reminder deferred out of quiet hours is delivered when the window opens", () => {
+  // 23:00 Kyiv is inside quiet hours; the deadline is ten days out, so the task boundary does not
+  // cap the deferral. The delivery fires at 08:00, late against its intended minute by design.
+  const intendedFor = new Date("2026-09-10T20:00:00Z");
+  const task = { kind: "task", importance: "normal", timeMode: "deadline", timezone: "Europe/Kyiv", dueAt: new Date("2026-09-20T12:00:00Z") };
+  const rule = { triggerKind: "exact", exactAt: intendedFor, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" };
+  const planned = applyNotificationPolicy({ intendedFor, now: new Date("2026-09-10T10:00:00Z"), task, occurrence: null, rule, settings });
+  assert.equal(planned.scheduledFor.toISOString(), "2026-09-11T05:00:00.000Z");
+  assert.equal(planned.suppressedReason, undefined);
+
+  const atDelivery = applyNotificationPolicy({ intendedFor, now: planned.scheduledFor, task, occurrence: null, rule, settings });
+  assert.equal(atDelivery.suppressedReason, undefined);
+  assert.equal(atDelivery.scheduledFor.toISOString(), "2026-09-11T05:00:00.000Z");
+});
+
+test("a deferred reminder still goes stale once its own window has passed", () => {
+  const intendedFor = new Date("2026-09-10T20:00:00Z");
+  const task = { kind: "task", importance: "normal", timeMode: "deadline", timezone: "Europe/Kyiv", dueAt: new Date("2026-09-20T12:00:00Z") };
+  const rule = { triggerKind: "exact", exactAt: intendedFor, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" };
+  const policy = applyNotificationPolicy({
+    intendedFor,
+    now: new Date(new Date("2026-09-11T05:00:00Z").getTime() + IMMEDIATE_DELIVERY_GRACE_MS + 1),
+    task,
+    occurrence: null,
+    rule,
+    settings,
+  });
+  assert.equal(policy.suppressedReason, "no_longer_applicable");
+});
+
+test("a snoozed reminder is delivered when the snooze expires", () => {
+  const intendedFor = new Date("2026-09-10T09:00:00Z");
+  const snoozedUntil = new Date("2026-09-10T15:00:00Z");
+  const task = { kind: "task", importance: "normal", timeMode: "deadline", timezone: "Europe/Kyiv", dueAt: new Date("2026-09-20T12:00:00Z") };
+  const rule = { triggerKind: "exact", exactAt: intendedFor, purpose: "user_reminder", quietPolicy: "bypass", origin: "explicit" };
+  const policy = applyNotificationPolicy({
+    intendedFor,
+    now: snoozedUntil,
+    task,
+    occurrence: null,
+    rule,
+    settings: { ...settings, notificationsSnoozedUntil: snoozedUntil },
+  });
+  assert.equal(policy.suppressedReason, undefined);
+  assert.equal(policy.scheduledFor.toISOString(), snoozedUntil.toISOString());
+});
+
+test("a snooze delays a reminder but does not resurrect one from days ago", () => {
+  // Snooze moves only the delivery time, so judging staleness by it alone would let a contact from
+  // last week arrive the moment the snooze ends.
+  const intendedFor = new Date("2026-08-30T09:00:00Z");
+  const task = { kind: "task", importance: "normal", timeMode: "deadline", timezone: "Europe/Kyiv", dueAt: new Date("2026-09-20T12:00:00Z") };
+  const rule = { triggerKind: "exact", exactAt: intendedFor, purpose: "user_reminder", quietPolicy: "bypass", origin: "explicit" };
+  const stale = applyNotificationPolicy({
+    intendedFor,
+    now: new Date("2026-09-05T10:00:00Z"),
+    task,
+    occurrence: null,
+    rule,
+    settings: { ...settings, notificationsSnoozedUntil: new Date("2026-09-06T09:00:00Z") },
+  });
+  assert.equal(stale.suppressedReason, "no_longer_applicable");
+
+  // Inside the bound the snooze still holds the contact instead of dropping it.
+  const held = applyNotificationPolicy({
+    intendedFor: new Date("2026-09-05T06:00:00Z"),
+    now: new Date("2026-09-05T10:00:00Z"),
+    task,
+    occurrence: null,
+    rule: { ...rule, exactAt: new Date("2026-09-05T06:00:00Z") },
+    settings: { ...settings, notificationsSnoozedUntil: new Date("2026-09-05T12:00:00Z") },
+  });
+  assert.equal(held.suppressedReason, undefined);
+  assert.equal(held.scheduledFor.toISOString(), "2026-09-05T12:00:00.000Z");
+});

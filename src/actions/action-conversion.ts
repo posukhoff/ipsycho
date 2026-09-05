@@ -171,8 +171,14 @@ export function createTaskInputFromBody(
  * otherwise the model could "promise" a reminder that never fires.
  */
 function explicitReminderForNewTask(reminder: Reminder, definition: TaskDefinition, morningReferenceTime: string): ReminderRuleSpec {
-  if (definition.timeMode === "fuzzy") throw new InvalidAiActionError("a task without a date cannot carry a reminder", "fuzzy_reminder");
   const rule = reminderRuleFromReminder(reminder, definition.timezone);
+  if (definition.timeMode === "fuzzy") {
+    // A task without a date still has the review day the server picked for it, and that day already
+    // carries a contact. The user did ask to be reminded, so the reminder lands on that checkpoint
+    // instead of the whole package failing; a reminder that names its own moment keeps it.
+    if (rule.triggerKind === "exact") return rule;
+    return { triggerKind: "relative_timestamp", anchor: "review_at", offsetSeconds: 0, purpose: "user_reminder", quietPolicy: rule.quietPolicy, origin: "explicit" };
+  }
   if (rule.triggerKind === "relative_timestamp") {
     const anchorAt =
       rule.anchor === "planned_start"

@@ -239,6 +239,30 @@ test("quiet hours turned on after scheduling push a future reminder to the end o
   assert.equal((await deliveryRow(deliveryId)).status, "pending");
 });
 
+test("a reminder deferred by quiet hours is sent once the window opens, with the deferral notice", async () => {
+  const context = await fixture();
+  const { deliveryId, taskId } = await dueDelivery(context);
+  // The task itself is far away, so the quiet-hours deferral is not capped by the task boundary.
+  await database.pool.query("update task_occurrences set planned_start_at=$2 where task_id=$1", [taskId, new Date(Date.now() + 36 * 60 * 60_000)]);
+  await database.pool.query("update tasks set planned_start_at=$2 where id=$1", [taskId, new Date(Date.now() + 36 * 60 * 60_000)]);
+  // A quiet window that ended this very minute: the reminder was meant for the middle of it.
+  const local = (at) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Kyiv", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+  const quietStart = local(new Date(Date.now() - 3 * 60 * 60_000));
+  const quietEnd = local(new Date());
+  await database.pool.query(
+    "update user_settings set quiet_hours_enabled=true, weekday_quiet_start=$2, weekday_quiet_end=$3, weekend_quiet_start=$2, weekend_quiet_end=$3 where user_id=$1",
+    [context.userId, quietStart, quietEnd],
+  );
+  await database.pool.query("update reminder_deliveries set intended_for = now() - interval '2 hours', scheduled_for = now() where id=$1", [deliveryId]);
+
+  const telegram = fakeTelegram();
+  const service = await startQueueService(telegram);
+  await service.reconcile();
+  await waitFor(async () => (await deliveryRow(deliveryId)).status === "sent");
+  assert.equal(telegram.sent.length, 1);
+  assert.match(telegram.sent[0].text, /quiet hours/);
+});
+
 test("a delivery whose occurrence was completed in the meantime is suppressed, not sent", async () => {
   const context = await fixture();
   const { deliveryId, taskId } = await dueDelivery(context);

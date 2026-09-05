@@ -21,6 +21,12 @@ export function defaultReminderTemplates(
   const result: ReminderTemplate[] = [];
 
   if (input.kind === "event") {
+    // An all-day event has no clock to count back from, so it takes the same morning-of contact an
+    // all-day task takes; counting offsets from a start that does not exist threw and lost the task.
+    if (!input.hasPlannedStart) {
+      result.push({ kind: "local_date", anchor: "planned_start", daysOffset: 0, reference: "morning" });
+      return result;
+    }
     result.push(...(preferences.eventOffsetsMinutes ?? [-60, -15]).map((offsetMinutes) => ({ kind: "relative" as const, anchor: "planned_start" as const, offsetMinutes })));
     return result;
   }

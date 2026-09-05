@@ -11,6 +11,25 @@ import {
   validateUpdateTaskPatch,
   whenFromRescheduleFields,
 } from "../../dist/actions/action-conversion.js";
+import { defaultReminderRuleSpecs } from "../../dist/tasks/task-plan-rules.js";
+import { reminderSettingsFromRow } from "../../dist/tasks/task-record-mappers.js";
+import { planReminders } from "../../dist/core/reminder-planning.js";
+
+/** The columns the reminder mappers read, with the schema defaults. */
+const settingsRow = {
+  quietHoursTimezone: "Europe/Kyiv",
+  quietHoursEnabled: false,
+  weekdayQuietStart: "22:00",
+  weekdayQuietEnd: "08:00",
+  weekendQuietStart: "23:00",
+  weekendQuietEnd: "09:00",
+  notificationsSnoozedUntil: null,
+  morningReferenceTime: "09:00",
+  eveningReferenceTime: "20:00",
+  eventReminderOffsetsMinutes: [-60, -15],
+  plannedTaskReminderOffsetMinutes: 0,
+  criticalPostDueMinutes: 60,
+};
 
 const ctx = { timezone: "Europe/Kyiv", reviewTime: "09:00" };
 const now = new Date("2026-08-20T09:00:00Z");
@@ -110,12 +129,28 @@ test("a time already in the past is rejected with time_past", () => {
   assert.throws(() => taskDefinitionFromBody(body({ when: { mode: "deadline", date: "2026-08-01", time: null } }), ctx, now), withCode("time_past"));
 });
 
-test("an explicit reminder on a fuzzy task is rejected with fuzzy_reminder", () => {
+test("an explicit reminder on a task without a date lands on its review day", () => {
   const reminder = { kind: "offset", anchor: "start", minutes: -30, quiet: "respect" };
-  assert.throws(
-    () => createTaskInputFromBody(body({ when: { mode: "fuzzy", horizonText: "к осени", reviewDate: "2026-09-01" }, reminder }), scope, ctx),
-    withCode("fuzzy_reminder"),
+  // «К осени разберусь с гаражом, напомни» used to fail the whole package: there is no start to
+  // count -30 minutes from. The review day the server picked is a real moment, so it carries it.
+  const fuzzy = createTaskInputFromBody(body({ when: { mode: "fuzzy", horizonText: "к осени", reviewDate: "2026-09-01" }, reminder }), scope, ctx);
+  assert.deepEqual(fuzzy.explicitReminder, {
+    triggerKind: "relative_timestamp",
+    anchor: "review_at",
+    offsetSeconds: 0,
+    purpose: "user_reminder",
+    quietPolicy: "respect",
+    origin: "explicit",
+  });
+
+  // A reminder that names its own moment keeps it, date or no date.
+  const dated = createTaskInputFromBody(
+    body({ when: { mode: "fuzzy", horizonText: "к осени", reviewDate: "2026-09-01" }, reminder: { kind: "at", date: "2026-09-10", time: "10:00", quiet: "respect" } }),
+    scope,
+    ctx,
   );
+  assert.equal(dated.explicitReminder?.triggerKind, "exact");
+
   // A deadline day without a clock time cannot count minutes from anything, but the user did ask to
   // be reminded: the offset becomes a morning reminder on that day instead of failing the package.
   const deadlineInput = createTaskInputFromBody(body({ when: { mode: "deadline", date: "2026-08-30", time: null }, reminder: { ...reminder, anchor: "due" } }), scope, ctx);
@@ -260,31 +295,6 @@ test("an offset reminder on a day without a clock time becomes a morning reminde
   });
 });
 
-test("an offset reminder still fails when the task has no date at all", () => {
-  assert.throws(
-    () =>
-      createTaskInputFromBody(
-        {
-          title: "Когда-нибудь разобрать шкаф",
-          why: null,
-          nextAction: null,
-          context: null,
-          checklist: null,
-          importance: "normal",
-          kind: "task",
-          when: { mode: "fuzzy", horizonText: "к осени", reviewDate: "2026-09-20" },
-          recurrence: null,
-          reminder: { kind: "offset", anchor: "start", minutes: -60, quiet: "respect" },
-          habit: null,
-          timezone: null,
-        },
-        { workspaceId: "ws", actorUserId: "u", recipientUserId: "u", now: new Date("2026-09-04T09:00:00Z") },
-        { timezone: "Europe/Kyiv", reviewTime: "08:30" },
-      ),
-    /without a date cannot carry a reminder/,
-  );
-});
-
 test("a day reminder anchored to the wrong end of the task falls back to the day the task has", () => {
   const input = createTaskInputFromBody(
     {
@@ -319,4 +329,23 @@ test("an event with a deadline keeps the time and loses the label instead of fai
   // A real event still stays an event.
   const meeting = createTaskInputFromBody(body({ kind: "event", when: { mode: "exact", date: "2026-09-08", time: "17:00", durationMinutes: 30 } }), scope, ctx);
   assert.equal(meeting.definition.kind, "event");
+});
+
+test("an all-day event can be created and gets a morning contact instead of throwing", () => {
+  // «Весь день 12 сентября — конференция» is an event with no clock. Counting the default -60/-15
+  // offsets from a start that does not exist threw a plain Error inside planReminders, so the whole
+  // create_task failed and the message was told to try again later.
+  const input = createTaskInputFromBody(body({ kind: "event", when: { mode: "date", date: "2026-09-12" } }), scope, ctx);
+  assert.equal(input.definition.kind, "event");
+  assert.equal(input.definition.timeMode, "window");
+  assert.equal(input.definition.plannedLocalDate, "2026-09-12");
+
+  const specs = defaultReminderRuleSpecs(input.definition, settingsRow);
+  assert.deepEqual(
+    specs.map((spec) => [spec.triggerKind, spec.anchor, spec.localTime]),
+    [["local_date", "planned_start", "09:00"]],
+  );
+  const plans = planReminders({ task: input.definition, occurrence: null, rules: specs, settings: reminderSettingsFromRow(settingsRow), now });
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].suppressedReason, undefined);
 });

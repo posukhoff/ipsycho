@@ -7,6 +7,9 @@ import { TelegramService } from "../telegram/telegram.service.js";
 import { ChatService } from "./chat.service.js";
 import { safeError, safeMessageMetadata } from "../observability/safe-error.js";
 import { logger } from "../observability/logger.js";
+import { automaticAiRetryLimit } from "../core/ai-retry-policy.js";
+import { t } from "../telegram/copy/index.js";
+import { telegramLocale } from "../telegram/telegram-locale.js";
 
 const RETRY_TICK_MS = 60_000;
 
@@ -38,7 +41,13 @@ export class AiRetryService extends PeriodicService {
           await this.messages.setStatus(row.message.workspaceId, row.message.id, "blocked_consent");
           continue;
         }
-        if (result.kind !== "ok") continue;
+        if (result.kind !== "ok") {
+          // `ai_unavailable` leaves the row due, so without a new time it is re-read every tick
+          // forever while `aiRetryCount` never grows and the exhaustion notice never fires.
+          if (result.kind === "ai_unavailable")
+            await this.messages.deferAiUntil(row.message.workspaceId, row.message.userId, row.message.id, new Date(Date.now() + 60 * 60_000)).catch(() => undefined);
+          continue;
+        }
         const rendered = renderChatResult(result);
         if (result.supersededPendingGroupId) await this.dropCardButtons(row.message.workspaceId, result.supersededPendingGroupId);
         // The bot only serves private chats, where the chat id is the user's Telegram id.
@@ -56,8 +65,20 @@ export class AiRetryService extends PeriodicService {
         });
       } catch (error) {
         logger.error("automatic AI retry failed", { messageId: row.message.id, message: safeMessageMetadata(row.message.content), error: safeError(error) });
+        // `aiRetryCount` counts the failures so far, so a row carrying the limit is on its last
+        // automatic attempt: the failure just logged sets `aiNextRetryAt` to null and
+        // `findDueAiRetries` never selects it again. Without this line the message stays in
+        // `waiting_ai` forever and the user, told the bot would try again, waits for nothing.
+        if (row.message.aiRetryCount >= automaticAiRetryLimit()) await this.notifyRetriesExhausted(row);
       }
     }
+  }
+
+  /** The last automatic attempt failed: name the message that was lost and offer the manual retry. */
+  private async notifyRetriesExhausted(row: { message: { content: string }; user: { telegramUserId: number }; settings: { pinnedLanguage: string | null } }): Promise<void> {
+    const locale = telegramLocale(row.settings.pinnedLanguage);
+    const preview = row.message.content.trim().replace(/\s+/gu, " ").slice(0, 60);
+    await this.telegram.sendMessage(row.user.telegramUserId, t(locale, "ai_retry_exhausted", { preview })).catch(() => undefined);
   }
 
   /** A replaced confirmation card keeps its text but loses its buttons; the group is already cancelled. */

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isTerminalOccurrenceStatus } from "../core/types.js";
 import { Injectable } from "@nestjs/common";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
-import { seenFollowUpMinutes } from "../core/reminder-defaults.js";
+import { seenFollowUpMinutes, shouldMergeReminderContacts } from "../core/reminder-defaults.js";
 import { isQuietAt } from "../core/quiet-hours.js";
 import { applyNotificationPolicy, planReminders, resolveReminderIntent, type ReminderRuleSpec } from "../core/reminder-planning.js";
 import { resultCheckDelayMinutes, type ResultCheckChoice } from "../core/result-check.js";
@@ -215,6 +215,33 @@ export class ReminderSchedulingService {
     return rebuilt;
   }
 
+  /** Whether an active explicit reminder already contacts the user within the merge window of the review moment. */
+  private async explicitReminderCoversReview(workspaceId: string, taskId: string, taskRow: typeof tasks.$inferSelect): Promise<boolean> {
+    if (!taskRow.reviewAt) return false;
+    const rules = await this.database.db
+      .select()
+      .from(reminderRules)
+      .where(
+        and(
+          eq(reminderRules.workspaceId, workspaceId),
+          eq(reminderRules.taskId, taskId),
+          sql`${reminderRules.occurrenceId} IS NULL`,
+          eq(reminderRules.purpose, "user_reminder"),
+          eq(reminderRules.origin, "explicit"),
+          eq(reminderRules.active, true),
+        ),
+      );
+    if (!rules.length) return false;
+    const task = taskDefinitionFromRow(taskRow);
+    return rules.some((rule) => {
+      try {
+        return shouldMergeReminderContacts(taskRow.reviewAt!, resolveReminderIntent(reminderRuleSpecFromRow(rule), task, null, task.timezone));
+      } catch {
+        return false;
+      }
+    });
+  }
+
   async rebuildFuzzyTask(workspaceId: string, userId: string, taskId: string, now = new Date()): Promise<number> {
     const [row] = await this.database.db
       .select({ task: tasks, settings: userSettings })
@@ -239,7 +266,10 @@ export class ReminderSchedulingService {
         ),
       );
     const existingIds = existing.map((item) => item.id);
-    const shouldSchedule = row.task.status === "active" && row.task.timeMode === "fuzzy" && Boolean(row.task.reviewAt);
+    // A task without a date can now carry the user's own reminder, and it lands on the same review
+    // day. Two rules mean two deliveries in the same minute, so the review contact steps aside.
+    const explicitCoversReview = await this.explicitReminderCoversReview(workspaceId, taskId, row.task);
+    const shouldSchedule = row.task.status === "active" && row.task.timeMode === "fuzzy" && Boolean(row.task.reviewAt) && !explicitCoversReview;
     const created = await this.database.db.transaction(async (tx): Promise<typeof reminderDeliveries.$inferInsert | null> => {
       if (existingIds.length) {
         await tx

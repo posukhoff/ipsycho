@@ -203,7 +203,10 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
         occurrenceId: row.occurrence?.id ?? null,
         intendedFor: row.delivery.intendedFor.toISOString(),
         evaluatedAt: now.toISOString(),
-        latenessMs: now.getTime() - row.delivery.intendedFor.getTime(),
+        // Both, because staleness is judged against the deferred moment while the bound on reviving
+        // an old contact is judged against the intended one.
+        latenessFromIntendedMs: now.getTime() - row.delivery.intendedFor.getTime(),
+        latenessFromScheduledMs: now.getTime() - policy.scheduledFor.getTime(),
         reason: policy.suppressedReason,
       });
       await this.suppress(deliveryId, policy.suppressedReason);
