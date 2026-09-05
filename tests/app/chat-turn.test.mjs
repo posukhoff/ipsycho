@@ -478,3 +478,22 @@ test("«ничего не сохраняй» drops the actions before they ever 
   assert.equal(result.appliedCount, 0);
   assert.equal(result.pendingCount, 0);
 });
+
+test("the fifth question in a row says out loud how to stop the questions", async () => {
+  // The count was kept and thrown away, so the fifth question read exactly like the first and the
+  // only escape («хватит вопросов») was never mentioned anywhere.
+  const asking = { reply: "Понял.", question: "А к какому сроку?", actions: [], topic: { mode: "continue", title: null, summary: null } };
+  const fifth = createChatHarness({ turns: [asking], clarificationCount: 5, topicId: "33333333-3333-4333-8333-333333333333" });
+  const late = await send(fifth, "давай разберёмся с налогами");
+  assert.match(late.text, /А к какому сроку\?/u);
+  assert.match(late.text, /хватит вопросов/u);
+
+  const first = createChatHarness({ turns: [asking], clarificationCount: 1, topicId: "33333333-3333-4333-8333-333333333333" });
+  const early = await send(first, "давай разберёмся с налогами");
+  assert.equal(/хватит вопросов/u.test(early.text), false);
+
+  // A turn that asks nothing says nothing about it, however long the discussion has run.
+  const silent = createChatHarness({ turns: [{ ...asking, question: null }], clarificationCount: 9, topicId: "33333333-3333-4333-8333-333333333333" });
+  const quiet = await send(silent, "к пятнице");
+  assert.equal(/хватит вопросов/u.test(quiet.text), false);
+});

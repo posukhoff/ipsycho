@@ -104,6 +104,7 @@ export const en: Record<keyof typeof ru, string> = {
   profile_empty: "Nothing here yet.",
   profile_opening_question:
     "Answer freely, skip anything, or stop whenever you like. Let us start simple: what does your day usually look like — when do you get up, when do you go to bed, and which hours are bad for anything important?",
+  chat_too_many_questions: "That is five questions in a row from me. Say to stop asking and I will conclude from what I have.",
   memory_title: "🧠 What I remember",
   memory_empty: "Nothing remembered yet.",
   memory_hint: "🔒 means sensitive: the model does not see it in context. Say what to correct or forget.",

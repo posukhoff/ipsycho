@@ -10,6 +10,9 @@ import { budgetHistory } from "../core/ai-history.js";
 import { isDomainRuleError } from "../core/errors.js";
 import { withTaskCandidates } from "../core/reference-candidates.js";
 import { MODEL_REPLY_MAX, compactText } from "../core/telegram-ux.js";
+
+/** After this many questions in one discussion the reply names the way to stop them. */
+const CLARIFICATION_CHECKPOINT = 5;
 import { aiTimeContext } from "../core/ai-time-context.js";
 import { renderAppliedReport } from "../core/applied-report.js";
 import { interfaceLocale } from "../core/language.js";
@@ -44,7 +47,6 @@ export type ChatProcessResult =
       pendingTitles?: string[];
       warnings: string[];
       topicId?: string;
-      checkpointTopicId?: string;
       /** The acknowledgement itself must not re-create a just-cleared AI history. */
       skipAssistantHistory?: boolean;
     };
@@ -468,7 +470,9 @@ export class ChatService {
         });
       });
 
-      let checkpoint = false;
+      // Five questions in a row and still asking: say out loud that there is a way to stop it. The
+      // count used to be kept and thrown away, so the fifth question read exactly like the first.
+      let tooManyQuestions = false;
       if (topicId && control !== "no_persist") {
         const askedQuestion = Boolean(turn.question?.trim());
         const count = await this.context
@@ -480,15 +484,16 @@ export class ChatService {
             now,
           })
           .catch(() => clarificationCountBeforeTurn);
-        if (askedQuestion && count >= 5) {
-          checkpoint = true;
+        if (askedQuestion && count >= CLARIFICATION_CHECKPOINT) {
+          tooManyQuestions = true;
           await this.context.resetClarificationCount(input.workspaceId, input.userId, topicId, now).catch(() => undefined);
         }
       }
       const report = actionResult.applied?.items?.length ? renderAppliedReport(actionResult.applied.items, now, interfaceLocale(input.language)) : "";
+      const reply = renderTurn(turn.reply, turn.question, MODEL_REPLY_MAX);
       return {
         kind: "ok",
-        text: renderTurn(turn.reply, turn.question, MODEL_REPLY_MAX),
+        text: tooManyQuestions ? `${reply}\n\n${t(interfaceLocale(input.language), "chat_too_many_questions")}` : reply,
         ...(report ? { report } : {}),
         ...(actionResult.applied ? { appliedGroupId: actionResult.applied.groupId } : {}),
         ...(actionResult.pending ? { pendingGroupId: actionResult.pending.groupId, pendingTitles: actionResult.pending.titles } : {}),
@@ -497,7 +502,6 @@ export class ChatService {
         pendingCount: actionResult.pending?.count ?? 0,
         warnings: actionResult.warnings ?? [],
         ...(topicId ? { topicId } : {}),
-        ...(checkpoint && topicId ? { checkpointTopicId: topicId } : {}),
       };
     } catch (error) {
       if (error instanceof ActionStateUncertainError) {

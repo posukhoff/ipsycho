@@ -31,7 +31,18 @@ import { EMPTY_REFS } from "../../../dist/core/ai-refs.js";
  *   topics         directives passed to `context.applyTopicDirective`
  */
 export function createChatHarness(options = {}) {
-  const { turns = [], issues = [], applied, pending, context: contextOverrides = {}, lastAssistant = null, pendingSummary = null, confirmResult } = options;
+  const {
+    turns = [],
+    issues = [],
+    applied,
+    pending,
+    context: contextOverrides = {},
+    lastAssistant = null,
+    pendingSummary = null,
+    confirmResult,
+    clarificationCount = 1,
+    topicId = null,
+  } = options;
 
   const calls = [];
   const corrections = [];
@@ -161,12 +172,12 @@ export function createChatHarness(options = {}) {
   const context = {
     applyTopicDirective: async (input) => {
       topics.push(input.directive);
-      return null;
+      return topicId;
     },
-    findActiveTopic: async () => null,
+    findActiveTopic: async () => contextOverrides.activeTopic ?? null,
     findTopic: async () => null,
     resolveTopic: async () => true,
-    updateClarificationCount: async () => 1,
+    updateClarificationCount: async () => clarificationCount,
     resetClarificationCount: async () => undefined,
     mergeWeeklyReviewProgress: async () => ({
       outcome: null,
