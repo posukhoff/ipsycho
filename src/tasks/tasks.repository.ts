@@ -32,6 +32,19 @@ export interface PersistedTaskPlan {
 /** Upper bound on tasks loaded for one model turn; the context layer shows at most 60 of them. */
 export const AI_TASK_RETRIEVAL_LIMIT = 300;
 
+/**
+ * A live occurrence of this task whose day is already gone. The outer table is named in full
+ * rather than through column references: in a select list Drizzle renders a column unqualified,
+ * and `o.task_id = "id"` then silently compares the subquery's own row to itself.
+ */
+const OVERDUE_EXISTS = sql<boolean>`exists (
+  select 1 from task_occurrences o
+  where o.workspace_id = tasks.workspace_id and o.task_id = tasks.id and o.overdue and o.status in ('scheduled', 'open', 'in_progress')
+)`;
+
+/** Who belongs to the week pool: no date at all, or a one-off whose date has passed. */
+export const POOL_MEMBERSHIP = sql`(${tasks.timeMode} = 'fuzzy' or (${tasks.recurrenceRule} is null and ${OVERDUE_EXISTS}))`;
+
 @Injectable()
 export class TasksRepository {
   constructor(private readonly database: DatabaseService) {}
@@ -152,23 +165,25 @@ export class TasksRepository {
   }
 
   /**
-   * The pool: active tasks with no date. The week screen orders them in the domain (a pick left over
-   * from last week goes first), so the query only bounds the read.
+   * The pool: active tasks with no date, plus one-off tasks whose day has already passed. A missed
+   * one-off used to hang overdue forever with no transition; the pool is where its next day is
+   * chosen, so it joins the pool instead. A series is left out: its next date comes on its own.
    */
   async listPoolForTelegram(workspaceId: string, limit = 200) {
     return this.database.db
-      .select()
+      .select({ task: tasks, overdue: OVERDUE_EXISTS })
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")))
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), POOL_MEMBERSHIP))
       .orderBy(desc(tasks.updatedAt))
-      .limit(limit);
+      .limit(limit)
+      .then((rows) => rows.map((row) => ({ ...row.task, overdue: row.overdue })));
   }
 
   async countPool(workspaceId: string): Promise<number> {
     const [row] = await this.database.db
       .select({ count: sql<number>`count(*)::int` })
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")));
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), POOL_MEMBERSHIP));
     return row?.count ?? 0;
   }
 
@@ -177,7 +192,7 @@ export class TasksRepository {
     return this.database.db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, weekStart)))
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), POOL_MEMBERSHIP, eq(tasks.pickedWeekStart, weekStart)))
       .orderBy(sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`, desc(tasks.updatedAt))
       .limit(limit);
   }
@@ -195,7 +210,7 @@ export class TasksRepository {
       const [task] = await tx
         .select({ pickedWeekStart: tasks.pickedWeekStart })
         .from(tasks)
-        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")))
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), eq(tasks.status, "active"), POOL_MEMBERSHIP))
         .for("update");
       if (!task) return null;
       if (task.pickedWeekStart === weekStart) {
@@ -208,7 +223,7 @@ export class TasksRepository {
       const [picked] = await tx
         .select({ count: sql<number>`count(*)::int` })
         .from(tasks)
-        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, weekStart)));
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), POOL_MEMBERSHIP, eq(tasks.pickedWeekStart, weekStart)));
       if ((picked?.count ?? 0) >= limit) return "full";
       await tx
         .update(tasks)
@@ -236,7 +251,7 @@ export class TasksRepository {
     const [taken] = await this.database.db
       .select({ count: sql<number>`count(*)::int` })
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, range.start)))
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), POOL_MEMBERSHIP, eq(tasks.pickedWeekStart, range.start)))
       .limit(1);
     return { done: done?.count ?? 0, takenNotStarted: taken?.count ?? 0 };
   }

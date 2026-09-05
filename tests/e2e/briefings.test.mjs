@@ -115,6 +115,30 @@ test("the weekly card says the pool is empty instead of inviting a pick", async 
   assert.doesNotMatch(built.text, /\/week/);
 });
 
+test("an overdue task stays in every morning card until it is dealt with", async () => {
+  // A missed one-off has no terminal transition and the day it names is not today, so the card
+  // reads it as today's business (`occurrenceFallsOnLocalDate` is true for overdue work) and says
+  // so on the line. What it cannot do is offer a new day — that is what the week pool is for.
+  const scope = await fixture();
+  await scheduledTask(scope, "Позвонить в банк", "2026-09-01");
+  await database.pool.query("update task_occurrences set overdue=true");
+  await scheduledTask(scope, "Забрать посылку", "2026-09-07");
+
+  const card = await content.build({ workspaceId: scope.workspaceId, kind: "morning", localDate: "2026-09-07", timezone: TIMEZONE, now: new Date("2026-09-07T06:00:00Z") });
+  assert.match(card.text, /Забрать посылку/u);
+  assert.match(card.text, /Позвонить в банк · просрочено/u);
+
+  // A day with nothing planned of its own still carries it.
+  const later = await content.build({ workspaceId: scope.workspaceId, kind: "morning", localDate: "2026-09-08", timezone: TIMEZONE, now: new Date("2026-09-08T06:00:00Z") });
+  assert.match(later.text, /Позвонить в банк · просрочено/u);
+  assert.equal(later.hasContent, true);
+
+  // Done is done: it leaves the card with no clearing job.
+  await database.pool.query("update task_occurrences set status='done', completed_at=now() where overdue");
+  const cleared = await content.build({ workspaceId: scope.workspaceId, kind: "morning", localDate: "2026-09-08", timezone: TIMEZONE, now: new Date("2026-09-08T06:00:00Z") });
+  assert.equal(/Позвонить в банк/u.test(cleared.text), false);
+});
+
 test("a card is not first created for an hour that has already passed, so enabling it in the evening does not fire it", async () => {
   const scope = await fixture();
   await database.pool.query("update user_settings set morning_digest_enabled=true, morning_reference_time='09:00', digest_timezone=$2 where user_id=$1", [scope.userId, TIMEZONE]);

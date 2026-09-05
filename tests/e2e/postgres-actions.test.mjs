@@ -1310,3 +1310,36 @@ test("an occurrence-only group locks the task it belongs to, so two crossing gro
     blocker.release();
   }
 });
+
+test("a one-off whose day has passed joins the pool instead of hanging overdue forever", async () => {
+  // There is no terminal transition for a missed one-off: it stays overdue until the user acts.
+  // The pool is where a task's day is chosen, so that is where it waits, keeping its old date.
+  const { workspaceId, userId } = await fixture();
+  const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});
+  const today = "2026-09-09";
+  const { taskId, occurrenceId } = await createOccurrence(workspaceId, userId);
+  await database.pool.query("update task_occurrences set overdue=true where id=$1", [occurrenceId]);
+
+  const plan = await service.listWeekPlanForTelegram(workspaceId, today);
+  assert.deepEqual(
+    plan.rows.map((row) => row.id),
+    [taskId],
+  );
+  assert.equal(plan.rows[0].overdue, true);
+
+  // It is taken for the week like any other pool task.
+  assert.equal(await service.togglePickedForWeek(workspaceId, taskId, today), "picked");
+  assert.deepEqual(
+    (await service.listPickedForWeek(workspaceId, today)).map((task) => task.id),
+    [taskId],
+  );
+
+  // A series stays out: its next date comes on its own, and a missed one is not a decision.
+  await database.pool.query("update tasks set recurrence_rule='FREQ=DAILY', recurrence_timezone='Europe/Kyiv' where id=$1", [taskId]);
+  assert.equal((await service.listWeekPlanForTelegram(workspaceId, today)).total, 0);
+
+  // Finishing it takes it out of the pool without any clearing job.
+  await database.pool.query("update tasks set recurrence_rule=null where id=$1", [taskId]);
+  await database.pool.query("update task_occurrences set status='done' where id=$1", [occurrenceId]);
+  assert.equal((await service.listWeekPlanForTelegram(workspaceId, today)).total, 0);
+});

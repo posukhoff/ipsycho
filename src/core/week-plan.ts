@@ -48,15 +48,15 @@ export function previousWeekRange(todayLocalDate: string): { start: string; end:
 }
 
 /**
- * Ordering for the pick screen: what was taken and left undone first, because that is the decision
- * the user is avoiding; then the rest of the pool by importance and age.
+ * Ordering for the pick screen: a task whose day has already passed first, then what was taken and
+ * left undone, because those are the decisions the user is avoiding; then the rest by importance.
  */
-export function comparePoolRows<T extends { title: string; pickedWeekStart?: string | null; importance: "normal" | "required" | "critical" }>(
+export function comparePoolRows<T extends { title: string; pickedWeekStart?: string | null; importance: "normal" | "required" | "critical"; overdue?: boolean }>(
   todayLocalDate: string,
 ): (a: T, b: T) => number {
   // Ordering never depends on whether a row is picked: the screen redraws after every tap, and a
   // row that jumps means the next tap lands on a different task.
-  const rank = (row: T) => (isPickStale(row.pickedWeekStart, todayLocalDate) ? 0 : 1);
+  const rank = (row: T) => (row.overdue ? 0 : isPickStale(row.pickedWeekStart, todayLocalDate) ? 1 : 2);
   const weight = { critical: 0, required: 1, normal: 2 } as const;
   return (a, b) => rank(a) - rank(b) || weight[a.importance] - weight[b.importance] || a.title.localeCompare(b.title);
 }

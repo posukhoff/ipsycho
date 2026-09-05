@@ -9,6 +9,7 @@ import { compactText } from "../core/telegram-ux.js";
 import { plural, t } from "../telegram/copy/index.js";
 import { targetWeekStart, previousWeekRange } from "../core/week-plan.js";
 import { taskOccurrences, tasks } from "../database/schema.js";
+import { POOL_MEMBERSHIP } from "../tasks/tasks.repository.js";
 
 const NONTERMINAL = ["scheduled", "open", "in_progress"] as const;
 /** Telegram's hard limit is 4096; a card with a long day and a full week pool must stay under it. */
@@ -34,10 +35,11 @@ export class BriefingContentService {
     const pickedForWeek = await this.database.db
       .select({ id: tasks.id, title: tasks.title, importance: tasks.importance })
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, targetWeekStart(input.localDate))))
+      .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.pickedWeekStart, targetWeekStart(input.localDate))))
       .orderBy(tasks.updatedAt);
 
     const morning = () => {
+      const now = input.now ?? new Date();
       const ordered = [...relevant].sort((a, b) => importanceRank(a.task.importance) - importanceRank(b.task.importance));
       const weekLines = pickedForWeek.length ? ["", t(locale, "briefing_taken_week"), ...pickedForWeek.slice(0, 8).map((task) => `▸ ${task.title}`)] : [];
       const weekTasks = pickedForWeek.slice(0, 8).map((task) => ({ id: task.id, title: task.title }));
@@ -49,7 +51,7 @@ export class BriefingContentService {
       const lines = [`${t(locale, "briefing_morning_title")} · ${plural(locale, ordered.length, "deed")}`];
       if (main) lines.push(`\n${t(locale, "label_main")}: ${main.task.title}`);
       lines.push("");
-      for (const row of ordered.slice(0, 6)) lines.push(todayLine(row.task, row.occurrence, input.localDate, locale, input.now ?? new Date()));
+      for (const row of ordered.slice(0, 6)) lines.push(todayLine(row.task, row.occurrence, input.localDate, locale, now));
       if (ordered.length > 6) lines.push(t(locale, "list_more", { count: ordered.length - 6 }));
       lines.push(...weekLines);
       return { text: lines.join("\n"), hasContent: true, weekTasks };
@@ -76,11 +78,11 @@ export class BriefingContentService {
         this.database.db
           .select({ count: sql<number>`count(*)::int` })
           .from(tasks)
-          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, range.start))),
+          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), POOL_MEMBERSHIP, eq(tasks.pickedWeekStart, range.start))),
         this.database.db
           .select({ count: sql<number>`count(*)::int` })
           .from(tasks)
-          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"))),
+          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), POOL_MEMBERSHIP)),
       ]);
       const lines = [t(locale, "briefing_weekly_title"), "", t(locale, "week_plan_summary", { done: done?.count ?? 0, stale: stale?.count ?? 0 }), ""];
       lines.push((pool?.count ?? 0) > 0 ? t(locale, "briefing_week_cta") : t(locale, "briefing_pool_empty"));

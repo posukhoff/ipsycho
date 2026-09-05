@@ -66,3 +66,17 @@ test("the pick screen leads with last week's leftovers and never re-sorts when a
   );
   assert.equal(WEEK_PICK_LIMIT, 7);
 });
+
+test("a task whose day has passed leads the pool, ahead of last week's untaken pick", () => {
+  const today = "2026-09-09";
+  const rows = [
+    { title: "Обычная", importance: "critical", pickedWeekStart: null },
+    { title: "Взято и не начато", importance: "critical", pickedWeekStart: "2026-08-31" },
+    { title: "Просрочено", importance: "normal", pickedWeekStart: null, overdue: true },
+  ];
+  assert.deepEqual(
+    [...rows].sort(comparePoolRows(today)).map((row) => row.title),
+    ["Просрочено", "Взято и не начато", "Обычная"],
+    "importance never outranks a day that has already passed",
+  );
+});

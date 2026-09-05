@@ -141,7 +141,7 @@ export function tasksOverviewText(
  * over from an earlier week is marked apart, because that is the decision being avoided.
  */
 export function weekPlanText(
-  rows: ReadonlyArray<{ title: string; importance: "normal" | "required" | "critical"; pickedWeekStart?: string | null }>,
+  rows: ReadonlyArray<{ title: string; importance: "normal" | "required" | "critical"; pickedWeekStart?: string | null; overdue?: boolean }>,
   options: { locale?: TelegramLocale; todayLocalDate: string; total?: number; offset?: number; summary: { done: number; takenNotStarted: number } },
 ): string {
   const locale = options.locale ?? "ru";
@@ -154,7 +154,9 @@ export function weekPlanText(
   for (const [index, row] of rows.entries()) {
     const mark = isPickLive(row.pickedWeekStart, options.todayLocalDate) ? "☑️" : isPickStale(row.pickedWeekStart, options.todayLocalDate) ? "↩️" : "◻️";
     const icon = importanceIcon(row.importance);
-    lines.push(`${offset + index + 1}. ${mark} ${icon ? `${icon} ` : ""}${row.title}`);
+    // A task whose day has passed lives in the pool too: the pool is where its next day is chosen.
+    const state = row.overdue ? ` · ${t(locale, "scope_overdue")}` : "";
+    lines.push(`${offset + index + 1}. ${mark} ${icon ? `${icon} ` : ""}${row.title}${state}`);
   }
   lines.push("", t(locale, "week_plan_hint"));
   return compactText(lines.join("\n"), 3_800);
