@@ -104,7 +104,7 @@ export type ActionGroupStep =
       kind: "update_goal";
       goalId: string;
       expectedVersion: number;
-      patch: { title?: string; why?: string; targetLocalDate?: string; status?: "active" | "paused" | "completed" | "cancelled"; reviewEnabled?: boolean };
+      patch: { title?: string; why?: string; targetLocalDate?: string; status?: "active" | "paused" | "completed" | "cancelled" };
     }
   | { kind: "link_task_to_goal"; taskId: string; expectedTaskVersion: number; goalId: string; expectedGoalVersion: number; source: LinkSource; confidence: number }
   | { kind: "unlink_task_to_goal"; taskId: string; expectedTaskVersion: number; goalId: string; expectedGoalVersion: number }

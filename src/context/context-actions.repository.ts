@@ -22,7 +22,7 @@ export interface CreateGoalInput extends GroupScope {
 export interface UpdateGoalInput extends GroupScope {
   goalId: string;
   expectedVersion: number;
-  patch: { title?: string; why?: string; targetLocalDate?: string; status?: "active" | "paused" | "completed" | "cancelled"; reviewEnabled?: boolean };
+  patch: { title?: string; why?: string; targetLocalDate?: string; status?: "active" | "paused" | "completed" | "cancelled" };
   now: Date;
 }
 export interface SaveMemoryInput extends GroupScope {
