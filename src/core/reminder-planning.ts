@@ -152,6 +152,8 @@ export function applyNotificationPolicy(input: {
   occurrence: OccurrenceProjection | null;
   rule: ReminderRuleSpec;
   settings: ReminderSettings;
+  /** True when Telegram already refused this delivery once; the transport spent that time, not the user. */
+  attempted?: boolean;
 }): { scheduledFor: Date; suppressedReason?: SuppressedReason } {
   // Deferral is resolved before lateness. A contact pushed out of quiet hours or held by a snooze is
   // late against its intended minute by design; measuring staleness against that minute discarded
@@ -168,18 +170,25 @@ export function applyNotificationPolicy(input: {
     const boundary = taskBoundary(input.task, input.occurrence);
     // Quiet hours may delay a task reminder but never move it past the task itself: a reminder
     // the morning after a 23:00 task is noise. The user chose that moment, so it fires then.
-    scheduledFor = boundary && scheduledFor <= boundary && deferred > boundary ? boundary : deferred;
+    const capped = Boolean(boundary && scheduledFor <= boundary && deferred > boundary);
+    scheduledFor = capped ? boundary! : deferred;
+    // The cap can name a moment that has already gone by — a rebuild a few minutes after a 23:30
+    // task. That contact is about a moment which just passed, so it goes out now instead of being
+    // judged late against a boundary in the past. A deferral that merely ended keeps the ordinary
+    // lateness rule, so a queue that stalled for hours does not flood the user.
+    if (capped && scheduledFor < input.now) scheduledFor = input.now;
     if (staleForEvent(input.task, input.occurrence, scheduledFor)) return { scheduledFor, suppressedReason: "quiet_stale" };
   }
 
-  // A deferral moves a contact, it does not resurrect one. Snooze can be set for days, and without
-  // this bound the reminder it held would arrive when the snooze ends, however old it is.
-  if (input.now.getTime() - input.intendedFor.getTime() > MAX_DEFERRED_DELIVERY_MS) {
+  // A deferral moves a contact, it does not resurrect one: a snooze set for days must not promise a
+  // reminder from last week. The bound is on the deferral itself, so planning and delivery reach the
+  // same verdict — the row is suppressed up front instead of sitting in /reminders and vanishing.
+  if (scheduledFor.getTime() - input.intendedFor.getTime() > MAX_DEFERRED_DELIVERY_MS) {
     return { scheduledFor: input.now, suppressedReason: "no_longer_applicable" };
   }
 
   const latenessMs = input.now.getTime() - scheduledFor.getTime();
-  if (latenessMs > IMMEDIATE_DELIVERY_GRACE_MS) {
+  if (latenessMs > IMMEDIATE_DELIVERY_GRACE_MS && !input.attempted) {
     return { scheduledFor: input.now, suppressedReason: "no_longer_applicable" };
   }
   if (latenessMs > 0) return { scheduledFor: input.now };

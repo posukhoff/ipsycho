@@ -249,3 +249,32 @@ test("a snooze delays a reminder but does not resurrect one from days ago", () =
   assert.equal(held.suppressedReason, undefined);
   assert.equal(held.scheduledFor.toISOString(), "2026-09-05T12:00:00.000Z");
 });
+
+test("a contact whose own moment just passed goes out now instead of being judged late", () => {
+  // A task planned for 23:30 keeps its reminder at 23:30 even inside quiet hours; a rebuild at 23:35
+  // used to hand the policy a boundary in the past, and the 60-second grace threw the contact away.
+  const intendedFor = new Date("2026-09-10T20:30:00Z");
+  const task = { kind: "task", importance: "normal", timeMode: "point", timezone: "Europe/Kyiv", plannedStartAt: intendedFor };
+  const rule = { triggerKind: "exact", exactAt: intendedFor, purpose: "user_reminder", quietPolicy: "respect", origin: "default" };
+  const now = new Date("2026-09-10T20:35:00Z");
+  const policy = applyNotificationPolicy({ intendedFor, now, task, occurrence: null, rule, settings });
+  assert.equal(policy.suppressedReason, undefined);
+  assert.equal(policy.scheduledFor.toISOString(), now.toISOString());
+});
+
+test("a snooze longer than the revival bound is refused when the reminder is planned, not after", () => {
+  const intendedFor = new Date("2026-09-10T09:00:00Z");
+  const task = { kind: "task", importance: "normal", timeMode: "deadline", timezone: "Europe/Kyiv", dueAt: new Date("2026-10-01T12:00:00Z") };
+  const rule = { triggerKind: "exact", exactAt: intendedFor, purpose: "user_reminder", quietPolicy: "bypass", origin: "explicit" };
+  const snoozedUntil = new Date("2026-09-11T22:00:00Z"); // 37 hours after the intended minute
+  const planning = applyNotificationPolicy({
+    intendedFor,
+    now: new Date("2026-09-10T08:00:00Z"),
+    task,
+    occurrence: null,
+    rule,
+    settings: { ...settings, notificationsSnoozedUntil: snoozedUntil },
+  });
+  // Promising it in /reminders and dropping it at delivery is worse than refusing it up front.
+  assert.equal(planning.suppressedReason, "no_longer_applicable");
+});

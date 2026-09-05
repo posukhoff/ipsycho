@@ -404,11 +404,20 @@ export class ReminderSchedulingService {
 
     const created: Array<typeof reminderDeliveries.$inferInsert> = [];
     await this.database.db.transaction(async (tx) => {
+      // A critical post-due escalation is not planned from a rule: `scheduleNextCriticalEscalation`
+      // arms the next contact after each send, and its intended moment is in the past by definition.
+      // Cancelling it here and re-planning from the rules silently ended the chain, so any edit of an
+      // overdue critical task stopped the nagging it exists for.
       await tx
         .update(reminderDeliveries)
         .set({ status: "cancelled", suppressedReason: "superseded" })
         .where(
-          and(eq(reminderDeliveries.workspaceId, workspaceId), eq(reminderDeliveries.occurrenceId, occurrenceId), inArray(reminderDeliveries.status, ["pending", "processing"])),
+          and(
+            eq(reminderDeliveries.workspaceId, workspaceId),
+            eq(reminderDeliveries.occurrenceId, occurrenceId),
+            inArray(reminderDeliveries.status, ["pending", "processing"]),
+            sql`${reminderDeliveries.deduplicationKey} not like '%:critical-escalation:%'`,
+          ),
         );
       for (const plan of plans) {
         const rule = applicableRules[plan.ruleIndex];

@@ -263,6 +263,30 @@ test("a reminder deferred by quiet hours is sent once the window opens, with the
   assert.match(telegram.sent[0].text, /quiet hours/);
 });
 
+test("a delivery that already failed once is not discarded as stale on the retry", async () => {
+  const context = await fixture();
+  const { deliveryId } = await dueDelivery(context);
+  // One attempt spent by the transport, and more than the 60-second staleness grace gone with it.
+  await database.pool.query("update reminder_deliveries set attempts = 1, intended_for = now() - interval '2 minutes', scheduled_for = now() - interval '2 minutes' where id=$1", [
+    deliveryId,
+  ]);
+  const telegram = fakeTelegram();
+  const service = await startQueueService(telegram);
+  await service.reconcile();
+  await waitFor(async () => (await deliveryRow(deliveryId)).status === "sent");
+  assert.equal(telegram.sent.length, 1, "that time was spent by the transport, not by the user");
+
+  // A first attempt that arrives equally late is still suppressed: nothing has tried to send it.
+  const untouched = await fixture();
+  const fresh = await dueDelivery(untouched);
+  await database.pool.query("update reminder_deliveries set intended_for = now() - interval '2 minutes', scheduled_for = now() - interval '2 minutes' where id=$1", [
+    fresh.deliveryId,
+  ]);
+  await service.reconcile();
+  await waitFor(async () => (await deliveryRow(fresh.deliveryId)).status === "suppressed");
+  assert.equal((await deliveryRow(fresh.deliveryId)).suppressed_reason, "no_longer_applicable");
+});
+
 test("a delivery whose occurrence was completed in the meantime is suppressed, not sent", async () => {
   const context = await fixture();
   const { deliveryId, taskId } = await dueDelivery(context);

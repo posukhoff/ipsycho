@@ -90,6 +90,38 @@ test("retention cleanups run in bounded batches and report the total", async () 
   assert.equal(await tasksRepository.deleteEventsOlderThan(new Date(Date.now() - 365 * 24 * 60 * 60_000), 5), remaining.rows[0].count);
 });
 
+test("a rebuild keeps the critical post-due escalation it cannot re-plan", async () => {
+  const scope = await fixture();
+  const { taskId } = await createTask(scope, "Сдать отчёт");
+  // A critical deadline that has passed: the escalation chain is armed after each send, not planned
+  // from a rule, so its intended moment is always in the past.
+  await database.pool.query("update tasks set importance='critical', time_mode='deadline', due_at=now() - interval '3 hours' where id=$1", [taskId]);
+  const { rows: occurrences } = await database.pool.query("select id from task_occurrences where task_id=$1", [taskId]);
+  const occurrenceId = occurrences[0].id;
+  await database.pool.query("update task_occurrences set status='open', due_at=now() - interval '3 hours' where id=$1", [occurrenceId]);
+  const { rows: rules } = await database.pool.query("select id from reminder_rules where task_id=$1 limit 1", [taskId]);
+  const escalationId = randomUUID();
+  await database.pool.query(
+    "insert into reminder_deliveries(id, workspace_id, recipient_user_id, reminder_rule_id, task_id, occurrence_id, intended_for, scheduled_for, status, deduplication_key) values ($1,$2,$3,$4,$5,$6,$7,$7,'pending',$8)",
+    [
+      escalationId,
+      scope.workspaceId,
+      scope.userId,
+      rules[0].id,
+      taskId,
+      occurrenceId,
+      new Date(Date.now() + 30 * 60_000),
+      `${rules[0].id}:${occurrenceId}:critical-escalation:next`,
+    ],
+  );
+
+  const scheduling = new ReminderSchedulingService(database, { enqueue: async () => undefined });
+  await scheduling.rebuildOccurrence(scope.workspaceId, occurrenceId);
+
+  const after = await database.pool.query("select status from reminder_deliveries where id=$1", [escalationId]);
+  assert.equal(after.rows[0].status, "pending", "editing an overdue critical task must not end the nagging it exists for");
+});
+
 test("the snooze buttons on a reminder card schedule one system follow-up and supersede the previous one", async () => {
   // The 15-minute and one-hour buttons are the only reachable use of this path and it had no test,
   // so any change to the follow-up plumbing could take plain snooze with it unnoticed.

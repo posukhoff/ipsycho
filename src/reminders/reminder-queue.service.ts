@@ -18,6 +18,8 @@ import { loopHealth } from "../observability/loop-health.js";
 
 export const REMINDER_QUEUE = "reminder-delivery";
 const MAX_DELIVERY_ATTEMPTS = 3;
+/** Matches the queue's own retry delay, so the row says when the next attempt is actually due. */
+const RETRY_DELAY_MS = 30_000;
 const RECONCILE_INTERVAL_MS = 60_000;
 /** Boot enqueues everything overdue plus this much of the future; reconciliation covers the rest. */
 /** A pending delivery this far past its time was neither sent nor failed: the queue is not draining. */
@@ -49,7 +51,7 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
 
   async onApplicationBootstrap(): Promise<void> {
     loopHealth.register("reminder_reconcile", RECONCILE_INTERVAL_MS);
-    await this.queue.ensureQueue(REMINDER_QUEUE, { retryLimit: MAX_DELIVERY_ATTEMPTS - 1, retryDelaySeconds: 30 });
+    await this.queue.ensureQueue(REMINDER_QUEUE, { retryLimit: MAX_DELIVERY_ATTEMPTS - 1, retryDelaySeconds: RETRY_DELAY_MS / 1000 });
     // Boot recovery runs before the worker starts. Rows left in `processing` by a previous
     // process are reset first; if the worker were already consuming, it could claim a row
     // between the reset and its own post-send update and the row would be sent twice.
@@ -184,6 +186,9 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       occurrence: row.occurrence ? occurrenceProjectionFromRow(row.occurrence) : null,
       rule: reminderRuleSpecFromRow(row.rule),
       settings: reminderSettingsFromRow(row.settings),
+      // A delivery that already failed to send is retried a minute or two later, and it must not be
+      // discarded as stale for the time those attempts took: relevance was judged on the first one.
+      attempted: row.delivery.attempts > 0,
     });
     if (policy.suppressedReason) {
       logger.warn("reminder suppressed by delivery-time policy", {
