@@ -128,6 +128,13 @@ service) to the first cron line to start copying off-site — nothing else
 changes. The key itself is not backed up anywhere: keep a copy off the
 machine, or every encrypted dump becomes unreadable with the disk.
 
+`AI_PRICING_JSON` holds the per-model prices the cost estimate uses; the keys
+must match `AI_MODEL` and `AI_TRANSCRIPTION_MODEL` exactly, and the estimate
+silently stays on the old numbers when a price changes, so re-check it when
+the model or the tariff moves. `AI_MONTHLY_WARNING_USD` is the monthly figure
+at which the user and the owner get one notice; AI is never switched off
+automatically.
+
 Runtime alerts go to `OWNER_TELEGRAM_USER_ID`: the hourly maintenance tick
 reports reminders pending more than ten minutes past their time, non-empty
 dead-letter queues and ambiguous deliveries, once per change. `HEALTHCHECK_PING_URL`
