@@ -74,7 +74,30 @@ function translate(exception: unknown): { code: ApiErrorCode; envelope: ReturnTy
     return { code, envelope: buildEnvelope(code) };
   }
 
+  // The body parser raises `http-errors`, not `HttpException`: an oversized body is a
+  // `PayloadTooLargeError` with `status: 413` and no `getStatus`. Left to the fall-through it became
+  // a 500 — the wrong answer, and an *error*-level log line any stranger could produce at will,
+  // because body parsing is Express middleware and runs before the guard and its IP limiter.
+  const exposed = exposedClientErrorStatus(exception);
+  if (exposed !== null) {
+    const code = codeForStatus(exposed);
+    return { code, envelope: buildEnvelope(code) };
+  }
+
   return { code: "internal", envelope: buildEnvelope("internal") };
+}
+
+/**
+ * The `http-errors` shape, narrowed to what is safe to believe: a 4xx the library itself marked as
+ * safe to show a client. A 5xx keeps reading as `internal` so a server fault is still logged at
+ * error level, and the status is all that is taken — never the message, which for a JSON parse
+ * failure quotes the request body back.
+ */
+function exposedClientErrorStatus(exception: unknown): number | null {
+  if (!exception || typeof exception !== "object") return null;
+  const source = exception as { status?: unknown; expose?: unknown };
+  if (source.expose !== true || typeof source.status !== "number") return null;
+  return Number.isInteger(source.status) && source.status >= 400 && source.status <= 499 ? source.status : null;
 }
 
 /** A framework exception (a 404 from the router, a 413 from the body parser) gets our vocabulary. */

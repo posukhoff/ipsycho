@@ -144,10 +144,18 @@ test("every reserved endpoint sits under the versioned prefix and names its owni
 test("nothing under src/api touches the database", () => {
   const offenders = [];
   for (const file of walk("src/api")) {
-    const source = readFileSync(file, "utf8");
-    if (/from\s+"drizzle-orm/.test(source)) offenders.push(`${file}: imports drizzle-orm`);
-    if (/from\s+"[^"]*\.repository\.js"/.test(source)) offenders.push(`${file}: imports a repository`);
-    if (/from\s+"[^"]*database\//.test(source)) offenders.push(`${file}: imports the database module`);
+    // Every form that names a module: `from "x"`, a bare side-effect `import "x"`, and a dynamic
+    // `import("x")` — in either quote style. A grep that only knew `from "…"` would pass a file
+    // that reached for drizzle through `await import(...)`, which is the shape a "just this once"
+    // edit takes. Comments are stripped so the prose that states this rule is not itself a hit.
+    const source = readFileSync(file, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//gu, "")
+      .replace(/^\s*\/\/.*$/gmu, "");
+    for (const [, specifier] of source.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"']+)["']/gu)) {
+      if (/^drizzle-orm/u.test(specifier)) offenders.push(`${file}: imports drizzle-orm`);
+      if (/\.repository(\.js)?$/u.test(specifier)) offenders.push(`${file}: imports a repository`);
+      if (/(^|\/)database\//u.test(specifier)) offenders.push(`${file}: imports the database module`);
+    }
   }
   assert.deepEqual(offenders, []);
 });
@@ -157,7 +165,7 @@ function walk(dir) {
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) out.push(...walk(path));
-    else if (path.endsWith(".ts")) out.push(path);
+    else if (/\.(ts|tsx|mts|mjs|js)$/u.test(path)) out.push(path);
   }
   return out;
 }

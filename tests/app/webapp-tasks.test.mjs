@@ -760,6 +760,14 @@ test("an id from another workspace is the same not-found as an id that never exi
   assert.equal(byOccurrence.status, 404);
   assert.deepEqual(byOccurrence.body, NOT_FOUND);
 
+  // `POST /goals/:id/tasks` is the one route with a *second* id, and it arrives in the body. The
+  // loop above only ever varied the goal. Both ids are scoped, and both answer the same way.
+  for (const taskId of [ids.foreignTask, ids.unknown]) {
+    const linked = await harness.post(`/goals/${ids.goal}/tasks`, { taskId, expectedGoalVersion: 2, expectedTaskVersion: 1 });
+    assert.equal(linked.status, 404, `link to ${taskId === ids.unknown ? "an unknown" : "a foreign"} task`);
+    assert.deepEqual(linked.body, NOT_FOUND, "a task outside the workspace is a not-found, never a conflict the client retries");
+  }
+
   assert.deepEqual(harness.recorder.applied, [], "not one of those refusals reached the write path");
   assert.deepEqual(harness.recorder.series, []);
 });

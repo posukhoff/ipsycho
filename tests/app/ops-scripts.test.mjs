@@ -85,3 +85,52 @@ test("the watchdog alerts once per outage and never puts the bot token on a comm
   assert.doesNotMatch(source, /curl[^\n]*https:\/\/api\.telegram\.org/);
   assert.doesNotMatch(source, /echo[^\n]*\$token/);
 });
+
+/**
+ * The edge is the only part of the deployment the internet can reach, and every property below has
+ * a failure mode that looks like a fix: a catch-all `reverse_proxy` publishes `/health`, an
+ * `X-Frame-Options` line makes the app blank on web.telegram.org, and `'unsafe-inline'` turns an
+ * XSS into full account control because the API is same-origin with no cookie. design.md §§ 6, 8, 9.
+ */
+test("the edge publishes only /app and /api/v1, and frames the app only for Telegram", () => {
+  const caddyfile = readFileSync("Caddyfile", "utf8");
+  /** Comments explain what is deliberately absent, so a prose mention must not read as a directive. */
+  const directives = caddyfile.replace(/^\s*#.*$/gmu, "");
+
+  // Nothing is proxied except through the `to_app` snippet, and every import of it sits inside a
+  // handle with a path matcher. Caddy answers an unmatched path with an empty 200, so a catch-all
+  // would publish /health and /ready — the commit SHA, the database state and the loop names.
+  const proxies = [...caddyfile.matchAll(/^\s*reverse_proxy\s+(.*)$/gmu)].map((match) => match[1].trim());
+  assert.deepEqual(proxies, ["app:3000 {"], "the only reverse_proxy is the one inside (to_app)");
+  assert.match(caddyfile, /handle\s*\{\s*\n\s*respond 404/u, "the final handle must refuse, not fall through");
+  for (const path of ["/health", "/ready"]) assert.ok(!directives.includes(`handle ${path}`), `${path} must not be routed`);
+
+  // `/app*` also matches `/apple`, which the app answers with Nest's own 404 — a body that quotes
+  // the requested path back. The matcher names the two forms it means.
+  assert.match(caddyfile, /@app path \/app \/app\/\*/u);
+  assert.ok(!/handle\s+\/app\*/u.test(caddyfile), "a bare /app* glob matches /apple too");
+
+  // The client IP is replaced, never appended, and the client's own forwarding headers are dropped.
+  // `main.ts` trusts exactly one hop, so the value that survives here is what the limiter keys on.
+  assert.match(caddyfile, /header_up X-Forwarded-For \{client_ip\}/u);
+  assert.match(caddyfile, /header_up -X-Real-IP/u);
+  assert.match(caddyfile, /header_up -Forwarded/u);
+  assert.ok(!directives.includes("trusted_proxies"), "Caddy is the edge: it must trust no client-supplied forwarding header");
+
+  const csp = /Content-Security-Policy "([^"]+)"/u.exec(caddyfile)?.[1];
+  assert.ok(csp, "the app must carry a CSP");
+  assert.match(csp, /frame-ancestors https:\/\/web\.telegram\.org https:\/\/\*\.telegram\.org/u);
+  assert.ok(!/script-src[^;]*unsafe-inline/u.test(csp), "an XSS in the app is full account control");
+  assert.ok(!/script-src[^;]*unsafe-eval/u.test(csp));
+  assert.match(csp, /default-src 'none'/u);
+  assert.match(csp, /base-uri 'none'/u);
+  // `DENY` is the line in every security-headers snippet and it makes the app blank in Telegram Web.
+  assert.ok(!directives.includes("X-Frame-Options"), "framing is restricted by frame-ancestors, never by X-Frame-Options");
+
+  // The admin socket is an unauthenticated config-write API; the access log would record
+  // `Authorization: tma <initDataRaw>`, a bearer credential for the whole account.
+  assert.match(caddyfile, /^\s*admin off/mu);
+  assert.match(caddyfile, /log \{\s*\n\s*output discard/u);
+  // Mirrors JSON_BODY_LIMIT in main.ts, so an oversized body dies at the edge.
+  assert.match(caddyfile, /max_size 64KB/u);
+});

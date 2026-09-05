@@ -120,6 +120,31 @@ test("a duplicated key is refused rather than resolved", () => {
   assert.deepEqual(verifyInitData(duplicatedUser, TOKEN, NOW), { ok: false, reason: "malformed" });
 });
 
+test("a newline cannot be used to merge two signed pairs into one", () => {
+  // The data-check string joins the pairs with "\n", so replacing the `&` between two pairs that
+  // are adjacent in *sorted* order produces one pair whose line is byte-identical to the two it
+  // replaced. The hash still matches; the parsed map has silently lost a field. Every field this
+  // code reads happens to be refused when it vanishes, so nothing is exploitable today — but the
+  // signature must not verify a payload whose parse differs from what was signed.
+  const fields = payload({ start_param: "task_1f2e3d" });
+  const hash = sign(fields);
+  const merged = encode({ ...fields, hash }).replace("&chat_type=", "\nchat_type=");
+  assert.notEqual(merged, encode({ ...fields, hash }), "the mutation must actually change the string");
+  assert.deepEqual(verifyInitData(merged, TOKEN, NOW), { ok: false, reason: "malformed" });
+
+  // Merging `signature` into the pair before it would drop `start_param` from the map entirely.
+  const dropped = encode({ ...fields, hash }).replace("&start_param=", "\nstart_param=");
+  assert.deepEqual(verifyInitData(dropped, TOKEN, NOW), { ok: false, reason: "malformed" });
+
+  // And a name that genuinely contains a newline still verifies: Telegram sends it as `%0A`, so it
+  // never reaches this check as a literal.
+  const multiline = signed({ user: JSON.stringify({ id: 11, first_name: "Anna\nKova", language_code: "en" }) });
+  assert.ok(!multiline.includes("\n"), "encodeURIComponent must have escaped it");
+  const result = verifyInitData(multiline, TOKEN, NOW);
+  assert.equal(result.ok, true, "an escaped newline inside a value is ordinary signed data");
+  assert.equal(result.data.user.id, 11);
+});
+
 test("a non-ASCII name verifies, and so does one containing a literal percent sign", () => {
   // `URLSearchParams` has already decoded the values. Decoding a second time turns "%41" into "A"
   // and the signature stops matching — for that one user, forever, and invisibly, because a log

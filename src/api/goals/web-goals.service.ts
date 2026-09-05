@@ -118,13 +118,20 @@ export class WebGoalsService {
 
   async link(user: WebAuthContext, goalId: string, body: GoalLinkRequest): Promise<GoalMutationResponse> {
     const goal = await this.requireGoal(user, goalId);
+    // The second id, scoped exactly like the first and like `unlink` below. The write is safe
+    // without this — `validateResolved` and `loadLinkPair` both re-read the task inside the
+    // caller's workspace — but a foreign id would then come back as `conflict` carrying the goal's
+    // version, which reads as "retry" to the client and differs from every other route's answer to
+    // an id that is not yours. One rule: an id outside the workspace is a not-found.
+    const task = await this.tasks.getTask(user.access.workspaceId, body.taskId);
+    if (!task) throw ApiError.notFound();
     const action: ResolvedAction = {
       ...this.base(user),
       type: "goal",
       op: "link",
       goalId: goal.id,
       goalVersion: body.expectedGoalVersion,
-      taskId: body.taskId,
+      taskId: task.id,
       taskVersion: body.expectedTaskVersion,
       title: null,
       why: null,

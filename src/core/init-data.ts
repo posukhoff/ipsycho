@@ -85,6 +85,14 @@ export type InitDataResult = { ok: true; data: VerifiedInitData } | { ok: false;
  */
 export function verifyInitData(raw: string, botToken: string, now: Date = new Date()): InitDataResult {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_RAW_LENGTH) return { ok: false, reason: "malformed" };
+  // A literal newline in the *raw* string, before decoding, is delimiter injection: the data-check
+  // string joins the pairs with "\n", so replacing an `&` with a newline merges two pairs into one
+  // whose `key=value` line is byte-identical to the two it replaced — and the signature still
+  // matches while the parsed map has lost a field. Nothing downstream can be fooled today (a
+  // vanished `auth_date` or `user` is a refusal, and `hash` would stop being 64 hex), but the safety
+  // rests on a chain of unrelated checks. Telegram percent-encodes every value, so a name that
+  // really contains a newline arrives as `%0A` and still verifies; a bare one never does.
+  if (raw.includes("\n")) return { ok: false, reason: "malformed" };
   if (typeof botToken !== "string" || botToken.length === 0) return { ok: false, reason: "signature_mismatch" };
 
   const pairs: [string, string][] = [];

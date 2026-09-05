@@ -2,14 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import "reflect-metadata";
+import { GUARDS_METADATA, METHOD_METADATA, MODULE_METADATA, PATH_METADATA } from "@nestjs/common/constants.js";
 import { APP_FILTER } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
 import { AccessService } from "../../dist/access/access.service.js";
 import { AiService } from "../../dist/ai/ai.service.js";
+import { ApiModule } from "../../dist/api/api.module.js";
 import { InitDataGuard } from "../../dist/api/auth/init-data.guard.js";
 import { ApiIpRateLimiter, ApiUserRateLimiter, IP_RATE_LIMIT, USER_RATE_LIMIT } from "../../dist/api/auth/rate-limiter.js";
 import { WebAuthModule } from "../../dist/api/auth/web-auth.module.js";
-import { MeResponseSchema } from "../../dist/api/contracts/index.js";
+import { API_PREFIX, MeResponseSchema } from "../../dist/api/contracts/index.js";
 import { ApiExceptionFilter } from "../../dist/api/http/api-exception.filter.js";
 import { ChatService } from "../../dist/chat/chat.service.js";
 import { APP_CONFIG } from "../../dist/config.js";
@@ -197,6 +199,9 @@ async function createApp(options = {}) {
   const app = moduleRef.createNestApplication();
   // The one hop `main.ts` trusts, so `req.ip` is the client rather than Caddy's container address.
   app.set("trust proxy", 1);
+  // And the same body limit, because the parser runs as Express middleware — in front of the guard,
+  // so what it does with an oversized body is part of this file's subject.
+  app.useBodyParser("json", { limit: "64kb" });
   await app.listen(0, "127.0.0.1");
   const { port } = app.getHttpServer().address();
 
@@ -214,6 +219,14 @@ async function createApp(options = {}) {
       const value = authorization ?? (raw === undefined ? `tma ${initData()}` : raw === null ? null : `tma ${raw}`);
       if (value !== null) headers.Authorization = value;
       const response = await fetch(`http://127.0.0.1:${port}/api/v1/me`, { headers });
+      return { status: response.status, body: await response.json() };
+    },
+    async post(path, body, { ip = "203.0.113.7" } = {}) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+        method: "POST",
+        headers: { "X-Forwarded-For": ip, Authorization: `tma ${initData()}`, "Content-Type": "application/json" },
+        body,
+      });
       return { status: response.status, body: await response.json() };
     },
     close: () => app.close(),
@@ -419,6 +432,65 @@ test("the module exports the guard and the limiters the other API groups depend 
   assert.ok(harness.app.get(InitDataGuard) instanceof InitDataGuard);
   assert.equal(harness.app.get(ApiIpRateLimiter), harness.ipLimiter);
   assert.equal(harness.app.get(ApiUserRateLimiter), harness.userLimiter);
+});
+
+test("a body the parser refuses stays inside the envelope and is not a server fault", async (t) => {
+  const harness = await createApp();
+  t.after(() => harness.close());
+
+  const captured = await capturingOutput(async () => {
+    // Body parsing is Express middleware: it runs *before* the guard, so both of these are things a
+    // stranger can do without a signature. `PayloadTooLargeError` is an `http-errors`, not a Nest
+    // `HttpException` — unmapped it read as `internal`, which meant a 500 and an error-level log
+    // line on demand. A malformed body must not become a server fault either: the parse error
+    // carries the raw body on `err.body`, and a 500 invites someone to log it while debugging.
+    const oversized = await harness.post("/api/v1/me", JSON.stringify({ note: "PAYLOAD-CANARY-9".repeat(8_000) }), { ip: "192.0.2.60" });
+    assert.equal(oversized.status, 400);
+    assert.deepEqual(oversized.body, { error: { code: "validation_failed", message: "Request does not match the contract" } });
+
+    const malformed = await harness.post("/api/v1/me", '{"note":"PARSE-CANARY-9", broken', { ip: "192.0.2.61" });
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(malformed.body, { error: { code: "validation_failed", message: "Request does not match the contract" } });
+  });
+
+  for (const line of captured.lines) {
+    assert.notEqual(line.level, "error", `a body the parser refuses must not be logged as a server fault: ${JSON.stringify(line)}`);
+  }
+  for (const needle of ["PAYLOAD-CANARY-9", "PARSE-CANARY-9"]) {
+    assert.ok(!captured.text.includes(needle), `the log echoed the request body (${needle})`);
+  }
+});
+
+test("every route the Mini App publishes is behind the guard", async () => {
+  // `webAuthOf` throws when a controller forgot `@UseGuards`, but only for a handler that asks for
+  // `@CurrentUser()`. `GET /settings/timezones` does not, so a missing guard there would be an
+  // unauthenticated endpoint that no other test notices. This walks the real module graph instead.
+  const controllers = new Set();
+  const seen = new Set();
+  const visit = (entry) => {
+    if (!entry || seen.has(entry)) return;
+    seen.add(entry);
+    const module = entry.module ?? entry;
+    for (const controller of Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, module) ?? []) controllers.add(controller);
+    for (const imported of entry.imports ?? Reflect.getMetadata(MODULE_METADATA.IMPORTS, module) ?? []) visit(imported);
+  };
+  visit(ApiModule.register(true));
+
+  assert.ok(controllers.size >= 12, `expected the whole API, saw ${controllers.size} controllers`);
+  let routes = 0;
+  for (const controller of controllers) {
+    const path = Reflect.getMetadata(PATH_METADATA, controller);
+    assert.ok(String(path).startsWith(API_PREFIX), `${controller.name} answers outside ${API_PREFIX}: ${path}`);
+    const onClass = Reflect.getMetadata(GUARDS_METADATA, controller) ?? [];
+    const handlers = Object.getOwnPropertyNames(controller.prototype).filter((name) => name !== "constructor" && Reflect.hasMetadata(METHOD_METADATA, controller.prototype[name]));
+    assert.ok(handlers.length > 0, `${controller.name} declares no route`);
+    routes += handlers.length;
+    for (const handler of handlers) {
+      const guards = [...onClass, ...(Reflect.getMetadata(GUARDS_METADATA, controller.prototype[handler]) ?? [])];
+      assert.ok(guards.includes(InitDataGuard), `${controller.name}.${handler} is reachable without InitDataGuard`);
+    }
+  }
+  assert.ok(routes >= 40, `expected every screen's endpoints, saw ${routes} routes`);
 });
 
 test("the AI budget is reported rather than hidden", async (t) => {
