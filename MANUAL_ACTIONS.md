@@ -51,4 +51,5 @@ This file contains only checks that cannot be proven by the local automated suit
 
 - [ ] Deploy migration `0023_message_pending_group.sql` with the application. On startup, pending confirmation cards stored under the previous action contract are expired with a `legacy_contract_expired` audit event; verify the count in the log matches the pending rows before deploy.
 - [ ] Send a bare "да" to a card the bot sent last and verify it confirms; send "да" after a model question with no card and verify it goes to the model; press Reschedule on a task and type "завтра в 10" and verify the move.
+- [ ] Deploy migration `0029_telegram_language.sql` with the application, then send any message and verify `user_settings.telegram_language` is filled. With no pinned language, verify the morning card, a reminder and the spend warning arrive in the Telegram language rather than in English.
 - [ ] Deploy migration `0028_week_pool.sql` with the application. Existing tasks have no week mark, so the pool starts empty of picks; verify `/week` lists the undated tasks and that picking one writes this week's Monday.
