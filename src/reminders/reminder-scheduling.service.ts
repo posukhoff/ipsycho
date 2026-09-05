@@ -23,11 +23,20 @@ export class ReminderSchedulingService {
     private readonly queue: ReminderQueueService,
   ) {}
 
+  /**
+   * Pending deliveries the user has not received yet, soonest first.
+   *
+   * The rule is joined as well as the delivery: what a contact is *for* — a reminder the user asked
+   * for, the follow-up a «отложить» created, a planning checkpoint — lives on `reminder_rules`, and
+   * the Mini App's reminder list shows it. The join is on the delivery's own foreign key, so it
+   * matches exactly one row and cannot change which deliveries are returned.
+   */
   async listUpcoming(input: { workspaceId: string; userId: string; now?: Date; limit?: number }) {
     return this.database.db
-      .select({ delivery: reminderDeliveries, task: tasks, occurrence: taskOccurrences })
+      .select({ delivery: reminderDeliveries, task: tasks, occurrence: taskOccurrences, rule: reminderRules })
       .from(reminderDeliveries)
       .innerJoin(tasks, and(eq(tasks.workspaceId, reminderDeliveries.workspaceId), eq(tasks.id, reminderDeliveries.taskId)))
+      .innerJoin(reminderRules, and(eq(reminderRules.workspaceId, reminderDeliveries.workspaceId), eq(reminderRules.id, reminderDeliveries.reminderRuleId)))
       .leftJoin(taskOccurrences, and(eq(taskOccurrences.workspaceId, reminderDeliveries.workspaceId), eq(taskOccurrences.id, reminderDeliveries.occurrenceId)))
       .where(
         and(

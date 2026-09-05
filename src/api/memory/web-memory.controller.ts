@@ -1,0 +1,146 @@
+import { Body, Controller, Delete, Get, Param, Patch, Query, UseGuards } from "@nestjs/common";
+import { ActionsService, type ActionScope } from "../../actions/actions.service.js";
+import { ContextService } from "../../context/context.service.js";
+import type { ResolvedActionOf } from "../../core/ai-contract.js";
+import {
+  MemoryDeleteRequestSchema,
+  MemoryMutationResponseSchema,
+  MemoryPatchRequestSchema,
+  MemoryQuerySchema,
+  MemoryResponseSchema,
+  UuidSchema,
+  type MemoryDeleteRequest,
+  type MemoryMutationResponse,
+  type MemoryPatchRequest,
+  type MemoryQuery,
+  type MemoryResponse,
+  type MemoryRow,
+} from "../contracts/index.js";
+import { ApiError } from "../http/api-error.js";
+import { apiRoute } from "../http/routes.js";
+import { zodBody, zodParam, zodQuery } from "../http/zod-validation.pipe.js";
+import { CurrentUser, InitDataGuard, type WebAuthContext } from "../auth/index.js";
+import { apiErrorForIssues, rethrowWriteError } from "../settings/action-errors.js";
+import { paginate } from "../settings/paging.js";
+import { presentMemory, type MemoryItem } from "./memory.presenter.js";
+
+/**
+ * What the bot remembers — the read side of `/memory`, plus the edit and delete the chat has never
+ * had a deterministic path for.
+ *
+ * Workspace isolation is `ContextService.findMemory`, which scopes on `workspaceId` **and**
+ * `userId`: an id from another workspace comes back null and answers `not_found`, the same envelope
+ * as an id that does not exist.
+ *
+ * Sensitive entries are the reason this file is longer than it looks. A fact marked sensitive is
+ * hidden from the model, so the user has no way to notice a wrong one through the conversation; the
+ * screen is the only place it can be corrected, and every write that touches one — editing it,
+ * marking one, unmarking one, deleting one — carries an explicit confirmation. `DELETE` therefore
+ * takes a body, which is unusual on purpose: if a proxy strips it the request fails the contract
+ * loudly instead of deleting a sensitive fact with no confirmation at all.
+ */
+@Controller(apiRoute("memory"))
+@UseGuards(InitDataGuard)
+export class WebMemoryController {
+  constructor(
+    private readonly context: ContextService,
+    private readonly actions: ActionsService,
+  ) {}
+
+  @Get()
+  async list(@CurrentUser() user: WebAuthContext, @Query(zodQuery(MemoryQuerySchema)) query: MemoryQuery): Promise<MemoryResponse> {
+    const all = await this.context.memoryOverview(user.access.workspaceId, user.access.user.id);
+    const filtered = query.type ? all.filter((row) => row.type === query.type) : all;
+    const paged = paginate(filtered, query);
+    // The overview projection has no version, source or timestamps, and the version is what every
+    // write on this screen is checked against. The page is hydrated row by row rather than shown
+    // without it: a list the client cannot safely edit from is worse than a slower list.
+    const hydrated = await Promise.all(paged.rows.map((row) => this.context.findMemory(user.access.workspaceId, user.access.user.id, row.id)));
+    const rows = hydrated.flatMap((row): MemoryRow[] => (row ? [presentMemory(row)] : []));
+    return MemoryResponseSchema.parse({
+      rows,
+      page: paged.page,
+      // Counted over everything the filter selects, not over the page, so the screen can say how
+      // much is hidden without walking the list.
+      sensitiveCount: filtered.filter((row) => row.sensitive).length,
+    } satisfies MemoryResponse);
+  }
+
+  @Patch(":id")
+  async patch(
+    @CurrentUser() user: WebAuthContext,
+    @Param("id", zodParam(UuidSchema)) id: string,
+    @Body(zodBody(MemoryPatchRequestSchema)) body: MemoryPatchRequest,
+  ): Promise<MemoryMutationResponse> {
+    const item = await this.require(user, id);
+    if (item.version !== body.expectedVersion) throw ApiError.conflict(item.version);
+    // `update_memory` patches content and sensitivity only; a fact that changes kind is a different
+    // fact. Refusing loudly beats accepting the field and dropping it.
+    if (body.type !== null && body.type !== item.type) throw ApiError.domainRule("memory_type_immutable");
+    if (body.content === null && body.sensitive === null) throw ApiError.validationFailed(["content", "sensitive"]);
+    if (body.content !== null && !body.content.trim()) throw ApiError.validationFailed(["content"]);
+    this.requireSensitiveConfirmation(item, body.sensitive ?? item.sensitive, body.confirmSensitive);
+
+    const groupId = await this.journal(
+      user,
+      { op: "update", memoryId: item.id, memoryVersion: item.version, kind: null, content: body.content, sensitive: body.sensitive },
+      item.version,
+    );
+    const updated = await this.context.findMemory(user.access.workspaceId, user.access.user.id, id);
+    return MemoryMutationResponseSchema.parse({ item: updated ? presentMemory(updated) : null, undoGroupId: groupId } satisfies MemoryMutationResponse);
+  }
+
+  @Delete(":id")
+  async remove(
+    @CurrentUser() user: WebAuthContext,
+    @Param("id", zodParam(UuidSchema)) id: string,
+    @Body(zodBody(MemoryDeleteRequestSchema)) body: MemoryDeleteRequest,
+  ): Promise<MemoryMutationResponse> {
+    const item = await this.require(user, id);
+    if (item.version !== body.expectedVersion) throw ApiError.conflict(item.version);
+    this.requireSensitiveConfirmation(item, item.sensitive, body.confirmSensitive);
+
+    const groupId = await this.journal(user, { op: "delete", memoryId: item.id, memoryVersion: item.version, kind: null, content: null, sensitive: null }, item.version);
+    // The row is gone; the journal holds its before-state, which is what Undo restores.
+    return MemoryMutationResponseSchema.parse({ item: null, undoGroupId: groupId } satisfies MemoryMutationResponse);
+  }
+
+  private async require(user: WebAuthContext, id: string): Promise<MemoryItem> {
+    const item = await this.context.findMemory(user.access.workspaceId, user.access.user.id, id);
+    if (!item) throw ApiError.notFound();
+    return item;
+  }
+
+  /** Sensitive now, or sensitive after this write: either way the client has to say so out loud. */
+  private requireSensitiveConfirmation(item: MemoryItem, willBeSensitive: boolean, confirmed: boolean): void {
+    if ((item.sensitive || willBeSensitive) && !confirmed) throw ApiError.domainRule("sensitive_confirmation_required");
+  }
+
+  /** Every write is the `memory` action the model's edits take, so Undo restores the same way. */
+  private async journal(
+    user: WebAuthContext,
+    fields: Pick<ResolvedActionOf<"memory">, "op" | "memoryId" | "memoryVersion" | "kind" | "content" | "sensitive">,
+    version: number,
+  ): Promise<string> {
+    const action: ResolvedActionOf<"memory"> = {
+      type: "memory",
+      intent: "explicit",
+      timezone: user.settings.timezone,
+      reviewTime: user.settings.morningReferenceTime,
+      ...fields,
+    };
+    const scope: ActionScope = {
+      workspaceId: user.access.workspaceId,
+      actorUserId: user.access.user.id,
+      recipientUserId: user.access.user.id,
+      language: user.settings.pinnedLanguage ?? user.locale,
+    };
+    try {
+      const issues = await this.actions.validateResolved([action], scope);
+      if (issues.length) throw apiErrorForIssues(issues, version);
+      return (await this.actions.applyResolved([action], scope)).groupId;
+    } catch (error) {
+      rethrowWriteError(error, version);
+    }
+  }
+}

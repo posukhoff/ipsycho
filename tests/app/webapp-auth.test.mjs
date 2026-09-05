@@ -296,7 +296,7 @@ test("unsigned input never reaches PostgreSQL", async (t) => {
   t.after(() => harness.close());
 
   const valid = initData();
-  for (const raw of [null, "hello", `${valid.slice(0, -1)}0`, initData({ ageMs: 25 * 60 * 60 * 1000 })]) {
+  for (const raw of [null, "hello", `${valid.slice(0, -1)}${valid.endsWith("a") ? "b" : "a"}`, initData({ ageMs: 25 * 60 * 60 * 1000 })]) {
     await harness.me({ raw, ip: "203.0.113.20" });
   }
   assert.equal(harness.calls.resolveActiveUser, 0, "the allowlist lookup runs only behind the HMAC");
