@@ -45,6 +45,13 @@ test("the round-trip drill restores into a scratch database and compares row cou
   assert.match(source, /drop database if exists \$SCRATCH_DB/);
   assert.match(source, /row counts differ after restore/);
   assert.doesNotMatch(source, /drop database if exists "?\$\{?DATABASE_URL/);
+  // A runner's client is often a major behind the service container, and pg_dump refuses that.
+  assert.match(source, /PG_CLIENT_IMAGE/);
+  assert.match(source, /pg pg_dump /);
+  assert.doesNotMatch(source, /^pg_dump /mu);
+  // sha256sum does not exist everywhere; openssl is already a requirement of this script.
+  assert.match(source, /openssl dgst -sha256/);
+  assert.doesNotMatch(source, /^\s*sha256sum /mu);
 });
 
 test("the image makes what the non-root runtime reads readable, whatever the checkout's umask was", () => {
