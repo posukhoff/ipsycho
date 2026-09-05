@@ -11,6 +11,7 @@ import {
   taskCardText,
   pausedSeriesText,
   weekPlanText,
+  memoryText,
   taskGroupText,
   tasksOverviewText,
   terminalTaskText,
@@ -127,8 +128,19 @@ function render(locale) {
           { title: "Разобраться с налогами", importance: "required", pickedWeekStart: "2026-08-31" },
           { title: "Привести в порядок машину", importance: "normal", pickedWeekStart: "2026-09-07" },
           { title: "Подготовиться к собеседованию", importance: "normal", pickedWeekStart: null },
+          { title: "Позвонить в банк", importance: "normal", pickedWeekStart: null, overdue: true },
         ],
-        { locale, todayLocalDate: "2026-09-09", total: 3, summary: { done: 4, takenNotStarted: 1 } },
+        { locale, todayLocalDate: "2026-09-09", total: 4, summary: { done: 4, takenNotStarted: 1 } },
+      ),
+    ],
+    [
+      "memory",
+      memoryText(
+        [
+          { type: "context", content: "Ложится в 23:30, важное лучше до 15:00", sensitive: false },
+          { type: "preference", content: "Принимает лекарство утром", sensitive: true },
+        ],
+        locale,
       ),
     ],
     ["paused series", pausedSeriesText([{ title: "Полить цветы", recurrenceRule: "FREQ=WEEKLY;BYDAY=MO", recurrenceEndLocalDate: null }], { locale, total: 3, offset: 8 })],
@@ -172,6 +184,9 @@ const USER_CONTENT = [
   "Разобраться с налогами",
   "Привести в порядок машину",
   "Подготовиться к собеседованию",
+  "Позвонить в банк",
+  "Ложится в 23:30, важное лучше до 15:00",
+  "Принимает лекарство утром",
 ];
 
 test("no screen in English or Ukrainian leaks Russian copy", () => {

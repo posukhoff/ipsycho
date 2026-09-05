@@ -13,6 +13,7 @@ import { MODEL_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
 import { renderAppliedReport } from "../core/applied-report.js";
 import { interfaceLocale } from "../core/language.js";
+import { t } from "../telegram/copy/index.js";
 import { bareConfirmationDecision, detectConversationControl, isClearConversationRequest } from "../core/conversation-control.js";
 import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
@@ -165,18 +166,13 @@ export class ChatService {
     });
   }
 
-  async startProfile(input: { workspaceId: string; userId: string }): Promise<ChatProcessResult> {
+  async startProfile(input: { workspaceId: string; userId: string; language?: string | null }): Promise<ChatProcessResult> {
     const [topic, profile] = await Promise.all([this.context.beginProfile(input), this.context.profileOverview(input.workspaceId, input.userId)]);
+    const locale = interfaceLocale(input.language);
     const facts = profile.map((item) => `• ${item.content}`).join("\n");
     return {
       kind: "ok",
-      text: [
-        "🧭 Контекст пользователя",
-        "",
-        facts || "Пока здесь ничего нет.",
-        "",
-        "Можно отвечать свободно, пропускать вопросы или закончить в любой момент. Начнём с простого: какой у тебя обычно режим дня — когда встаёшь, ложишься и в какие часы лучше не планировать важное?",
-      ].join("\n"),
+      text: [t(locale, "profile_title"), "", facts || t(locale, "profile_empty"), "", t(locale, "profile_opening_question")].join("\n"),
       appliedCount: 0,
       pendingCount: 0,
       warnings: [],

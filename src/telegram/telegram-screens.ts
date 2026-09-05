@@ -321,6 +321,25 @@ function todayGroupLine(group: TelegramGroupCard, localDate: string, locale: Tel
   return groupLine(group, now, locale);
 }
 
+/**
+ * What the bot remembers, newest first. A sensitive fact is kept out of the model's context on
+ * purpose, and that also kept it off every screen: this is where the user sees, and can ask to
+ * change or delete, all of it.
+ */
+export function memoryText(
+  rows: ReadonlyArray<{ type: "note" | "decision" | "preference" | "context"; content: string; sensitive: boolean }>,
+  locale: TelegramLocale = "ru",
+): string {
+  if (!rows.length) return [t(locale, "memory_title"), "", t(locale, "memory_empty")].join("\n");
+  const lines = [t(locale, "memory_title"), ""];
+  for (const row of rows) {
+    const mark = row.sensitive ? `🔒 ` : "";
+    lines.push(`• ${mark}${compactText(row.content, 300)}`);
+  }
+  lines.push("", t(locale, "memory_hint"));
+  return compactText(lines.join("\n"), 3_800);
+}
+
 export interface GoalListItem {
   goal: { id: string; title: string; status: "active" | "paused" | "completed" | "cancelled"; why: string | null; targetLocalDate: string | null };
   tasks: Array<{ id?: string; title: string; nextAction: string | null; context: string | null; dueLocalDate: string | null }>;

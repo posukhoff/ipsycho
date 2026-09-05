@@ -100,6 +100,13 @@ export const en: Record<keyof typeof ru, string> = {
   rd_failed: "Could not change the setting. Check the numbers and the command format.",
 
   onb_timezone_prompt: "What is your timezone? Briefing times and phrases like “tomorrow at 10” depend on it. Send a city, for example “Berlin”, or pick one below.",
+  profile_title: "🧭 Your context",
+  profile_empty: "Nothing here yet.",
+  profile_opening_question:
+    "Answer freely, skip anything, or stop whenever you like. Let us start simple: what does your day usually look like — when do you get up, when do you go to bed, and which hours are bad for anything important?",
+  memory_title: "🧠 What I remember",
+  memory_empty: "Nothing remembered yet.",
+  memory_hint: "🔒 means sensitive: the model does not see it in context. Say what to correct or forget.",
   onb_step_unclear: "Answer yes or no, or tap a button.",
   onb_timezone_other: "Other",
   onb_timezone_saved_toast: "Timezone saved",

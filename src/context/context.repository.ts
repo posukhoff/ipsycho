@@ -222,6 +222,20 @@ export class ContextRepository {
       .limit(limit);
   }
 
+  /**
+   * Everything remembered about this user, newest first. A sensitive fact is deliberately kept out
+   * of the model's context, which also kept it off every screen: the user could not see, correct or
+   * delete what the bot had been told to remember. This is the one place that shows all of it.
+   */
+  async listAllMemory(workspaceId: string, userId: string, limit = 50) {
+    return this.database.db
+      .select({ id: memoryItems.id, type: memoryItems.type, content: memoryItems.content, sensitive: memoryItems.sensitive, updatedAt: memoryItems.updatedAt })
+      .from(memoryItems)
+      .where(and(eq(memoryItems.workspaceId, workspaceId), eq(memoryItems.userId, userId)))
+      .orderBy(desc(memoryItems.updatedAt))
+      .limit(limit);
+  }
+
   async findMemory(workspaceId: string, userId: string, memoryId: string) {
     const [row] = await this.database.db
       .select()

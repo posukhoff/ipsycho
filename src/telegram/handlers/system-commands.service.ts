@@ -64,6 +64,7 @@ export class SystemCommandsService {
     bot.command("invite", (ctx) => this.invite(ctx));
     bot.command("help", (ctx) => this.help(ctx));
     bot.command("context", (ctx) => this.openProfile(ctx));
+    bot.command("memory", (ctx) => this.screens.memory_(ctx));
     bot.command("delete_account", (ctx) => this.deleteAccount(ctx));
     bot.command("restore", (ctx) => this.restore(ctx));
     bot.command("ai_revoke", (ctx) => this.revokeAi(ctx));
@@ -157,8 +158,12 @@ export class SystemCommandsService {
   }
 
   private async openProfile(ctx: AppContext): Promise<void> {
-    const { access } = activeState(ctx);
-    const result = await this.chat.startProfile({ workspaceId: access.workspaceId, userId: access.user.id });
+    const { access, settings } = activeState(ctx);
+    const result = await this.chat.startProfile({
+      workspaceId: access.workspaceId,
+      userId: access.user.id,
+      language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null,
+    });
     await this.chatReply.reply(ctx, access, result);
   }
 

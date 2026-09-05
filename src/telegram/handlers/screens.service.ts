@@ -24,6 +24,7 @@ import {
   pausedSeriesKeyboard,
   pausedSeriesText,
   weekPlanKeyboard,
+  memoryText,
   weekPlanText,
   remindersKeyboard,
   remindersText,
@@ -182,6 +183,13 @@ export class ScreensService {
       appendFooter(keyboard, locale),
       edit,
     );
+  }
+
+  /** Everything remembered, sensitive facts included: they are hidden from the model, not from the user. */
+  async memory_(ctx: AppContext, edit = false): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const rows = await this.context.memoryOverview(access.workspaceId, access.user.id);
+    await this.present(ctx, memoryText(rows, locale), screenFooterKeyboard(locale), edit);
   }
 
   async goals(ctx: AppContext, edit = false, scope: GoalScope = "active", page = 0): Promise<void> {

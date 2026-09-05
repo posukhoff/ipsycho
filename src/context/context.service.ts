@@ -91,6 +91,10 @@ export class ContextService {
     return this.repository.listProfile(workspaceId, userId);
   }
 
+  memoryOverview(workspaceId: string, userId: string) {
+    return this.repository.listAllMemory(workspaceId, userId);
+  }
+
   updateClarificationCount(input: { workspaceId: string; userId: string; topicId: string; askedQuestion: boolean; now?: Date }): Promise<number> {
     return this.repository.updateClarificationCount({ ...input, now: input.now ?? new Date() });
   }
