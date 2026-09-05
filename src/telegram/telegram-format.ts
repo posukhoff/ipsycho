@@ -159,6 +159,23 @@ export function occurrenceWhen(occurrence: TelegramOccurrenceCard, now: Date, lo
   return "";
 }
 
+/**
+ * Whether a line says «просрочено». Two answers used to disagree: the line read the maintained
+ * `overdue` flag, while the list's own «просрочено раньше» count read the local date, so a task
+ * whose day had passed could be counted and yet look untouched until the minute loop caught up.
+ * The date decides for an earlier day, the flag for today.
+ */
+export function isOverdueForDisplay(occurrence: TelegramOccurrenceCard, now: Date): boolean {
+  if (occurrence.overdue) return true;
+  const localDate = occurrenceLocalDate(occurrence);
+  return Boolean(localDate && localDate < localDateAt(now, occurrence.timezone));
+}
+
+/** The one word a list line uses for it. */
+export function overdueMark(occurrence: TelegramOccurrenceCard, now: Date, locale: TelegramLocale): string {
+  return isOverdueForDisplay(occurrence, now) ? t(locale, "scope_overdue") : "";
+}
+
 export function reminderTimeLabel(reminderAt: Date, occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {
   const anchor = occurrence.plannedStartAt ? new Date(occurrence.plannedStartAt) : occurrence.dueAt ? new Date(occurrence.dueAt) : null;
   if (anchor && localDateAt(anchor, occurrence.timezone) === localDateAt(reminderAt, occurrence.timezone)) return formatTime(reminderAt, occurrence.timezone, locale);

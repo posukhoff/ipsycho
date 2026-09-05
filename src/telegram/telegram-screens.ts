@@ -17,6 +17,7 @@ import {
   importanceIcon,
   messageWord,
   occurrenceWhen,
+  overdueMark,
   quietHoursLabel,
   taskWord,
   weekdayLabel,
@@ -190,7 +191,7 @@ export function taskGroupText(group: TelegramGroupCard, locale: TelegramLocale =
   const lines = [`${icon} ${group.title}`, ""];
   for (const [index, row] of group.rows.entries()) {
     const when = row.occurrence ? occurrenceWhen(row.occurrence, now, locale) : (row.task.fuzzyHorizonText ?? "");
-    lines.push(`${index + 1}. ${when || t(locale, "scope_nodate")}${rowState(row, locale)}`);
+    lines.push(`${index + 1}. ${when || t(locale, "scope_nodate")}${rowState(row, locale, now)}`);
   }
   lines.push("", t(locale, "tasks_hint"));
   return compactText(lines.join("\n"), 3_800);
@@ -200,11 +201,12 @@ function groupLine(group: TelegramGroupCard, now: Date, locale: TelegramLocale):
   const { lead } = group;
   const icon = importanceIcon(group.importance) || (group.recurrenceRule ? "🔁" : lead.occurrence ? "•" : "🫧");
   const expandable = group.rows.length > 1 ? " ▸" : "";
-  return `${icon} ${group.title}${groupWhenLabel(group, now, locale)}${rowState(lead, locale)}${expandable}`;
+  return `${icon} ${group.title}${groupWhenLabel(group, now, locale)}${rowState(lead, locale, now)}${expandable}`;
 }
 
-function rowState(row: TelegramTaskListRow, locale: TelegramLocale): string {
-  if (row.occurrence?.overdue) return ` · ${t(locale, "scope_overdue")}`;
+function rowState(row: TelegramTaskListRow, locale: TelegramLocale, now: Date): string {
+  const overdue = row.occurrence ? overdueMark(row.occurrence, now, locale) : "";
+  if (overdue) return ` · ${overdue}`;
   if (row.occurrence?.status === "in_progress")
     return ` · ${cardCopy(locale)
       .inProgress.replace(/^\S+\s/u, "")

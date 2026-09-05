@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fuzzyTaskCardText, reminderCardText, settingsText, taskCardText, tasksOverviewText, todayText } from "../../dist/telegram/telegram-ui.js";
+import { fuzzyTaskCardText, reminderCardText, settingsText, taskCardText, tasksOverviewText, todayLine, todayText } from "../../dist/telegram/telegram-ui.js";
 import { groupTaskRows } from "../../dist/core/task-list-view.js";
 import { describeAction } from "../../dist/actions/actions.service.js";
 
@@ -297,4 +297,21 @@ test("cards drop fields that only restate the title, the goal or the checklist",
     reminderCardText({ task: chore, occurrence, purpose: "user_reminder", now: new Date("2026-08-23T14:30:00Z") }),
     "🔔 Позвонить маме\n📅 23.08, 18:00 (Europe/Kyiv) · через 30 мин\n📝 Мама просила позвонить до 21:00, не позже",
   );
+});
+
+test("a line calls a task overdue by the same rule the list's own count uses", () => {
+  // The line read the maintained `overdue` flag while «просрочено раньше» read the local date, so
+  // between the day rolling over and the next minute-loop tick a task was counted and yet looked
+  // untouched. An earlier day is decided by the date; today is decided by the flag.
+  const task = { title: "Позвонить в банк", importance: "normal", timezone: "Europe/Kyiv" };
+  const now = new Date("2026-09-07T06:00:00Z");
+  const yesterday = { id: "1", status: "open", timezone: "Europe/Kyiv", plannedLocalDate: "2026-09-06", overdue: false };
+  assert.match(todayLine(task, yesterday, "2026-09-07", "ru", now), /просрочено/u);
+
+  const flagged = { id: "2", status: "open", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-09-07T05:00:00Z"), overdue: true };
+  assert.match(todayLine(task, flagged, "2026-09-07", "ru", now), /просрочено/u);
+
+  // Today's window is not overdue just because its start has passed: the flag decides.
+  const later = { id: "3", status: "open", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-09-07T05:00:00Z"), overdue: false };
+  assert.equal(/просрочено/u.test(todayLine(task, later, "2026-09-07", "ru", now)), false);
 });

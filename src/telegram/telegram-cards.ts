@@ -7,6 +7,7 @@ import { t } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 import {
   cardCopy,
+  overdueMark,
   checklistLines,
   detailLines,
   formatDateLabel,
@@ -101,22 +102,16 @@ export function todayLine(task: TelegramTaskCard, occurrence: TelegramOccurrence
   if (occurrence.plannedStartAt && occurrence.plannedEndAt && sameDay(occurrence.plannedStartAt))
     when = `${formatTime(new Date(occurrence.plannedStartAt), tz, locale)}–${formatTime(new Date(occurrence.plannedEndAt), tz, locale)}`;
   else if (occurrence.plannedStartAt && sameDay(occurrence.plannedStartAt)) when = formatTime(new Date(occurrence.plannedStartAt), tz, locale);
-  else if (occurrence.dueAt && sameDay(occurrence.dueAt)) when = `${locale === "en" ? "by" : "до"} ${formatTime(new Date(occurrence.dueAt), tz, locale)}`;
+  else if (occurrence.dueAt && sameDay(occurrence.dueAt)) when = `${cardCopy(locale).by} ${formatTime(new Date(occurrence.dueAt), tz, locale)}`;
   else if (occurrence.plannedStartAt || occurrence.dueAt) when = formatLocalDateTime(new Date((occurrence.plannedStartAt ?? occurrence.dueAt)!), tz, now, intlLocale(locale));
-  else if (occurrence.dueLocalDate && occurrence.dueLocalDate !== localDate) when = `${locale === "en" ? "by" : "до"} ${formatDateLabel(occurrence.dueLocalDate, tz, now)}`;
-  const state = occurrence.overdue
-    ? locale === "en"
-      ? "overdue"
-      : locale === "uk"
-        ? "прострочено"
-        : "просрочено"
-    : occurrence.status === "in_progress"
-      ? locale === "en"
-        ? "in progress"
-        : locale === "uk"
-          ? "у роботі"
-          : "в работе"
-      : "";
+  else if (occurrence.dueLocalDate && occurrence.dueLocalDate !== localDate) when = `${cardCopy(locale).by} ${formatDateLabel(occurrence.dueLocalDate, tz, now)}`;
+  const state =
+    overdueMark(occurrence, now, locale) ||
+    (occurrence.status === "in_progress"
+      ? cardCopy(locale)
+          .inProgress.replace(/^\S+\s/u, "")
+          .toLocaleLowerCase()
+      : "");
   const parts = [when, state].filter(Boolean);
   return `${icon} ${task.title}${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
 }
