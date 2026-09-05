@@ -53,7 +53,6 @@ test("explicit reversible actions apply immediately, inferred ones wait for conf
       why: null,
       targetDate: null,
       status: null,
-      reviewEnabled: null,
     },
     {
       type: "goal",
@@ -66,7 +65,6 @@ test("explicit reversible actions apply immediately, inferred ones wait for conf
       why: null,
       targetDate: null,
       status: null,
-      reviewEnabled: null,
     },
     { type: "plan", goal: { title: "Цель", why: null, targetDate: null }, tasks: [body] },
     { type: "memory", op: "save", memoryId: null, memoryVersion: null, kind: "preference", content: "Сначала факты, потом звонок", sensitive: false },
@@ -123,7 +121,6 @@ test("destructive, critical, sensitive and quiet-hours-bypass actions always con
       why: null,
       targetDate: null,
       status: "cancelled",
-      reviewEnabled: null,
     },
     { type: "memory", op: "save", memoryId: null, memoryVersion: null, kind: "context", content: "диагноз", sensitive: true },
     { type: "memory", op: "update", memoryId: "44444444-4444-4444-8444-444444444444", memoryVersion: 1, kind: null, content: "новое", sensitive: null },

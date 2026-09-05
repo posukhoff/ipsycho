@@ -119,7 +119,6 @@ test("a confirmation card names the task or goal it is about, in the user's lang
         why: null,
         targetDate: null,
         status: null,
-        reviewEnabled: null,
       },
       "ru",
       names,

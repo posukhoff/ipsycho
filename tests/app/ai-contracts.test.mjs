@@ -48,7 +48,7 @@ const actions = {
     timezone: null,
   },
   set_reminder: { type: "set_reminder", intent: "explicit", task: { id: "t1" }, mode: "replace", reminder: { kind: "offset", anchor: "start", minutes: -30, quiet: "respect" } },
-  goal: { type: "goal", intent: "inferred", op: "link", goal: { id: "g1" }, task: { id: "t1" }, title: null, why: null, targetDate: null, status: null, reviewEnabled: null },
+  goal: { type: "goal", intent: "inferred", op: "link", goal: { id: "g1" }, task: { id: "t1" }, title: null, why: null, targetDate: null, status: null },
   plan: { type: "plan", intent: "explicit", goal: { title: "Выучить испанский", why: null, targetDate: "2026-12-31" }, tasks: [taskBody({ title: "Найти преподавателя" })] },
   memory: { type: "memory", intent: "explicit", op: "save", item: null, kind: "preference", content: "Предпочитает встречи утром", sensitive: false },
   settings: {

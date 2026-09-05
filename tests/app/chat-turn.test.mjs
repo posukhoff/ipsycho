@@ -78,7 +78,6 @@ function goalAction(over = {}) {
     why: null,
     targetDate: null,
     status: null,
-    reviewEnabled: null,
     ...over,
   };
 }

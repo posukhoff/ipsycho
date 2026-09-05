@@ -774,7 +774,12 @@ export class ActionGroupRepository {
           reconcile.add(taskId);
         }
         const checklistEvent = list.find((event) => Array.isArray((event.beforeState as { checklist?: unknown } | null)?.checklist));
-        if (checklistEvent) await replaceChecklist(tx, input.workspaceId, taskId, (checklistEvent.beforeState as { checklist: Array<{ text: string; done: boolean }> }).checklist);
+        // Undo restores the recorded state literally: an item the group ticked must come back
+        // unticked, so the "keep what the user already did" merge is off here.
+        if (checklistEvent)
+          await replaceChecklist(tx, input.workspaceId, taskId, (checklistEvent.beforeState as { checklist: Array<{ text: string; done: boolean }> }).checklist, {
+            preserveDone: false,
+          });
         const insertedRuleIds = list.flatMap((event) => (event.afterState as { insertedRuleIds?: string[] } | null)?.insertedRuleIds ?? []);
         if (insertedRuleIds.length) await tx.delete(reminderRules).where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, insertedRuleIds)));
         const planningReviewRuleIds = list.flatMap((event) => (event.beforeState as { planningReviewRuleIds?: string[] } | null)?.planningReviewRuleIds ?? []);

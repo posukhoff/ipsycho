@@ -100,7 +100,6 @@ const goalAction = (over = {}) => ({
   why: null,
   targetDate: null,
   status: null,
-  reviewEnabled: null,
   ...over,
 });
 const emptyPatch = () => ({ title: null, why: null, nextAction: null, context: null, checklist: null, importance: null });

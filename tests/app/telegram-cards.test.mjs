@@ -219,6 +219,17 @@ test("pending confirmation describes the concrete change", () => {
     describeAction({ ...base, type: "memory", op: "save", memoryId: null, memoryVersion: null, kind: "note", content: "Собаку зовут Морти", sensitive: true }),
     "Запомнить (чувствительное): «Собаку зовут Морти»",
   );
+  // «не дроби» sends nothing but a clear list; the card used to ask for a blank change.
+  assert.equal(
+    describeAction({
+      ...base,
+      type: "update_task",
+      taskId: target.taskId,
+      taskVersion: 1,
+      patch: { title: null, why: null, nextAction: null, context: null, checklist: null, importance: null, clear: ["nextAction", "checklist"] },
+    }),
+    "Изменить задачу: убрать следующий шаг, убрать чеклист",
+  );
 });
 
 test("settings show the quiet-hours window instead of hiding it", () => {

@@ -372,8 +372,9 @@ export async function updateTaskInTx(tx: DbTransaction, input: UpdateTaskInput):
 
   let afterChecklist = beforeChecklist;
   if (checklist !== undefined) {
-    await replaceChecklist(tx, input.workspaceId, input.taskId, checklist);
-    afterChecklist = checklist;
+    // What was stored, not what was asked for: the ticks that survived belong in the journal and in
+    // the report, otherwise the user is told their progress was wiped when it was kept.
+    afterChecklist = await replaceChecklist(tx, input.workspaceId, input.taskId, checklist);
   }
 
   await tx.insert(taskEvents).values({ workspaceId: input.workspaceId, taskId: input.taskId, actorUserId: input.actorUserId, eventType: "task:updated" });
@@ -449,9 +450,19 @@ export async function cancelTaskInTx(tx: DbTransaction, input: CancelTaskInput):
   const occurrenceResult = occurrence ? await updateOccurrenceInTx(tx, { ...input, occurrenceId: occurrence.id, expectedVersion: occurrence.version, operation: "cancel" }) : null;
 
   const planningReviewRuleIds = await retirePlanningReview(tx, input.workspaceId, task.id);
-  // Cancelling the occurrence bumps the task's version, so the row is re-read before the task
-  // itself is closed; the optimistic check still holds, just against the version this step made.
+  // Cancelling the only date of a task without a recurrence closes the task itself, so the work is
+  // already done: repeating it bumped the version twice and wrote two journal rows for one action.
   const current = occurrenceResult ? await loadTaskById(tx, input.workspaceId, task.id) : task;
+  if (current.status === "cancelled") {
+    await tx.insert(taskEvents).values({ workspaceId: input.workspaceId, taskId: task.id, actorUserId: input.actorUserId, eventType: "task:cancelled" });
+    return {
+      kind: "cancel_task",
+      taskId: task.id,
+      occurrenceId: occurrence?.id ?? null,
+      title: task.title,
+      touched: [...(occurrenceResult?.touched ?? [])],
+    };
+  }
   const [updatedTask] = await tx
     .update(tasks)
     .set({ status: "cancelled", version: sql`${tasks.version} + 1`, updatedAt: input.now })
@@ -1116,27 +1127,27 @@ export async function cancelOccurrenceDeliveries(tx: DbTransaction, workspaceId:
 export /**
  * A rewritten checklist keeps the ticks the user already made: an item whose text comes back
  * unchanged stays done. Without this, a second pass over the same task (the model restating the
- * steps) silently cleared the user's progress, and the model cannot avoid it — it does not own
- * that state.
+ * steps) silently cleared the user's progress, and the model cannot avoid it — it does not own that
+ * state. Undo is the exception: it restores a recorded state literally, ticks included.
  */
-async function replaceChecklist(tx: DbTransaction, workspaceId: string, taskId: string, checklist: ReadonlyArray<{ text: string; done: boolean }>): Promise<void> {
+async function replaceChecklist(
+  tx: DbTransaction,
+  workspaceId: string,
+  taskId: string,
+  checklist: ReadonlyArray<{ text: string; done: boolean }>,
+  options: { preserveDone?: boolean } = {},
+): Promise<Array<{ text: string; done: boolean }>> {
   const previous = await tx
     .select({ text: taskChecklistItems.text, done: taskChecklistItems.done })
     .from(taskChecklistItems)
     .where(and(eq(taskChecklistItems.workspaceId, workspaceId), eq(taskChecklistItems.taskId, taskId)));
-  const doneBefore = new Set(previous.filter((item) => item.done).map((item) => item.text.trim().toLowerCase()));
+  const doneBefore = new Set(options.preserveDone === false ? [] : previous.filter((item) => item.done).map((item) => item.text.trim().toLowerCase()));
+  const stored = checklist.map((item) => ({ text: item.text, done: item.done || doneBefore.has(item.text.trim().toLowerCase()) }));
   await tx.delete(taskChecklistItems).where(and(eq(taskChecklistItems.workspaceId, workspaceId), eq(taskChecklistItems.taskId, taskId)));
-  if (checklist.length) {
-    await tx.insert(taskChecklistItems).values(
-      checklist.map((item, index) => ({
-        workspaceId,
-        taskId,
-        text: item.text,
-        done: item.done || doneBefore.has(item.text.trim().toLowerCase()),
-        sortOrder: index,
-      })),
-    );
+  if (stored.length) {
+    await tx.insert(taskChecklistItems).values(stored.map((item, index) => ({ workspaceId, taskId, text: item.text, done: item.done, sortOrder: index })));
   }
+  return stored;
 }
 
 export function scheduleView(row: typeof taskOccurrences.$inferSelect): OccurrenceScheduleView {

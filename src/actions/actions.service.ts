@@ -498,7 +498,6 @@ export class ActionsService implements OnApplicationBootstrap {
                 ...(action.why !== null ? { why: action.why } : {}),
                 ...(action.targetDate !== null ? { targetLocalDate: action.targetDate } : {}),
                 ...(action.status !== null ? { status: action.status } : {}),
-                ...(action.reviewEnabled !== null ? { reviewEnabled: action.reviewEnabled } : {}),
               },
             });
           } else if (action.op === "link") {

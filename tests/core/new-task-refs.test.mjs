@@ -24,7 +24,7 @@ test("a goal link and a reminder addressed to n1 fold into the create_task itsel
   const reminder = { kind: "offset", anchor: "start", minutes: -30, quiet: "respect" };
   const folded = foldNewTaskRefs([
     create("Попросить обратную связь"),
-    { type: "goal", intent: "explicit", op: "link", goal: { id: "g1" }, task: { id: "n1" }, title: null, why: null, targetDate: null, status: null, reviewEnabled: null },
+    { type: "goal", intent: "explicit", op: "link", goal: { id: "g1" }, task: { id: "n1" }, title: null, why: null, targetDate: null, status: null },
     { type: "set_reminder", intent: "explicit", task: { id: "n1" }, mode: "add", reminder },
     { type: "set_task_state", intent: "explicit", task: { id: "t3" }, state: "done", note: null, scope: null },
   ]);

@@ -128,7 +128,7 @@ async function resolveOne(
       return { type: "set_reminder", ...base, target, mode: action.mode, reminder: action.reminder };
     }
     case "goal": {
-      const empty = { goalId: null, goalVersion: null, taskId: null, taskVersion: null, title: null, why: null, targetDate: null, status: null, reviewEnabled: null };
+      const empty = { goalId: null, goalVersion: null, taskId: null, taskVersion: null, title: null, why: null, targetDate: null, status: null };
       if (action.op === "create") {
         if (!action.title?.trim()) throw domain("goal_title", "goal title is required");
         return { type: "goal", ...base, op: "create", ...empty, title: action.title.trim(), why: action.why, targetDate: action.targetDate };
@@ -136,7 +136,7 @@ async function resolveOne(
       if (!action.goal) throw reference("ref_required", "goal reference is required");
       const goal = await goalRef(action.goal.id, refs, deps);
       if (action.op === "update") {
-        if (action.title === null && action.why === null && action.targetDate === null && action.status === null && action.reviewEnabled === null) {
+        if (action.title === null && action.why === null && action.targetDate === null && action.status === null) {
           throw domain("empty_patch", "update_goal patch must change at least one field");
         }
         return {
@@ -150,7 +150,6 @@ async function resolveOne(
           why: action.why,
           targetDate: action.targetDate,
           status: action.status,
-          reviewEnabled: action.reviewEnabled,
         };
       }
       if (!action.task) throw reference("ref_required", "task reference is required");

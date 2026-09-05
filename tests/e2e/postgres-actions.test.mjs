@@ -1048,6 +1048,90 @@ test("the week pool: a pick is toggled, capped at seven, and only counts for the
   assert.equal(await service.togglePickedForWeek(workspaceId, randomUUID(), today), null);
 });
 
+test("the journal and Undo tell the truth about checklist ticks", async () => {
+  const { workspaceId, userId } = await fixture();
+  const taskId = randomUUID();
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, planned_start_at) values ($1,$2,$3,'Налоги','task','normal','active','point','Europe/Kyiv',now())",
+    [taskId, workspaceId, userId],
+  );
+  const items = ["Собрать документы", "Заполнить декларацию"];
+  for (const [index, text] of items.entries()) {
+    await database.pool.query("insert into task_checklist_items(id, workspace_id, task_id, text, done, sort_order) values ($1,$2,$3,$4,$5,$6)", [
+      randomUUID(),
+      workspaceId,
+      taskId,
+      text,
+      index === 0,
+      index,
+    ]);
+  }
+  const groupId = randomUUID();
+  const applied = await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
+    steps: [{ kind: "update_task", taskId, expectedVersion: 1, patch: { checklist: [...items, "Отправить"].map((text) => ({ text, done: false })) } }],
+  });
+  // The tick survived, so the journal and the report must say so: telling the user "0/3" while the
+  // row holds one done item is a lie the applied report is there to prevent.
+  const [step] = applied.steps;
+  const change = step.changes.find((item) => item.field === "checklist");
+  assert.equal(change.after, "checklist:3:1", "three items, the tick kept");
+  const [event] = await database.db
+    .select()
+    .from(actionEvents)
+    .where(and(eq(actionEvents.groupId, groupId), eq(actionEvents.actionType, "update_task")));
+  assert.deepEqual(
+    event.afterState.checklist.map((item) => [item.text, item.done]),
+    [
+      ["Собрать документы", true],
+      ["Заполнить декларацию", false],
+      ["Отправить", false],
+    ],
+  );
+
+  // Undo restores what was recorded, ticks included — it must not re-apply the "keep progress" merge.
+  await database.pool.query("update task_checklist_items set done=true where task_id=$1 and text='Заполнить декларацию'", [taskId]);
+  assert.ok(await actions.claimUndo(workspaceId, userId, groupId, new Date()));
+  await groups.undo({ workspaceId, groupId, now: new Date() });
+  const restored = await database.pool.query("select text, done from task_checklist_items where task_id=$1 order by sort_order", [taskId]);
+  assert.deepEqual(
+    restored.rows.map((row) => [row.text, row.done]),
+    [
+      ["Собрать документы", true],
+      ["Заполнить декларацию", false],
+    ],
+    "undo un-ticks what it recorded as unticked",
+  );
+});
+
+test("cancelling a dated task writes the task once", async () => {
+  const { workspaceId, userId } = await fixture();
+  const { taskId } = await createOccurrence(workspaceId, userId);
+  const groupId = randomUUID();
+  await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
+    steps: [{ kind: "cancel_task", taskId, expectedVersion: 1 }],
+  });
+  const task = (await database.pool.query("select status, version from tasks where id=$1", [taskId])).rows[0];
+  assert.equal(task.status, "cancelled");
+  assert.equal(task.version, 2, "one action is one version bump");
+  const events = await database.db
+    .select()
+    .from(actionEvents)
+    .where(and(eq(actionEvents.groupId, groupId), eq(actionEvents.entityType, "task")));
+  assert.equal(events.length, 1, "and one journal row for the task");
+});
+
 test("a task given a day leaves the week pool, so the cap and the summary stay honest", async () => {
   const { workspaceId, userId } = await fixture();
   const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});

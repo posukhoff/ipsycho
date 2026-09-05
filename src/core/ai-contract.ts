@@ -148,7 +148,6 @@ export const GoalActionSchema = z
     why: NullableText(1000),
     targetDate: LocalDateSchema.nullable(),
     status: z.enum(["active", "paused", "completed", "cancelled"]).nullable(),
-    reviewEnabled: z.boolean().nullable(),
   })
   .strict();
 
@@ -326,7 +325,6 @@ export const ResolvedActionSchema = z.discriminatedUnion("type", [
       why: NullableText(1000),
       targetDate: LocalDateSchema.nullable(),
       status: GoalActionSchema.shape.status,
-      reviewEnabled: z.boolean().nullable(),
     })
     .strict(),
   z.object({ type: z.literal("plan"), ...ResolvedBase, goal: PlanActionSchema.shape.goal, tasks: z.array(TaskBodySchema).min(1).max(12) }).strict(),

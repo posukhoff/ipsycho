@@ -12,6 +12,7 @@ import { withTaskCandidates } from "../core/reference-candidates.js";
 import { MODEL_REPLY_MAX, compactText } from "../core/telegram-ux.js";
 import { aiTimeContext } from "../core/ai-time-context.js";
 import { renderAppliedReport } from "../core/applied-report.js";
+import { interfaceLocale } from "../core/language.js";
 import { bareConfirmationDecision, detectConversationControl, isClearConversationRequest } from "../core/conversation-control.js";
 import { ContextService } from "../context/context.service.js";
 import { MessagesRepository } from "../messages/messages.repository.js";
@@ -488,7 +489,7 @@ export class ChatService {
           await this.context.resetClarificationCount(input.workspaceId, input.userId, topicId, now).catch(() => undefined);
         }
       }
-      const report = actionResult.applied?.items?.length ? renderAppliedReport(actionResult.applied.items, now) : "";
+      const report = actionResult.applied?.items?.length ? renderAppliedReport(actionResult.applied.items, now, interfaceLocale(input.language)) : "";
       return {
         kind: "ok",
         text: renderTurn(turn.reply, turn.question, MODEL_REPLY_MAX),
@@ -564,7 +565,7 @@ export class ChatService {
     }
     try {
       const applied = await this.actions.confirm(input.workspaceId, input.userId, input.userId, card.groupId, now);
-      const report = applied.items?.length ? renderAppliedReport(applied.items, now) : "";
+      const report = applied.items?.length ? renderAppliedReport(applied.items, now, interfaceLocale(input.language)) : "";
       return {
         kind: "ok",
         text: confirmationCopy(input.language).confirmed,

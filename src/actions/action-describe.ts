@@ -13,6 +13,7 @@ type Locale = InterfaceLocale;
 
 const C = {
   ru: {
+    cleared: "убрать",
     create: "Создать",
     plan: (goal: string, n: number) => `Создать цель «${goal}» и ${n} ${plural("ru", n, "задачу", "задачи", "задач")}`,
     updateTask: "Изменить задачу",
@@ -68,6 +69,7 @@ const C = {
     },
   },
   uk: {
+    cleared: "прибрати",
     create: "Створити",
     plan: (goal: string, n: number) => `Створити ціль «${goal}» і ${n} ${plural("uk", n, "завдання", "завдання", "завдань")}`,
     updateTask: "Змінити завдання",
@@ -123,6 +125,7 @@ const C = {
     },
   },
   en: {
+    cleared: "clear",
     create: "Create",
     plan: (goal: string, n: number) => `Create goal “${goal}” with ${n} ${n === 1 ? "task" : "tasks"}`,
     updateTask: "Edit task",
@@ -205,6 +208,8 @@ export function describeAction(action: ResolvedAction, locale: Locale = "ru", na
       if (patch.why !== null) parts.push(c.why);
       if (patch.nextAction !== null) parts.push(c.nextAction);
       if (patch.context !== null) parts.push(c.context);
+      // A patch that only clears fields described nothing, so the card asked to confirm an invisible change.
+      for (const field of patch.clear ?? []) parts.push(`${c.cleared} ${c[field === "checklist" ? "checklist" : field]}`);
       const head = `${c.updateTask}${taskName(action.taskId)}`;
       return parts.length ? `${head}: ${parts.join(", ")}` : head;
     }
