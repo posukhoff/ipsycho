@@ -115,10 +115,18 @@ once (`flock`), and `BACKUP_PING_URL` (a healthchecks.io-style URL) is pinged
 after a successful upload so a silent cron failure is noticed. Suggested crontab:
 
 ```cron
-15 3 * * *  cd /opt/ipsycho && BACKUP_KEY_FILE=/opt/ipsycho-secrets/backup.key S3_BACKUP_URI=s3://bucket/ipsycho BACKUP_PING_URL=https://hc-ping.com/... ./scripts/backup-compose.sh >> backups/backup.log 2>&1
-0 4 1 * *   cd /opt/ipsycho && BACKUP_KEY_FILE=/opt/ipsycho-secrets/backup.key ./scripts/restore-compose.sh "$(ls -t backups/daily/*.dump.enc | head -1)" >> backups/restore-drill.log 2>&1
-30 4 * * 0  docker image prune -f --filter until=168h
+15 3 * * *  cd /opt/ipsycho && BACKUP_KEY_FILE=/home/deploy/ipsycho-secrets/backup.key S3_BACKUP_URI=s3://bucket/ipsycho BACKUP_PING_URL=https://hc-ping.com/... ./scripts/backup-compose.sh >> /opt/ipsycho/backups/backup.log 2>&1
+0 4 1 * *   cd /opt/ipsycho && BACKUP_KEY_FILE=/home/deploy/ipsycho-secrets/backup.key ./scripts/restore-compose.sh "$(ls -t /opt/ipsycho/backups/daily/*.dump.enc | head -1)" >> /opt/ipsycho/backups/restore-drill.log 2>&1
+30 4 * * 0  docker image prune -f --filter until=168h >> /opt/ipsycho/backups/prune.log 2>&1
 ```
+
+Installed on the production VPS on 2026-09-05 without `S3_BACKUP_URI`: the key
+lives in `/home/deploy/ipsycho-secrets/backup.key` (the deploy user has no
+sudo, so it is not under `/opt`), and the copies stay on the machine until a
+bucket exists. Add `S3_BACKUP_URI` (and `S3_ENDPOINT_URL` for a non-AWS
+service) to the first cron line to start copying off-site — nothing else
+changes. The key itself is not backed up anywhere: keep a copy off the
+machine, or every encrypted dump becomes unreadable with the disk.
 
 Runtime alerts go to `OWNER_TELEGRAM_USER_ID`: the hourly maintenance tick
 reports reminders pending more than ten minutes past their time, non-empty
