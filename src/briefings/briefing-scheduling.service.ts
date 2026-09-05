@@ -10,6 +10,11 @@ import { logger } from "../observability/logger.js";
 import { PeriodicService } from "../runtime/periodic.service.js";
 
 const RECONCILE_MS = 15 * 60_000;
+/**
+ * How late a slot may be first materialized and still be sent. Reconcile runs every 15 minutes,
+ * so a slot that appears within one cycle of its time is simply this loop catching up.
+ */
+const LATE_START_GRACE_MS = RECONCILE_MS;
 
 @Injectable()
 export class BriefingSchedulingService extends PeriodicService {
@@ -73,6 +78,12 @@ export class BriefingSchedulingService extends PeriodicService {
     for (const item of expectedItems) {
       if (item.scheduledFor < new Date(now.getTime() - 24 * 60 * 60_000)) continue;
       const prior = existingByKey.get(item.deduplicationKey);
+      // A slot that has no row yet and whose time is long gone is not created: the card would be
+      // sent the moment it appears. Turning the morning card on in the evening must not send
+      // "☀️ Сегодня" at 21:00 — the first one comes tomorrow at the chosen hour. A row that
+      // already exists keeps the 24-hour grace above, so a card missed while the process was down
+      // still goes out.
+      if (!prior && item.scheduledFor.getTime() < now.getTime() - LATE_START_GRACE_MS) continue;
       if (prior) {
         if (prior.status === "sent" || prior.status === "processing" || prior.status === "failed") continue;
         if (prior.status === "suppressed" && item.scheduledFor <= now) continue;

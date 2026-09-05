@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../../dist/database/database.service.js";
 import { BriefingContentService } from "../../dist/briefings/briefing-content.service.js";
+import { BriefingSchedulingService } from "../../dist/briefings/briefing-scheduling.service.js";
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url) throw new Error("TEST_DATABASE_URL is required; run npm run test:e2e");
@@ -112,4 +113,39 @@ test("the weekly card says the pool is empty instead of inviting a pick", async 
   const built = await content.build({ workspaceId: scope.workspaceId, kind: "weekly", localDate: "2026-09-09", timezone: TIMEZONE, locale: "en" });
   assert.match(built.text, /pool has no undated tasks/);
   assert.doesNotMatch(built.text, /\/week/);
+});
+
+test("a card is not first created for an hour that has already passed, so enabling it in the evening does not fire it", async () => {
+  const scope = await fixture();
+  await database.pool.query("update user_settings set morning_digest_enabled=true, morning_reference_time='09:00', digest_timezone=$2 where user_id=$1", [scope.userId, TIMEZONE]);
+  const enqueued = [];
+  const scheduling = new BriefingSchedulingService(database, { enqueue: async (id, at) => enqueued.push({ id, at }) });
+  const rows = async () =>
+    (
+      await database.pool.query("select local_date::text as local_date, status, scheduled_for from briefing_deliveries where recipient_user_id=$1 order by local_date", [
+        scope.userId,
+      ])
+    ).rows;
+
+  // 21:00 in Kyiv: today's 09:00 slot is twelve hours gone.
+  await scheduling.reconcile(new Date("2026-09-07T18:00:00Z"));
+  assert.deepEqual(
+    (await rows()).map((row) => row.local_date),
+    ["2026-09-08"],
+    "only tomorrow's card is created",
+  );
+
+  // The same slot one minute after its time is this loop catching up, not a stale card.
+  await scheduling.reconcile(new Date("2026-09-08T06:01:00Z"));
+  assert.deepEqual(
+    (await rows()).map((row) => row.local_date),
+    ["2026-09-08", "2026-09-09"],
+  );
+  assert.equal(enqueued.length, 3);
+
+  // A row that already exists keeps the wider grace: a card missed while the process was down still goes out.
+  await database.pool.query("update briefing_deliveries set status='pending' where local_date='2026-09-08'");
+  await scheduling.reconcile(new Date("2026-09-08T09:00:00Z"));
+  const kept = (await rows()).find((row) => row.local_date === "2026-09-08");
+  assert.equal(kept.status, "pending");
 });
