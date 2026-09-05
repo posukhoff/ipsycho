@@ -51,5 +51,11 @@ This file contains only checks that cannot be proven by the local automated suit
 
 - [ ] Deploy migration `0023_message_pending_group.sql` with the application. On startup, pending confirmation cards stored under the previous action contract are expired with a `legacy_contract_expired` audit event; verify the count in the log matches the pending rows before deploy.
 - [ ] Send a bare "да" to a card the bot sent last and verify it confirms; send "да" after a model question with no card and verify it goes to the model; press Reschedule on a task and type "завтра в 10" and verify the move.
+- [ ] Type «да» instead of tapping at each onboarding step after the timezone and verify the answer lands and the flow moves on; type something else and verify it re-asks rather than reaching the model.
+- [ ] Let a dated task go overdue, then open `/week` and verify it is in the pool with «просрочено», leads the list, and that one tap takes it for the week and another gives it today.
+- [ ] On a task with no day, ask for a reminder at an exact date and time and verify it arrives; ask for «за 15 минут до начала» and verify the refusal explains what to give instead.
+- [ ] Open a task from the «⚠️ Просрочено» filter, press Back, and verify the same filter is still selected. Complete a task from a list and verify the card that replaces it still has the footer.
+- [ ] Send `/memory` and verify a sensitive fact is listed with 🔒; verify `/context` speaks the interface language.
+- [ ] Leave a goal untouched for three weeks (or backdate `goals.updated_at`) and verify the weekly card names it with the days of silence and offers a step; tap it and verify one task linked to the goal comes back with Undo.
 - [ ] Deploy migration `0029_telegram_language.sql` with the application, then send any message and verify `user_settings.telegram_language` is filled. With no pinned language, verify the morning card, a reminder and the spend warning arrive in the Telegram language rather than in English.
 - [ ] Deploy migration `0028_week_pool.sql` with the application. Existing tasks have no week mark, so the pool starts empty of picks; verify `/week` lists the undated tasks and that picking one writes this week's Monday.
