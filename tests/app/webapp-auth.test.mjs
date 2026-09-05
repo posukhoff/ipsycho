@@ -358,7 +358,7 @@ test("nothing the caller sent is written to the log, refused or failed", async (
   const raw = initData({ extra: { start_param: "task_secret_hint" } });
   const captured = await capturingOutput(async () => {
     // A refused request: a forged payload that still carries a real hash, auth_date and first name.
-    await harness.me({ raw: `${raw.slice(0, -1)}0`, ip: "192.0.2.31" });
+    await harness.me({ raw: `${raw.slice(0, -1)}${raw.endsWith("a") ? "b" : "a"}`, ip: "192.0.2.31" });
     // A refusal that happens after the identity is known, so a line with a userId on it exists.
     for (let hit = 0; hit < USER_RATE_LIMIT.limit; hit += 1) harness.userLimiter.consume(USER_ID);
     await harness.me({ raw, ip: "192.0.2.32" });
