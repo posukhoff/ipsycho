@@ -266,6 +266,10 @@ async function taskTarget(
       return series;
     }
   } else {
+    // A task that does not repeat has exactly one occurrence, so "the whole series" and "this one"
+    // name the same thing. Cancelling it is what the user asked for either way; refusing here made
+    // «объедини эти две задачи» fail, because the model reasonably called the absorbed one a series.
+    if (scope === "series" && opts.purpose === "state" && opts.state === "cancelled") return whole;
     if (scope === "series") throw domain("not_recurring", "task is not a recurring series");
     if (opts.purpose === "state" && opts.state === "skipped") throw domain("skip_one_time", "a one-time task cannot be skipped; cancel it instead");
   }

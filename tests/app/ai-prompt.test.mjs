@@ -61,6 +61,10 @@ test("AI prompt names every action array, the intent field and the task-as-targe
   assert.match(prompt, /inferred when you propose it yourself/);
   assert.match(prompt, /Every entry addresses a task by the short id from CURRENT_CONTEXT/);
   assert.match(prompt, /All arrays of one message are one atomic package/);
+  // Splitting and merging each need two entries; production lost an item and kept a duplicate
+  // because the model answered both requests with a single rename.
+  assert.match(prompt, /выдели X в отдельную задачу[^\n]*plus a createTasks entry/);
+  assert.match(prompt, /«это одна задача»[^\n]*plus a setTaskStates entry cancelling/);
   assert.match(prompt, /return the action itself instead of describing it and waiting for a yes/);
   assert.match(prompt, /tasks that do not exist yet/);
   assert.match(prompt, /with its own when, reminder, recurrence, habit and goal/);
@@ -105,7 +109,7 @@ test("AI prompt stays inside its size budget without context", () => {
   // The budget exists so rules keep moving into code rather than accumulating here.
   // It is a budget, not a rule: raising it is a decision, and the number says by how much.
   // 2026-09-04: raised from 9600 for the three worked examples (§16), which sit in the cacheable prefix.
-  assert.ok(prompt.length < 14_000, `prompt is ${prompt.length} characters`);
+  assert.ok(prompt.length < 14_500, `prompt is ${prompt.length} characters`);
 });
 
 test("AI prompt ends with one local CURRENT_TIME line and the context when given", () => {

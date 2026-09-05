@@ -58,5 +58,8 @@ test("the nine production phrasings of AGENT_FLOW §2.7 are all covered, plus th
   assert.ok(dialogs.cases.some((item) => item.language === "en"));
   assert.ok(dialogs.cases.some((item) => item.expect.memoriesSaved || item.expect.startNotBeforeLocalTime));
   assert.ok(dialogs.cases.some((item) => item.expect.settingsChanged));
-  assert.ok(dialogs.cases.length >= 19);
+  assert.ok(dialogs.cases.length >= 21);
+  // The two production failures of 2026-09-05: a split that lost an item, a merge that left a duplicate.
+  assert.ok(dialogs.cases.some((item) => item.id === "split-into-separate-task"));
+  assert.ok(dialogs.cases.some((item) => item.id === "merge-two-tasks"));
 });

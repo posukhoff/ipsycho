@@ -229,8 +229,17 @@ test("a one-time task cannot be skipped and has no series to change", async () =
   const skipped = await resolve([setState({ task: { id: "t1" }, state: "skipped" })]);
   assert.equal(onlyIssue(skipped).code, "skip_one_time");
 
-  const series = await resolve([setState({ task: { id: "t1" }, state: "cancelled", scope: "series" })]);
-  assert.equal(onlyIssue(series).code, "not_recurring");
+  const rescheduled = await resolve([rescheduleTo({ task: { id: "t1" }, scope: "series" })]);
+  assert.equal(onlyIssue(rescheduled).code, "not_recurring");
+});
+
+test("cancelling a one-time task with scope=series cancels the task instead of refusing", async () => {
+  // A task that does not repeat has one occurrence, so «всю серию» and «это» name the same thing.
+  // Refusing here broke merging two tasks: the absorbed one is cancelled, and the model called it
+  // a series.
+  const result = await resolve([setState({ task: { id: "t1" }, state: "cancelled", scope: "series" })]);
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(result.resolved[0].target, { kind: "task", taskId: ONE_TIME, taskVersion: TASKS.t1.version });
 });
 
 test("the same action twice in one message is applied once and reported", async () => {

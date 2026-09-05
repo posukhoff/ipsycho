@@ -259,6 +259,29 @@
         "settles": true,
         "occurrencesDone": 1
       }
+    },
+    {
+      "id": "split-into-separate-task",
+      "source": "production 2026-09-05",
+      "language": "ru",
+      "seed": ["Создай задачу: до конца сентября заново приклеить силиконовую защиту у ванны и устранить течь у биде."],
+      "message": "Течь у биде — это отдельная задача.",
+      "expect": {
+        "settles": true,
+        "tasksCreated": 1,
+        "titleMatches": "биде"
+      }
+    },
+    {
+      "id": "merge-two-tasks",
+      "source": "production 2026-09-05",
+      "language": "ru",
+      "seed": ["Создай задачу: до конца сентября приклеить силиконовую защиту у ванны.", "Создай задачу: до конца сентября приклеить силикон у кухонной раковины."],
+      "message": "Это можно считать одной задачей — силикон в ванной и на кухне.",
+      "expect": {
+        "settles": true,
+        "tasksCancelled": 1
+      }
     }
   ]
 }
