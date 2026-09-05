@@ -154,6 +154,7 @@ export const ru = {
   week_pick_gone_toast: "Эта задача уже не в пуле",
   week_taken_section: "Взято на неделю:",
   week_take_today_toast: "Поставил на сегодня",
+  week_take_today_row: "▶️ Сегодня: {title}",
   week_take_today_failed_toast: "Не смог поставить на сегодня",
   resume_series_button: "▶️ {title}",
   paused_series_header: "⏸ Серии на паузе: {count}",

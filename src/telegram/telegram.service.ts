@@ -136,6 +136,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     reviewKinds: readonly ("evening" | "weekly")[] = [],
     reviewDeliveryId?: string,
     locale = telegramLocale(null, undefined),
+    weekTasks: ReadonlyArray<{ id: string; title: string }> = [],
   ): Promise<number> {
     let keyboard: InlineKeyboard | undefined;
     if (decisionOccurrenceIds.length) {
@@ -149,7 +150,20 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     }
     if (kind === "morning") {
       keyboard ??= new InlineKeyboard();
+      // One tap gives a task taken for this week its day. The rows come before the navigation so
+      // the decision the card is for is the first thing under it.
+      if (weekTasks.length) {
+        if (decisionOccurrenceIds.length) keyboard.row();
+        for (const task of weekTasks.slice(0, 8)) {
+          const title = task.title.length > 24 ? `${task.title.slice(0, 23)}…` : task.title;
+          keyboard.text(t(locale, "week_take_today_row", { title }), `wk:d:${task.id}`).row();
+        }
+      }
       keyboard.text(t(locale, "today_button"), "nav:today");
+    }
+    if (kind === "weekly") {
+      keyboard ??= new InlineKeyboard();
+      keyboard.text(t(locale, "week_plan_button"), "nav:week");
     }
     if (reviewDeliveryId && reviewKinds.length) {
       keyboard ??= new InlineKeyboard();

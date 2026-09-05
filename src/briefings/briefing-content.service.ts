@@ -1,15 +1,13 @@
 import { Injectable } from "@nestjs/common";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { occurrenceFallsOnLocalDate } from "../core/local-schedule.js";
 import { importanceRank } from "../core/types.js";
-import { deadlineUrgency } from "../core/deadline-urgency.js";
-import { selectCardDetails } from "../core/card-details.js";
-import { aggregateHistoricalGoalMovement, habitCompletionStats, WEEKLY_MOVEMENT_EVENT_TYPES, WEEKLY_REVIEW_GOAL_STATUSES } from "../core/weekly-review-policy.js";
 import { DatabaseService } from "../database/database.service.js";
 import { todayLine } from "../telegram/telegram-ui.js";
 import type { TelegramLocale } from "../telegram/telegram-locale.js";
 import { compactText } from "../core/telegram-ux.js";
-import { briefingDeliveries, goals, taskEvents, taskGoals, taskOccurrences, tasks } from "../database/schema.js";
+import { currentWeekStart, previousWeekRange } from "../core/week-plan.js";
+import { briefingDeliveries, taskOccurrences, tasks } from "../database/schema.js";
 
 const NONTERMINAL = ["scheduled", "open", "in_progress"] as const;
 /** Telegram's hard limit is 4096; a weekly review with many goals and habits must stay under it. */
@@ -17,6 +15,11 @@ const BRIEFING_MAX_CHARS = 3_900;
 
 const COPY = {
   ru: {
+    takenThisWeek: "Взято на неделю:",
+    weekPlanCta: "Открыть план недели: /week",
+    weekSummary: (done: number, stale: number) => `За прошлую неделю закрыто: ${done}. Взято и не начато: ${stale}.`,
+    weekPoolEmpty: "В пуле нет задач без даты.",
+    weeklyPick: "🗂 План недели",
     morningEmpty: "☀️ Сегодня\n\nЗапланированных дел нет.",
     morning: "☀️ Сегодня",
     main: "Главное",
@@ -48,6 +51,11 @@ const COPY = {
     tasks: (n: number) => `${n} ${plural(n, "дело", "дела", "дел")}`,
   },
   uk: {
+    takenThisWeek: "Взято на тиждень:",
+    weekPlanCta: "Відкрити план тижня: /week",
+    weekSummary: (done: number, stale: number) => `За минулий тиждень закрито: ${done}. Взято й не почато: ${stale}.`,
+    weekPoolEmpty: "У пулі немає завдань без дати.",
+    weeklyPick: "🗂 План тижня",
     morningEmpty: "☀️ Сьогодні\n\nЗапланованих справ немає.",
     morning: "☀️ Сьогодні",
     main: "Головне",
@@ -79,6 +87,11 @@ const COPY = {
     tasks: (n: number) => `${n} ${plural(n, "справа", "справи", "справ")}`,
   },
   en: {
+    takenThisWeek: "Taken this week:",
+    weekPlanCta: "Open the week plan: /week",
+    weekSummary: (done: number, stale: number) => `Closed last week: ${done}. Taken and not started: ${stale}.`,
+    weekPoolEmpty: "The pool has no undated tasks.",
+    weeklyPick: "🗂 Week plan",
     morningEmpty: "☀️ Today\n\nNothing is planned.",
     morning: "☀️ Today",
     main: "Main",
@@ -127,23 +140,43 @@ export class BriefingContentService {
 
     const relevant = occurrenceRows.filter(({ task, occurrence }) => occurrenceFallsOnLocalDate({ ...occurrence, timeMode: task.timeMode }, input.localDate));
 
+    // Tasks taken for this week and still without a day: the morning card is where a day is given
+    // to one of them, so it lists them under what is already scheduled.
+    const pickedForWeek = await this.database.db
+      .select({ id: tasks.id, title: tasks.title, importance: tasks.importance })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, currentWeekStart(input.localDate))))
+      .orderBy(tasks.updatedAt);
+
     const morning = () => {
       const ordered = [...relevant].sort((a, b) => importanceRank(a.task.importance) - importanceRank(b.task.importance));
-      if (!ordered.length) return { text: c.morningEmpty, hasContent: false, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[] };
+      const weekLines = pickedForWeek.length ? ["", c.takenThisWeek, ...pickedForWeek.slice(0, 8).map((task) => `▸ ${task.title}`)] : [];
+      const weekTasks = pickedForWeek.slice(0, 8).map((task) => ({ id: task.id, title: task.title }));
+      if (!ordered.length) {
+        if (!weekLines.length) return { text: c.morningEmpty, hasContent: false, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[], weekTasks };
+        return { text: [c.morning, ...weekLines].join("\n"), hasContent: true, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[], weekTasks };
+      }
       const main = ordered.find(({ task }) => task.importance !== "normal") ?? ordered[0];
       const lines = [`${c.morning} · ${c.tasks(ordered.length)}`];
       if (main) lines.push(`\n${c.main}: ${main.task.title}`);
       lines.push("");
       for (const row of ordered.slice(0, 6)) lines.push(todayLine(row.task, row.occurrence, input.localDate, locale, input.now ?? new Date()));
       if (ordered.length > 6) lines.push(c.more(ordered.length - 6));
-      return { text: lines.join("\n"), hasContent: true, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[] };
+      lines.push(...weekLines);
+      return { text: lines.join("\n"), hasContent: true, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[], weekTasks };
     };
 
     const evening = () => {
       const decisions = relevant.filter(({ task, occurrence }) => task.importance !== "normal" && ["open", "in_progress", "scheduled"].includes(occurrence.status));
       const normal = relevant.filter(({ task }) => task.importance === "normal");
       if (!decisions.length && !normal.length)
-        return { text: c.eveningEmpty, hasContent: false, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[] };
+        return {
+          text: c.eveningEmpty,
+          hasContent: false,
+          reviewKinds: [] as Array<"evening" | "weekly">,
+          decisionOccurrenceIds: [] as string[],
+          weekTasks: [] as Array<{ id: string; title: string }>,
+        };
       const lines = [c.evening, `\n${c.left}: ${decisions.length + normal.length}`];
       if (decisions.length) {
         lines.push(`\n${c.decide}`);
@@ -160,148 +193,46 @@ export class BriefingContentService {
         hasContent: true,
         reviewKinds: ["evening"] as Array<"evening" | "weekly">,
         decisionOccurrenceIds: decisions.slice(0, 3).map((row) => row.occurrence.id),
+        weekTasks: [] as Array<{ id: string; title: string }>,
       };
     };
 
+    /**
+     * The weekly delivery is the week plan now: what the past week closed, what was taken and left,
+     * and an invitation to pick the coming week. The picking itself is deterministic taps on /week,
+     * so this card carries no conversation.
+     */
     const weekly = async () => {
-      const now = input.now ?? new Date();
-      const weekCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60_000);
-      const hasPlanningDeadline = occurrenceRows.some(({ occurrence }) => {
-        const urgency = deadlineUrgency({ dueAt: occurrence.dueAt, dueLocalDate: occurrence.dueLocalDate, timezone: occurrence.timezone, now });
-        return urgency === "watch" || urgency === "high" || urgency === "urgent" || urgency === "overdue";
-      });
-      const [activeGoals, habitTasks, recentLinkedMovement] = await Promise.all([
+      const range = previousWeekRange(input.localDate);
+      const [[done], [stale], [pool]] = await Promise.all([
         this.database.db
-          .select()
-          .from(goals)
-          .where(and(eq(goals.workspaceId, input.workspaceId), eq(goals.status, "active"), eq(goals.reviewEnabled, true))),
-        this.database.db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.habitMode, true))),
-        this.database.db
-          .select({ event: taskEvents, goal: goals })
-          .from(taskEvents)
-          .innerJoin(taskGoals, and(eq(taskGoals.workspaceId, taskEvents.workspaceId), eq(taskGoals.taskId, taskEvents.taskId)))
-          .innerJoin(goals, and(eq(goals.workspaceId, taskGoals.workspaceId), eq(goals.id, taskGoals.goalId)))
+          .select({ count: sql<number>`count(*)::int` })
+          .from(taskOccurrences)
           .where(
             and(
-              eq(taskEvents.workspaceId, input.workspaceId),
-              eq(goals.reviewEnabled, true),
-              inArray(goals.status, [...WEEKLY_REVIEW_GOAL_STATUSES]),
-              inArray(taskEvents.eventType, [...WEEKLY_MOVEMENT_EVENT_TYPES]),
-              gte(taskEvents.createdAt, weekCutoff),
+              eq(taskOccurrences.workspaceId, input.workspaceId),
+              eq(taskOccurrences.status, "done"),
+              sql`(${taskOccurrences.completedAt} AT TIME ZONE ${taskOccurrences.timezone})::date between ${range.start}::date and ${range.end}::date`,
             ),
           ),
+        this.database.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(tasks)
+          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, range.start))),
+        this.database.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(tasks)
+          .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"))),
       ]);
-      if (!activeGoals.length && !habitTasks.length && !recentLinkedMovement.length && !hasPlanningDeadline)
-        return { text: c.weeklyEmpty, hasContent: false, reviewKinds: [] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[] };
-
-      const links = activeGoals.length
-        ? await this.database.db
-            .select()
-            .from(taskGoals)
-            .where(
-              and(
-                eq(taskGoals.workspaceId, input.workspaceId),
-                inArray(
-                  taskGoals.goalId,
-                  activeGoals.map((goal) => goal.id),
-                ),
-              ),
-            )
-        : [];
-      const linkedTaskIds = [...new Set(links.map((link) => link.taskId))];
-      const linkedTasks = linkedTaskIds.length
-        ? await this.database.db
-            .select()
-            .from(tasks)
-            .where(and(eq(tasks.workspaceId, input.workspaceId), inArray(tasks.id, linkedTaskIds)))
-        : [];
-      const recentEvents = linkedTaskIds.length
-        ? await this.database.db
-            .select()
-            .from(taskEvents)
-            .where(and(eq(taskEvents.workspaceId, input.workspaceId), inArray(taskEvents.taskId, linkedTaskIds), gte(taskEvents.createdAt, weekCutoff)))
-        : [];
-
-      const lines: string[] = [c.weekly];
-      const goalFacts = activeGoals.slice(0, 8).map((goal) => {
-        const goalTaskIds = links.filter((link) => link.goalId === goal.id).map((link) => link.taskId);
-        const goalTasks = linkedTasks.filter((task) => goalTaskIds.includes(task.id));
-        const activeTasks = goalTasks.filter((task) => task.status === "active");
-        const doneCount = recentEvents.filter((event) => goalTaskIds.includes(event.taskId) && event.eventType === "occurrence:done").length;
-        const next = activeTasks.map((task) => selectCardDetails(task).nextAction).find(Boolean) ?? activeTasks[0]?.title ?? null;
-        const blocked = recentEvents.filter((event) => goalTaskIds.includes(event.taskId) && ["occurrence:rescheduled", "occurrence:cant_start"].includes(event.eventType)).length;
-        return { goal, doneCount, activeCount: activeTasks.length, next, blocked, needsHelp: doneCount === 0 || !next };
-      });
-      if (goalFacts.length) {
-        lines.push(`\n${c.goals}`);
-        for (const fact of goalFacts) lines.push(`• ${fact.goal.title} — ${c.goalFact(fact.doneCount, fact.activeCount)}`);
-      }
-
-      const planning = occurrenceRows
-        .map(({ task, occurrence }) => ({
-          task,
-          occurrence,
-          urgency: deadlineUrgency({
-            dueAt: occurrence.dueAt,
-            dueLocalDate: occurrence.dueLocalDate,
-            timezone: occurrence.timezone,
-            now,
-          }),
-        }))
-        .filter((row) => row.urgency === "watch" || row.urgency === "high" || row.urgency === "urgent" || row.urgency === "overdue")
-        .sort((a, b) => urgencyRank(a.urgency!) - urgencyRank(b.urgency!));
-      if (planning.length) {
-        lines.push(`\n${c.planning}`);
-        for (const row of planning.slice(0, 5)) {
-          const label = row.urgency === "urgent" ? c.urgency.urgent : row.urgency === "high" ? c.urgency.high : row.urgency === "watch" ? c.urgency.watch : c.urgency.overdue;
-          const details = selectCardDetails(row.task);
-          lines.push(
-            `• ${row.task.title} — ${label}${details.nextAction ? `; ${c.nextStep}: ${compactText(details.nextAction, 120)}` : ""}${details.context ? `; ${c.context}: ${compactText(details.context, 120)}` : ""}.`,
-          );
-        }
-      }
-
-      if (recentLinkedMovement.length) {
-        const movement = aggregateHistoricalGoalMovement(
-          recentLinkedMovement.map(({ event, goal }) => ({ goalId: goal.id, title: goal.title, eventType: event.eventType })),
-          new Set(activeGoals.map((goal) => goal.id)),
-        );
-        if (movement.length) {
-          lines.push(`\n${c.movement}`);
-          for (const fact of movement.slice(0, 8)) {
-            const details = [fact.done ? `${c.done}: ${fact.done}` : "", fact.rescheduled ? `${c.rescheduled}: ${fact.rescheduled}` : ""].filter(Boolean);
-            if (details.length) lines.push(`• ${fact.title} — ${details.join(", ")}.`);
-          }
-        }
-      }
-
-      // The proactive part is intentionally global and bounded: one obstacle, one suggestion, one next step.
-      const focus = goalFacts.find((fact) => fact.needsHelp);
-      if (focus) {
-        lines.push(`\n${c.focus}`);
-        if (focus.blocked > 0) lines.push(`• ${c.blocked(focus.goal.title)}`);
-        lines.push(`• ${c.focusStep}: ${focus.next ?? c.defaultStep}.`);
-      }
-
-      if (habitTasks.length) {
-        const habitIds = habitTasks.map((task) => task.id);
-        const recentOccurrences = await this.database.db
-          .select()
-          .from(taskOccurrences)
-          .where(and(eq(taskOccurrences.workspaceId, input.workspaceId), inArray(taskOccurrences.taskId, habitIds), gte(taskOccurrences.updatedAt, weekCutoff)));
-        lines.push(`\n${c.habits}`);
-        let repeatedMisses = 0;
-        for (const task of habitTasks.slice(0, 8)) {
-          const stats = habitCompletionStats(recentOccurrences.filter((occurrence) => occurrence.taskId === task.id).map((occurrence) => occurrence.status));
-          lines.push(`• ${task.title}: ${stats.rate === null ? c.fewData : c.habitRate(stats.done, stats.total, stats.rate)}.`);
-          if (stats.missed >= 2) repeatedMisses += 1;
-        }
-        if (repeatedMisses) lines.push(`• ${c.misses(repeatedMisses)}`);
-      }
-      return { text: lines.join("\n"), hasContent: true, reviewKinds: ["weekly"] as Array<"evening" | "weekly">, decisionOccurrenceIds: [] as string[] };
+      const lines = [c.weeklyPick, "", c.weekSummary(done?.count ?? 0, stale?.count ?? 0), ""];
+      lines.push((pool?.count ?? 0) > 0 ? c.weekPlanCta : c.weekPoolEmpty);
+      return {
+        text: lines.join("\n"),
+        hasContent: true,
+        reviewKinds: [] as Array<"evening" | "weekly">,
+        decisionOccurrenceIds: [] as string[],
+        weekTasks: [] as Array<{ id: string; title: string }>,
+      };
     };
 
     if (input.kind === "morning") return bounded(morning());
@@ -314,6 +245,7 @@ export class BriefingContentService {
       hasContent: parts.length > 0,
       reviewKinds: parts.flatMap((part) => part.reviewKinds),
       decisionOccurrenceIds: eveningPart.hasContent ? eveningPart.decisionOccurrenceIds : [],
+      weekTasks: [] as Array<{ id: string; title: string }>,
     });
   }
 
@@ -338,10 +270,6 @@ export class BriefingContentService {
     if (!delivery || delivery.status !== "sent" || delivery.localDate !== input.localDate || delivery.telegramMessageId !== input.telegramMessageId) return false;
     return input.kind === "evening" ? ["evening", "evening_weekly"].includes(delivery.kind) : ["weekly", "evening_weekly"].includes(delivery.kind);
   }
-}
-
-function urgencyRank(value: "normal" | "watch" | "high" | "urgent" | "overdue" | null): number {
-  return value === "overdue" ? 0 : value === "urgent" ? 1 : value === "high" ? 2 : value === "watch" ? 3 : 4;
 }
 
 function plural(count: number, one: string, few: string, many: string): string {

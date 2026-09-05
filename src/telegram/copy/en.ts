@@ -143,6 +143,7 @@ export const en: Record<keyof typeof ru, string> = {
   week_pick_gone_toast: "That task is no longer in the pool",
   week_taken_section: "Taken this week:",
   week_take_today_toast: "Set for today",
+  week_take_today_row: "▶️ Today: {title}",
   week_take_today_failed_toast: "Could not set it for today",
   resume_series_button: "▶️ {title}",
   paused_series_header: "⏸ Paused series: {count}",

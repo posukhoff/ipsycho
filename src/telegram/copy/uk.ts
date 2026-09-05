@@ -145,6 +145,7 @@ export const uk: Record<keyof typeof ru, string> = {
   week_pick_gone_toast: "Це завдання вже не в пулі",
   week_taken_section: "Взято на тиждень:",
   week_take_today_toast: "Поставив на сьогодні",
+  week_take_today_row: "▶️ Сьогодні: {title}",
   week_take_today_failed_toast: "Не зміг поставити на сьогодні",
   resume_series_button: "▶️ {title}",
   paused_series_header: "⏸ Серії на паузі: {count}",

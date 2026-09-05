@@ -123,6 +123,7 @@ export class BriefingQueueService implements OnApplicationBootstrap {
         built.reviewKinds,
         row.delivery.id,
         telegramLocale(row.settings.pinnedLanguage),
+        built.weekTasks,
       );
       await this.database.db
         .update(briefingDeliveries)
