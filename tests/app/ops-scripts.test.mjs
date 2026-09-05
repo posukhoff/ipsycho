@@ -46,3 +46,12 @@ test("the round-trip drill restores into a scratch database and compares row cou
   assert.match(source, /row counts differ after restore/);
   assert.doesNotMatch(source, /drop database if exists "?\$\{?DATABASE_URL/);
 });
+
+test("the image makes what the non-root runtime reads readable, whatever the checkout's umask was", () => {
+  const dockerfile = readFileSync("Dockerfile", "utf8");
+  const chmod = dockerfile.indexOf("chmod -R a+rX");
+  const user = dockerfile.indexOf("USER node");
+  assert.ok(chmod > 0, "the runtime stage must normalise permissions");
+  assert.ok(chmod < user, "permissions are fixed while the build is still root");
+  for (const path of ["./migrations", "./dist", "./package.json"]) assert.ok(dockerfile.slice(chmod, user).includes(path), path);
+});

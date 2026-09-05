@@ -15,9 +15,10 @@ ENV APP_COMMIT=$APP_COMMIT
 COPY package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev --no-audit --no-fund; else npm install --omit=dev --no-audit --no-fund; fi
 COPY --from=build /app/dist ./dist
-# Explicit mode: whatever the umask of the checkout on the server was, the non-root user in the
-# image must be able to read every migration.
-COPY --chmod=0644 migrations ./migrations
+COPY migrations ./migrations
+# The image runs as `node`, and the checkout on the server may have any umask: make everything the
+# runtime reads readable, and directories traversable. `a+rX` adds execute only where it belongs.
+RUN chmod -R a+rX ./migrations ./dist ./package.json
 # Runtime has no reason to run as root; migration/app only need network and read access.
 USER node
 CMD ["sh", "-c", "node dist/database/migrate.js && node dist/main.js"]
