@@ -28,7 +28,7 @@
     "format": "prettier --write \"{src,tests,scripts}/**/*.{ts,mjs,json}\"",
     "format:check": "prettier --check \"{src,tests,scripts}/**/*.{ts,mjs,json}\"",
     "coverage": "npm run build && c8 node --test tests/core/*.test.mjs tests/app/*.test.mjs",
-    "check:web": "npm -w @ipsycho/web run typecheck && npm -w @ipsycho/web run lint && npm -w @ipsycho/web run format:check && npm -w @ipsycho/web run build"
+    "check:web": "npm -w @ipsycho/web run typecheck && npm -w @ipsycho/web run lint && npm -w @ipsycho/web run format:check && npm -w @ipsycho/web run build && node --test web/src/i18n/dictionaries.test.mjs"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "2.0.2",

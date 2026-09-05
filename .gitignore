@@ -14,3 +14,6 @@ coverage/
 
 # Agent worktrees are local scratch checkouts.
 .claude/worktrees/
+
+# Manually cut agent worktrees for parallel groups.
+.worktrees/
