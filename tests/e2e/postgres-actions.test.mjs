@@ -990,6 +990,65 @@ test("a user from another personal workspace cannot create an action group in it
   });
 });
 
+test("the week pool: a pick is toggled, capped at seven, and only counts for the week it names", async () => {
+  const { workspaceId, userId } = await fixture();
+  const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});
+  const today = "2026-09-09"; // Wednesday; its week starts on the 7th.
+  const created = [];
+  for (let index = 0; index < 8; index += 1) created.push((await createFuzzyTask(workspaceId, userId, `Пул ${index}`)).taskId);
+
+  const plan = await service.listWeekPlanForTelegram(workspaceId, today);
+  assert.equal(plan.total, 8);
+  assert.equal(plan.weekStart, "2026-09-07");
+  assert.equal(plan.rows.length, 8);
+
+  for (const taskId of created.slice(0, 7)) assert.equal(await service.togglePickedForWeek(workspaceId, taskId, today), "picked");
+  // The eighth does not fit and nothing is written for it.
+  assert.equal(await service.togglePickedForWeek(workspaceId, created[7], today), "full");
+  assert.equal((await service.listPickedForWeek(workspaceId, today)).length, 7);
+  const untouched = await database.pool.query("select picked_week_start from tasks where id=$1", [created[7]]);
+  assert.equal(untouched.rows[0].picked_week_start, null);
+
+  // The same tap releases it, so no separate undo is needed.
+  assert.equal(await service.togglePickedForWeek(workspaceId, created[0], today), "released");
+  assert.equal((await service.listPickedForWeek(workspaceId, today)).length, 6);
+
+  // A mark from last week is not this week's plan, and it leads the pick screen as unfinished work.
+  await database.pool.query("update tasks set picked_week_start='2026-08-31' where id=$1", [created[0]]);
+  assert.equal((await service.listPickedForWeek(workspaceId, today)).length, 6);
+  const withLeftover = await service.listWeekPlanForTelegram(workspaceId, today);
+  assert.equal(withLeftover.rows[0].id, created[0]);
+  assert.equal(withLeftover.summary.takenNotStarted, 1, "the previous week's pick that never got a day");
+
+  // A task that left the pool cannot be picked at all.
+  await database.pool.query("update tasks set time_mode='point', planned_start_at=now(), fuzzy_horizon_text=null where id=$1", [created[1]]);
+  assert.equal(await service.togglePickedForWeek(workspaceId, created[1], today), null);
+  assert.equal(await service.togglePickedForWeek(workspaceId, randomUUID(), today), null);
+});
+
+test("the weekly summary counts what closed inside the previous local week", async () => {
+  const { workspaceId, userId } = await fixture();
+  const service = new TasksService(new TasksRepository(database), { enqueue: async () => undefined }, {});
+  const taskId = randomUUID();
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, planned_start_at) values ($1,$2,$3,'Отчёт','task','normal','active','point','Europe/Kyiv',now())",
+    [taskId, workspaceId, userId],
+  );
+  const insertDone = async (completedAt) => {
+    await database.pool.query(
+      "insert into task_occurrences(id, workspace_id, task_id, status, timezone, planned_start_at, completed_at) values ($1,$2,$3,'done','Europe/Kyiv',$4,$4)",
+      [randomUUID(), workspaceId, taskId, completedAt],
+    );
+  };
+  // Monday of the previous week, its Sunday, and a day outside it.
+  await insertDone(new Date("2026-08-31T09:00:00Z"));
+  await insertDone(new Date("2026-09-06T20:00:00Z"));
+  await insertDone(new Date("2026-09-07T09:00:00Z"));
+
+  const plan = await service.listWeekPlanForTelegram(workspaceId, "2026-09-09");
+  assert.equal(plan.summary.done, 2);
+});
+
 test("an explicit reminder on a new task is persisted instead of the default one", async () => {
   // Production 2026-08-23: "напомни за полчаса" stored only the default planned_start reminder.
   const { workspaceId, userId } = await fixture();

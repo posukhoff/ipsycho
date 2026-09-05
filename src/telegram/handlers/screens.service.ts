@@ -5,6 +5,7 @@ import { ContextService } from "../../context/context.service.js";
 import { formatLocalDateTime } from "../../core/time-presentation.js";
 import { DEFAULT_TASK_SCOPE, paginate, type TaskScope } from "../../core/task-list-view.js";
 import { localDateAt } from "../../core/timezone.js";
+import { isPickLive } from "../../core/week-plan.js";
 import { ReminderSchedulingService } from "../../reminders/reminder-scheduling.service.js";
 import { TasksService } from "../../tasks/tasks.service.js";
 import { t } from "../copy/index.js";
@@ -22,6 +23,8 @@ import {
   languageKeyboard,
   pausedSeriesKeyboard,
   pausedSeriesText,
+  weekPlanKeyboard,
+  weekPlanText,
   remindersKeyboard,
   remindersText,
   screenFooterKeyboard,
@@ -83,6 +86,24 @@ export class ScreensService {
     });
     for (const row of taskScopeKeyboard(scope, counts, locale, pausedCount).inline_keyboard) keyboard.row(...row);
     await this.present(ctx, tasksOverviewText(view.items, { scope, total: groups.length, offset: view.page * PAGE_SIZE, locale }), appendFooter(keyboard, locale), edit);
+  }
+
+  /**
+   * The week plan: the pool with what is taken for this week marked, and what the past week did.
+   * Every row is a toggle, so the screen is the state and no separate save step exists.
+   */
+  async weekPlan_(ctx: AppContext, edit = false, page = 0): Promise<void> {
+    const { access, settings, locale } = activeState(ctx);
+    const today = localDateAt(new Date(), settings.timezone);
+    const { rows, total, summary } = await this.tasks.listWeekPlanForTelegram(access.workspaceId, today);
+    const view = paginate(rows, page, PAGE_SIZE);
+    const keyboard = weekPlanKeyboard(
+      view.items.map((task) => ({ id: task.id, title: task.title, picked: isPickLive(task.pickedWeekStart, today) })),
+      locale,
+      { page: view.page, pages: view.pages, rest: view.rest },
+    );
+    const text = weekPlanText(view.items, { locale, todayLocalDate: today, total, offset: view.page * PAGE_SIZE, summary });
+    await this.present(ctx, text, keyboard, edit);
   }
 
   /**

@@ -10,6 +10,7 @@ import {
   settingsText,
   taskCardText,
   pausedSeriesText,
+  weekPlanText,
   taskGroupText,
   tasksOverviewText,
   terminalTaskText,
@@ -119,6 +120,17 @@ function render(locale) {
     ["settings", settingsText(settings, NOW, 42, locale)],
     ["today", todayText(groupTaskRows([listRow], LOCAL_DATE), LOCAL_DATE, { locale, completedCount: 2, staleCount: 3, now: NOW })],
     ["tasks", tasksOverviewText(groupTaskRows([listRow, ...repeatedRows], LOCAL_DATE), { scope: "week", locale, now: NOW })],
+    [
+      "week plan",
+      weekPlanText(
+        [
+          { title: "Разобраться с налогами", importance: "required", pickedWeekStart: "2026-08-31" },
+          { title: "Привести в порядок машину", importance: "normal", pickedWeekStart: "2026-09-07" },
+          { title: "Подготовиться к собеседованию", importance: "normal", pickedWeekStart: null },
+        ],
+        { locale, todayLocalDate: "2026-09-09", total: 3, summary: { done: 4, takenNotStarted: 1 } },
+      ),
+    ],
     ["paused series", pausedSeriesText([{ title: "Полить цветы", recurrenceRule: "FREQ=WEEKLY;BYDAY=MO", recurrenceEndLocalDate: null }], { locale, total: 3, offset: 8 })],
     ["task group", taskGroupText(groupTaskRows(repeatedRows, LOCAL_DATE)[0], locale, NOW)],
     ["goals", goalsOverviewText([GOAL], { scope: "active", locale })],
@@ -157,6 +169,9 @@ const USER_CONTENT = [
   "Написать письмо",
   "Полить цветы",
   "Проверить спрос",
+  "Разобраться с налогами",
+  "Привести в порядок машину",
+  "Подготовиться к собеседованию",
 ];
 
 test("no screen in English or Ukrainian leaks Russian copy", () => {

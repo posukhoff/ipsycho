@@ -23,7 +23,7 @@ import { logger } from "../../observability/logger.js";
 
 const ACCOUNT_DELETE_CONFIRM = "account:delete_confirm";
 const GUIDE_CALLBACK = /^guide:(help|index|tasks|goals|reminders|reports|ai)$/;
-const NAV_CALLBACK = /^nav:(today|tasks|reminders|settings|goals)$/;
+const NAV_CALLBACK = /^nav:(today|tasks|reminders|settings|goals|week)$/;
 const TASK_SCOPE_CALLBACK = /^tsk:(overdue|today|week|month|all|nodate):(\d{1,3})$/;
 const TODAY_PAGE_CALLBACK = /^tdy:(\d{1,3})$/;
 const PAUSED_SERIES_CALLBACK = /^paused:(\d{1,3})$/;
@@ -56,6 +56,7 @@ export class SystemCommandsService {
     bot.command("reminders", (ctx) => this.screens.reminders_(ctx));
     bot.command("goals", (ctx) => this.screens.goals(ctx));
     bot.command("today", (ctx) => this.screens.today(ctx));
+    bot.command("week", (ctx) => this.screens.weekPlan_(ctx));
     bot.command("settings", (ctx) => this.screens.settings_(ctx));
     bot.command("status", (ctx) => this.status(ctx));
     bot.command("clear", (ctx) => this.clear(ctx));
@@ -266,6 +267,7 @@ export class SystemCommandsService {
     if (target === "tasks") return this.screens.tasks_(ctx, true);
     if (target === "reminders") return this.screens.reminders_(ctx, true);
     if (target === "goals") return this.screens.goals(ctx, true);
+    if (target === "week") return this.screens.weekPlan_(ctx, true);
     return this.screens.settings_(ctx, true);
   }
 

@@ -151,6 +151,70 @@ export class TasksRepository {
     return row?.count ?? 0;
   }
 
+  /**
+   * The pool: active tasks with no date. The week screen orders them in the domain (a pick left over
+   * from last week goes first), so the query only bounds the read.
+   */
+  async listPoolForTelegram(workspaceId: string, limit = 200) {
+    return this.database.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")))
+      .orderBy(desc(tasks.updatedAt))
+      .limit(limit);
+  }
+
+  async countPool(workspaceId: string): Promise<number> {
+    const [row] = await this.database.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")));
+    return row?.count ?? 0;
+  }
+
+  /** Tasks taken for the given week and still waiting for a day. */
+  async listPickedForWeek(workspaceId: string, weekStart: string, limit = 20) {
+    return this.database.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, weekStart)))
+      .orderBy(sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`, desc(tasks.updatedAt))
+      .limit(limit);
+  }
+
+  /** Sets or clears the week mark. The tap itself is the reversal, so this is not an action group. */
+  async setPickedWeek(workspaceId: string, taskId: string, weekStart: string | null, now = new Date()): Promise<boolean> {
+    const [row] = await this.database.db
+      .update(tasks)
+      .set({ pickedWeekStart: weekStart, updatedAt: now })
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy")))
+      .returning({ id: tasks.id });
+    return Boolean(row);
+  }
+
+  /**
+   * What the past week did: occurrences closed inside it, and tasks taken for it that never got a
+   * day. Both are read from the state itself, so no counter has to be kept up to date.
+   */
+  async summariseWeek(workspaceId: string, range: { start: string; end: string }): Promise<{ done: number; takenNotStarted: number }> {
+    const [done] = await this.database.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(taskOccurrences)
+      .where(
+        and(
+          eq(taskOccurrences.workspaceId, workspaceId),
+          eq(taskOccurrences.status, "done"),
+          sql`(${taskOccurrences.completedAt} AT TIME ZONE ${taskOccurrences.timezone})::date between ${range.start}::date and ${range.end}::date`,
+        ),
+      );
+    const [taken] = await this.database.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "active"), eq(tasks.timeMode, "fuzzy"), eq(tasks.pickedWeekStart, range.start)))
+      .limit(1);
+    return { done: done?.count ?? 0, takenNotStarted: taken?.count ?? 0 };
+  }
+
   async listFuzzyForTelegram(workspaceId: string, limit = 12) {
     return this.database.db
       .select()

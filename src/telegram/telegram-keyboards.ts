@@ -240,6 +240,27 @@ export function taskScopeKeyboard(scope: TaskScope, counts: Record<TaskScope, nu
   return keyboard;
 }
 
+/** The week plan: one toggle per pool task, and paging. The tap itself is the reversal. */
+export function weekPlanKeyboard(
+  rows: ReadonlyArray<{ id: string; title: string; picked: boolean }>,
+  locale: TelegramLocale = "ru",
+  paging: { page?: number; pages?: number; rest?: number } = {},
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const row of rows) {
+    const title = row.title.length > 26 ? `${row.title.slice(0, 25)}\u2026` : row.title;
+    keyboard.text(`${row.picked ? "☑️" : "◻️"} ${title}`, `wk:t:${row.id}`).row();
+  }
+  const page = paging.page ?? 0;
+  const pages = paging.pages ?? 1;
+  if (pages > 1) {
+    if (page > 0) keyboard.text(t(locale, "page_prev_button"), `wk:p:${page - 1}`);
+    if (page < pages - 1) keyboard.text(t(locale, "page_next_button", { count: paging.rest ?? 0 }), `wk:p:${page + 1}`);
+    keyboard.row();
+  }
+  return appendFooter(keyboard, locale);
+}
+
 /** Paused series, one row each: the tap that brings the series back. */
 export function pausedSeriesKeyboard(
   rows: ReadonlyArray<{ id: string; title: string }>,

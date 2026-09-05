@@ -1,5 +1,6 @@
 import { compactText } from "../core/telegram-ux.js";
 import { recurrenceLabel } from "../core/recurrence-label.js";
+import { currentWeekStart, isPickLive, isPickStale } from "../core/week-plan.js";
 import { localDateAt, parseLocalDate, shiftLocalDate } from "../core/timezone.js";
 import { selectCardDetails } from "../core/card-details.js";
 import type { TaskScope } from "../core/task-list-view.js";
@@ -132,6 +133,30 @@ export function tasksOverviewText(
   const lines = [header, ""];
   for (const [index, group] of groups.entries()) lines.push(`${offset + index + 1}. ${groupLine(group, now, locale)}`);
   lines.push("", t(locale, "tasks_hint"));
+  return compactText(lines.join("\n"), 3_800);
+}
+
+/**
+ * The week plan: what the past week did, then the pool with a mark on what is taken. A pick left
+ * over from an earlier week is marked apart, because that is the decision being avoided.
+ */
+export function weekPlanText(
+  rows: ReadonlyArray<{ title: string; importance: "normal" | "required" | "critical"; pickedWeekStart?: string | null }>,
+  options: { locale?: TelegramLocale; todayLocalDate: string; total?: number; offset?: number; summary: { done: number; takenNotStarted: number } },
+): string {
+  const locale = options.locale ?? "ru";
+  const monday = formatDateLabel(currentWeekStart(options.todayLocalDate), locale);
+  const header = t(locale, "week_plan_header", { monday });
+  const summary = t(locale, "week_plan_summary", { done: options.summary.done, stale: options.summary.takenNotStarted });
+  if (!rows.length) return [header, "", summary, "", t(locale, "week_plan_empty")].join("\n");
+  const offset = options.offset ?? 0;
+  const lines = [header, "", summary, ""];
+  for (const [index, row] of rows.entries()) {
+    const mark = isPickLive(row.pickedWeekStart, options.todayLocalDate) ? "☑️" : isPickStale(row.pickedWeekStart, options.todayLocalDate) ? "↩️" : "◻️";
+    const icon = importanceIcon(row.importance);
+    lines.push(`${offset + index + 1}. ${mark} ${icon ? `${icon} ` : ""}${row.title}`);
+  }
+  lines.push("", t(locale, "week_plan_hint"));
   return compactText(lines.join("\n"), 3_800);
 }
 

@@ -249,6 +249,8 @@ export const tasks = pgTable(
     dueLocalDate: date("due_local_date"),
     fuzzyHorizonText: text("fuzzy_horizon_text"),
     reviewAt: timestamp("review_at", { withTimezone: true }),
+    /** Monday of the week this task was taken for, as a local date. Null means it sits in the pool. */
+    pickedWeekStart: date("picked_week_start"),
     recurrenceRule: text("recurrence_rule"),
     recurrenceTimezone: varchar("recurrence_timezone", { length: 128 }),
     recurrenceEndLocalDate: date("recurrence_end_local_date"),
@@ -273,6 +275,9 @@ export const tasks = pgTable(
     index("tasks_recurring_active_idx")
       .on(t.status)
       .where(sql`${t.recurrenceRule} IS NOT NULL`),
+    index("tasks_week_pick_idx")
+      .on(t.workspaceId, t.pickedWeekStart)
+      .where(sql`${t.pickedWeekStart} IS NOT NULL`),
   ],
 );
 

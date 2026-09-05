@@ -111,6 +111,17 @@ Main: Позвонить клиенту
 
 To change, complete, or reschedule a task, just write it in a message.
 
+### week plan
+🗂 Week plan from 07.09
+
+Closed last week: 4. Taken and not started: 1.
+
+1. ↩️ 🟡 Разобраться с налогами
+2. ☑️ Привести в порядок машину
+3. ◻️ Подготовиться к собеседованию
+
+Tap a task to take it for the week or put it back in the pool.
+
 ### paused series
 ⏸ Paused series: 3
 

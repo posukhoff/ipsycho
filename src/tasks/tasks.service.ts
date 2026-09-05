@@ -5,6 +5,7 @@ import { buildOneTimeOccurrence, buildRecurringOccurrences, type OccurrenceProje
 import { validateOccurrenceTransition } from "../core/occurrence.js";
 import { isRescheduleReasonRequired, validateNewTaskTiming, validateTaskDefinition } from "../core/task-policy.js";
 import { localDateAt } from "../core/timezone.js";
+import { comparePoolRows, currentWeekStart, isPickLive, previousWeekRange, WEEK_PICK_LIMIT } from "../core/week-plan.js";
 import { occurrenceFallsOnLocalDate } from "../core/local-schedule.js";
 import { filterByScope, groupTaskRows, isStaleRow, scopeCounts, type TaskGroup, type TaskScope } from "../core/task-list-view.js";
 import type { OccurrenceScheduleView } from "../core/time-presentation.js";
@@ -262,6 +263,37 @@ export class TasksService {
     const [rows, pausedCount] = await Promise.all([this.listScreenRows(workspaceId), this.repository.countPausedSeries(workspaceId)]);
     const groups = groupTaskRows(filterByScope(rows, input.scope, input.localDate), input.localDate);
     return { groups, counts: scopeCounts(rows, input.localDate), total: groups.length, pausedCount };
+  }
+
+  /**
+   * The week screen: the pool ordered so that a pick left over from last week comes first, the count
+   * of everything in the pool, and what the past week actually did.
+   */
+  async listWeekPlanForTelegram(workspaceId: string, todayLocalDate: string) {
+    const [rows, total] = await Promise.all([this.repository.listPoolForTelegram(workspaceId), this.repository.countPool(workspaceId)]);
+    const summary = await this.repository.summariseWeek(workspaceId, previousWeekRange(todayLocalDate));
+    return { rows: [...rows].sort(comparePoolRows(todayLocalDate)), total, summary, weekStart: currentWeekStart(todayLocalDate) };
+  }
+
+  /** Tasks taken for the week today belongs to and still without a day. */
+  async listPickedForWeek(workspaceId: string, todayLocalDate: string) {
+    return this.repository.listPickedForWeek(workspaceId, currentWeekStart(todayLocalDate));
+  }
+
+  /**
+   * Takes a task into the week or puts it back. Returns null when the task is gone or no longer in
+   * the pool, and false when the week is full.
+   */
+  async togglePickedForWeek(workspaceId: string, taskId: string, todayLocalDate: string, now = new Date()): Promise<"picked" | "released" | "full" | null> {
+    const task = await this.repository.findTask(workspaceId, taskId);
+    if (!task || task.status !== "active" || task.timeMode !== "fuzzy") return null;
+    const weekStart = currentWeekStart(todayLocalDate);
+    if (isPickLive(task.pickedWeekStart, todayLocalDate)) {
+      return (await this.repository.setPickedWeek(workspaceId, taskId, null, now)) ? "released" : null;
+    }
+    const picked = await this.repository.listPickedForWeek(workspaceId, weekStart, WEEK_PICK_LIMIT + 1);
+    if (picked.length >= WEEK_PICK_LIMIT) return "full";
+    return (await this.repository.setPickedWeek(workspaceId, taskId, weekStart, now)) ? "picked" : null;
   }
 
   /** One page of paused series, the one list where they are visible at all, plus how many there are. */

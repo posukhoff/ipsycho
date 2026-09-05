@@ -3,6 +3,7 @@ import { OnboardingService } from "./handlers/onboarding.service.js";
 import { SettingsCommandsService } from "./handlers/settings-commands.service.js";
 import { SystemCommandsService } from "./handlers/system-commands.service.js";
 import { RescheduleCallbacksService } from "./handlers/reschedule-callbacks.service.js";
+import { WeekCallbacksService } from "./handlers/week-callbacks.service.js";
 import { TaskCallbacksService } from "./handlers/task-callbacks.service.js";
 import { TextService } from "./handlers/text.service.js";
 import { TelegramConversationHandlersService } from "./telegram-conversation-handlers.service.js";
@@ -25,6 +26,7 @@ export class TelegramHandlersService implements OnModuleInit {
     private readonly onboarding: OnboardingService,
     private readonly taskCallbacks: TaskCallbacksService,
     private readonly rescheduleCallbacks: RescheduleCallbacksService,
+    private readonly weekCallbacks: WeekCallbacksService,
     private readonly text: TextService,
     private readonly conversation: TelegramConversationHandlersService,
   ) {}
@@ -36,6 +38,7 @@ export class TelegramHandlersService implements OnModuleInit {
     this.onboarding.register(bot);
     this.taskCallbacks.register(bot);
     this.rescheduleCallbacks.register(bot);
+    this.weekCallbacks.register(bot);
     this.conversation.register(bot);
     this.text.register(bot);
     this.text.registerFallback(bot);

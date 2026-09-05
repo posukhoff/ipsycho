@@ -1239,6 +1239,7 @@ export function taskMutableState(row: typeof tasks.$inferSelect, recurrenceExclu
     dueLocalDate: row.dueLocalDate,
     fuzzyHorizonText: row.fuzzyHorizonText,
     reviewAt: row.reviewAt?.toISOString() ?? null,
+    pickedWeekStart: row.pickedWeekStart,
     recurrenceRule: row.recurrenceRule,
     recurrenceTimezone: row.recurrenceTimezone,
     recurrenceEndLocalDate: row.recurrenceEndLocalDate,

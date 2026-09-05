@@ -10,6 +10,7 @@ import {
   goalsScopeKeyboard,
   languageKeyboard,
   pausedSeriesKeyboard,
+  weekPlanKeyboard,
   quickRescheduleKeyboard,
   quickRescheduleReasonKeyboard,
   remindersKeyboard,
@@ -79,6 +80,8 @@ const ROUTES = [
   /^tsk:(overdue|today|week|month|all|nodate):\d{1,3}$/,
   /^tdy:\d{1,3}$/,
   /^paused:\d{1,3}$/,
+  /^wk:(t|d):[0-9a-f-]{36}$/,
+  /^wk:p:\d{1,3}$/,
   /^grp:(t|d):[0-9a-f-]{36}$/,
 ];
 
@@ -104,6 +107,7 @@ const KEYBOARDS = {
   todayListKeyboard: taskListKeyboard([MULTI_GROUP], "ru", { source: "today", page: 1, pages: 2, rest: 0, pageCallback: (page) => `tdy:${page}` }),
   taskScopeKeyboard: taskScopeKeyboard("week", { overdue: 3, today: 4, week: 9, month: 12, all: 20, nodate: 2 }, "ru", 2),
   pausedSeriesKeyboard: pausedSeriesKeyboard([{ id: TASK_ID, title: "Зарядка по будням", recurrence: "FREQ=WEEKLY" }], "ru", { page: 1, pages: 3, rest: 4 }),
+  weekPlanKeyboard: weekPlanKeyboard([{ id: TASK_ID, title: "Разобраться с налогами", picked: true }], "ru", { page: 1, pages: 3, rest: 5 }),
   taskGroupKeyboard: taskGroupKeyboard(MULTI_GROUP, "tasks", "ru"),
   goalsScopeKeyboard: goalsScopeKeyboard("active", "ru"),
   goalListKeyboard: goalListKeyboard([{ id: GOAL_UUID, title: "Запустить первую платную группу" }], "ru", { page: 0, pages: 2, rest: 4, scope: "paused" }),
