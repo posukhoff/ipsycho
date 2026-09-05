@@ -9,6 +9,7 @@ import { AccessService } from "../../dist/access/access.service.js";
 import { MessagesRepository } from "../../dist/messages/messages.repository.js";
 import { TasksRepository } from "../../dist/tasks/tasks.repository.js";
 import { TasksService } from "../../dist/tasks/tasks.service.js";
+import { ReminderSchedulingService } from "../../dist/reminders/reminder-scheduling.service.js";
 import { actionEvents, actionGroups, memoryItems, messages, taskGoals, taskOccurrences, tasks, userSettings } from "../../dist/database/schema.js";
 import { composeTurnContext } from "../../dist/core/turn-context.js";
 import { and, eq } from "drizzle-orm";
@@ -1342,4 +1343,74 @@ test("a one-off whose day has passed joins the pool instead of hanging overdue f
   await database.pool.query("update tasks set recurrence_rule=null where id=$1", [taskId]);
   await database.pool.query("update task_occurrences set status='done' where id=$1", [occurrenceId]);
   assert.equal((await service.listWeekPlanForTelegram(workspaceId, today)).total, 0);
+});
+
+test("a task with no day can carry its own reminder, and Undo takes it back", async () => {
+  // Every reminder path was keyed by an occurrence, so `set_reminder` on a dateless task refused —
+  // even though creation puts an explicit reminder on the task row and the planning review already
+  // steps aside for it. The rule lands on the task; the fuzzy rebuild plans its delivery.
+  const { workspaceId, userId } = await fixture();
+  const { taskId } = await createFuzzyTask(workspaceId, userId, "Разобраться с налогами");
+  const version = (await database.pool.query("select version from tasks where id=$1", [taskId])).rows[0].version;
+  const exactAt = new Date(Date.now() + 2 * 86_400_000);
+  const groupId = randomUUID();
+  const now = new Date();
+
+  const applied = await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId,
+    groupExists: false,
+    now,
+    undoExpiresAt: new Date(now.getTime() + 60_000),
+    steps: [
+      {
+        kind: "change_task_reminder",
+        taskId,
+        expectedVersion: version,
+        mode: "add",
+        rule: { triggerKind: "exact", exactAt, purpose: "user_reminder", quietPolicy: "respect", origin: "explicit" },
+      },
+    ],
+  });
+  assert.deepEqual(applied.fuzzyRebuildTaskIds, [taskId], "the fuzzy rebuild has to run for the delivery to exist");
+  const rules = await database.pool.query("select id, trigger_kind, exact_at, purpose, origin, active, occurrence_id from reminder_rules where task_id=$1 and origin='explicit'", [
+    taskId,
+  ]);
+  assert.equal(rules.rows.length, 1);
+  assert.equal(rules.rows[0].occurrence_id, null, "a dateless task keeps its reminder on the task row");
+  assert.equal(rules.rows[0].active, true);
+  assert.equal(new Date(rules.rows[0].exact_at).getTime(), exactAt.getTime());
+
+  // The report says what was saved, and the journal can reverse it.
+  const claimed = await actions.claimUndo(workspaceId, userId, groupId, new Date(now.getTime() + 1_000));
+  assert.ok(claimed);
+  const undone = await groups.undo({ workspaceId, groupId, now: new Date(now.getTime() + 2_000) });
+  assert.deepEqual(undone.fuzzyRebuildTaskIds, [taskId]);
+  assert.equal((await database.pool.query("select count(*)::int as count from reminder_rules where task_id=$1 and origin='explicit'", [taskId])).rows[0].count, 0);
+});
+
+test("the fuzzy rebuild plans the delivery of a reminder that hangs on the task", async () => {
+  const { workspaceId, userId } = await fixture();
+  const { taskId } = await createFuzzyTask(workspaceId, userId, "Записаться к врачу");
+  const ruleId = randomUUID();
+  const exactAt = new Date(Date.now() + 2 * 86_400_000);
+  await database.pool.query(
+    "insert into reminder_rules(id, workspace_id, task_id, trigger_kind, exact_at, purpose, quiet_policy, origin, active) values ($1,$2,$3,'exact',$4,'user_reminder','respect','explicit',true)",
+    [ruleId, workspaceId, taskId, exactAt],
+  );
+  const enqueued = [];
+  const scheduling = new ReminderSchedulingService(database, { enqueue: async (id, at) => enqueued.push({ id, at }) });
+
+  await scheduling.rebuildFuzzyTask(workspaceId, userId, taskId, new Date());
+  const deliveries = await database.pool.query("select reminder_rule_id, status, scheduled_for, occurrence_id from reminder_deliveries where reminder_rule_id=$1", [ruleId]);
+  assert.equal(deliveries.rows.length, 1);
+  assert.equal(deliveries.rows[0].status, "pending");
+  assert.equal(deliveries.rows[0].occurrence_id, null);
+  assert.equal(new Date(deliveries.rows[0].scheduled_for).getTime(), exactAt.getTime());
+  assert.ok(enqueued.some((job) => job.at.getTime() === exactAt.getTime()));
+
+  // Running again plans nothing new: the rule already has its delivery.
+  await scheduling.rebuildFuzzyTask(workspaceId, userId, taskId, new Date());
+  assert.equal((await database.pool.query("select count(*)::int as count from reminder_deliveries where reminder_rule_id=$1", [ruleId])).rows[0].count, 1);
 });

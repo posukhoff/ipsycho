@@ -211,8 +211,16 @@ test("a task without a date can be completed, cancelled or given a date — and 
     assert.equal(result.issues[0].kind, "domain", state);
   }
 
+  // A reminder that names its own moment needs no day, and the task keeps having none.
   const reminder = await resolve([setReminder({ task: { id: "t3" } })]);
-  assert.equal(onlyIssue(reminder).code, "fuzzy_reminder");
+  assert.deepEqual(reminder.issues, []);
+  assert.deepEqual(reminder.resolved[0].target, { kind: "task", taskId: FUZZY, taskVersion: 2 });
+
+  // "15 minutes before the start" has no start to count from, and the server must not invent one.
+  const relative = await resolve([setReminder({ task: { id: "t3" }, reminder: { kind: "offset", anchor: "start", minutes: -15, quiet: "respect" } })]);
+  assert.equal(onlyIssue(relative).code, "fuzzy_reminder_relative");
+  const byDay = await resolve([setReminder({ task: { id: "t3" }, reminder: { kind: "day", anchor: "start", daysOffset: -1, time: "09:00", quiet: "respect" } })]);
+  assert.equal(onlyIssue(byDay).code, "fuzzy_reminder_relative");
 
   const moved = await resolve([rescheduleTo({ task: { id: "t3" } })]);
   assert.deepEqual(moved.issues, []);

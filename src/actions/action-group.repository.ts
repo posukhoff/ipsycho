@@ -22,6 +22,7 @@ import { insertTaskPlan, type PersistedTaskPlan } from "../tasks/tasks.repositor
 import {
   cancelTaskInTx,
   changeReminderInTx,
+  changeTaskReminderInTx,
   changeSeriesInTx,
   completeOccurrenceInTx,
   completeTaskInTx,
@@ -34,6 +35,7 @@ import {
   updateTaskInTx,
   type CancelTaskStepResult,
   type ChangeReminderStepResult,
+  type ChangeTaskReminderStepResult,
   type ChangeSeriesStepResult,
   type CompleteTaskStepResult,
   type ConcretiseTaskStepResult,
@@ -98,6 +100,7 @@ export type ActionGroupStep =
       reason?: string;
     }
   | { kind: "change_reminder"; occurrenceId: string; expectedVersion: number; mode: "add" | "replace" | "clear"; rule?: ReminderRuleSpec }
+  | { kind: "change_task_reminder"; taskId: string; expectedVersion: number; mode: "add" | "replace" | "clear"; rule?: ReminderRuleSpec }
   | { kind: "change_series"; taskId: string; expectedVersion: number; operation: "pause" | "resume" | "cancel" | "edit"; editDefinition?: TaskDefinition }
   | { kind: "create_goal"; title: string; why?: string; targetLocalDate?: string }
   | {
@@ -131,6 +134,7 @@ export type ActionGroupStepResult =
   | RescheduleOccurrenceStepResult
   | ConcretiseTaskStepResult
   | ChangeReminderStepResult
+  | ChangeTaskReminderStepResult
   | ChangeSeriesStepResult
   | CreateGoalStepResult
   | UpdateGoalStepResult
@@ -214,6 +218,7 @@ export class ActionGroupRepository {
       };
       const rebuild = new Set<string>();
       const reconcile = new Set<string>();
+      const fuzzyRebuild = new Set<string>();
 
       for (const step of input.steps) {
         switch (step.kind) {
@@ -342,6 +347,19 @@ export class ActionGroupRepository {
             rebuild.add(step.occurrenceId);
             break;
           }
+          case "change_task_reminder": {
+            const { touched, ...stepResult } = await changeTaskReminderInTx(tx, {
+              ...scope,
+              taskId: step.taskId,
+              expectedVersion: versions.expect("task", step.taskId, step.expectedVersion),
+              mode: step.mode,
+              ...(step.rule ? { rule: step.rule } : {}),
+            });
+            versions.bump(touched);
+            result.steps.push(stepResult);
+            fuzzyRebuild.add(step.taskId);
+            break;
+          }
           case "change_series": {
             const { touched, ...stepResult } = await changeSeriesInTx(tx, {
               ...scope,
@@ -461,6 +479,7 @@ export class ActionGroupRepository {
 
       await finalizeGroup(tx, input.workspaceId, input.groupId, input.undoExpiresAt, input.now);
       result.reminderRebuildOccurrenceIds = [...rebuild];
+      result.fuzzyRebuildTaskIds = [...fuzzyRebuild];
       result.reconcileTaskIds = [...reconcile];
       return result;
     });
@@ -797,7 +816,15 @@ export class ActionGroupRepository {
               ),
             );
         }
-        if (actionTypes.has("cancel_task") || actionTypes.has("concretise_task")) fuzzyRebuild.add(taskId);
+        // An explicit reminder the group put on a dateless task: its rule row is deleted above with
+        // the other inserted rules, and whatever was active before it comes back.
+        const explicitTaskRuleIds = list.flatMap((event) => (event.beforeState as { explicitTaskReminderRuleIds?: string[] } | null)?.explicitTaskReminderRuleIds ?? []);
+        if (explicitTaskRuleIds.length)
+          await tx
+            .update(reminderRules)
+            .set({ active: true })
+            .where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, explicitTaskRuleIds)));
+        if (actionTypes.has("cancel_task") || actionTypes.has("concretise_task") || actionTypes.has("change_task_reminder")) fuzzyRebuild.add(taskId);
       }
 
       for (const [goalId, list] of goalEvents) {
@@ -981,6 +1008,9 @@ async function lockTargets(tx: DbTransaction, workspaceId: string, actorUserId: 
       case "cancel_task":
       case "concretise_task":
       case "change_series":
+        taskIds.add(step.taskId);
+        break;
+      case "change_task_reminder":
         taskIds.add(step.taskId);
         break;
       case "update_occurrence":

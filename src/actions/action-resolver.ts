@@ -1,4 +1,4 @@
-import { MAX_TURN_ACTIONS, type AiAction, type ResolvedAction, type TaskTarget, type When } from "../core/ai-contract.js";
+import { MAX_TURN_ACTIONS, type AiAction, type Reminder, type ResolvedAction, type TaskTarget, type When } from "../core/ai-contract.js";
 import type { ActionIssue } from "../core/ai-actions.js";
 import { refKindOf, type RefMap } from "../core/ai-refs.js";
 import type { OccurrenceStatus, TaskStatus, TimeMode } from "../core/types.js";
@@ -127,7 +127,7 @@ async function resolveOne(
       const task = await taskRef(action.task.id, refs, deps);
       if (action.mode === "clear" && action.reminder !== null) throw domain("reminder_shape", "clear reminder requires reminder=null");
       if (action.mode !== "clear" && !action.reminder) throw domain("reminder_shape", "reminder is required");
-      const target = await taskTarget(task, null, deps, { includeElapsed: false, purpose: "reminder" });
+      const target = await taskTarget(task, null, deps, { includeElapsed: false, purpose: "reminder", ...(action.reminder ? { reminder: action.reminder } : {}) });
       return { type: "set_reminder", ...base, target, mode: action.mode, reminder: action.reminder };
     }
     case "goal": {
@@ -238,7 +238,7 @@ async function taskTarget(
   task: TaskRow,
   scope: "occurrence" | "series" | null,
   deps: ResolverDeps,
-  opts: { includeElapsed: boolean; purpose: "state" | "reschedule" | "reminder"; state?: string; when?: When },
+  opts: { includeElapsed: boolean; purpose: "state" | "reschedule" | "reminder"; state?: string; when?: When; reminder?: Reminder },
 ): Promise<TaskTarget> {
   const recurring = Boolean(task.recurrenceRule);
   if (task.status !== "active" && !(task.status === "paused" && recurring && scope === "series")) {
@@ -248,7 +248,12 @@ async function taskTarget(
   const whole = { kind: "task" as const, taskId: task.id, taskVersion: task.version };
 
   if (task.timeMode === "fuzzy") {
-    if (opts.purpose === "reminder") throw domain("fuzzy_reminder", "a task without a date cannot carry a reminder");
+    // A task with no day can still carry a reminder of its own — it just has to name its own
+    // moment. "15 minutes before" has nothing to count from, and inventing a day for it would be
+    // the server deciding when the task happens.
+    if (opts.purpose === "reminder" && opts.reminder && opts.reminder.kind !== "at") {
+      throw domain("fuzzy_reminder_relative", "a task without a date cannot carry a reminder relative to its start");
+    }
     if (opts.purpose === "state" && opts.state !== "done" && opts.state !== "cancelled") {
       throw domain("fuzzy_no_occurrence", "a task without a date can only be completed, cancelled or given a date");
     }

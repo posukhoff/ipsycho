@@ -35,7 +35,8 @@ export type AppliedReportItem =
       fromFuzzy?: string | null;
     }
   | { kind: "occurrence"; title: string; operation: "done" | "skip" | "cancel" }
-  | { kind: "reminder"; title: string; mode: "add" | "replace" | "clear"; schedule: OccurrenceScheduleView | null; reminderAt: Date | null }
+  /** `timezone` carries the zone when there is no occurrence to read it from: a task with no day. */
+  | { kind: "reminder"; title: string; mode: "add" | "replace" | "clear"; schedule: OccurrenceScheduleView | null; reminderAt: Date | null; timezone?: string }
   | { kind: "series"; title: string; operation: "pause" | "resume" | "cancel" | "edit" }
   | { kind: "goal_created"; title: string }
   | { kind: "goal_updated"; title: string }
@@ -317,7 +318,7 @@ function renderItem(item: Exclude<AppliedReportItem, { kind: "task_created" }>, 
       return `${OCCURRENCE_LABELS[locale][item.operation]}: «${item.title}»`;
     case "reminder": {
       if (item.mode === "clear" || !item.reminderAt) return fill(copy.noReminders, { title: item.title });
-      const timezone = item.schedule?.timezone;
+      const timezone = item.schedule?.timezone ?? item.timezone;
       const when = item.schedule
         ? reminderLabel(item.reminderAt, item.schedule, now, locale, true)
         : formatLocalDateTime(item.reminderAt, timezone ?? "UTC", now, intlLocale(locale));

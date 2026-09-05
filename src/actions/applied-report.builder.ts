@@ -118,6 +118,10 @@ export async function buildAppliedReport(
           reminderAt: reminderForOccurrence(step.occurrenceId),
         });
         break;
+      // A dateless task has no occurrence schedule to show: the reminder itself is the whole news.
+      case "change_task_reminder":
+        items.push({ kind: "reminder", title: step.title, mode: step.mode, schedule: null, reminderAt: step.reminderAt, timezone: step.timezone });
+        break;
       case "change_series":
         items.push({ kind: "series", title: step.title, operation: step.operation });
         break;

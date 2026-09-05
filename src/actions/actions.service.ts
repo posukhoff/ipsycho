@@ -470,7 +470,18 @@ export class ActionsService implements OnApplicationBootstrap {
           break;
         }
         case "set_reminder": {
-          if (action.target.kind !== "occurrence") throw new InvalidAiActionError("a task without a date cannot carry a reminder", "fuzzy_reminder");
+          // A dateless task keeps its reminders on the task itself, the way creation already does.
+          if (action.target.kind === "task") {
+            steps.push({
+              kind: "change_task_reminder",
+              taskId: action.target.taskId,
+              expectedVersion: action.target.taskVersion,
+              mode: action.mode,
+              ...(action.reminder ? { rule: reminderRuleFromReminder(action.reminder, action.timezone) } : {}),
+            });
+            break;
+          }
+          if (action.target.kind !== "occurrence") throw new InvalidAiActionError("a series carries reminders on its occurrences", "fuzzy_reminder");
           steps.push({
             kind: "change_reminder",
             occurrenceId: action.target.occurrenceId,

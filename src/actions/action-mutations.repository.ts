@@ -137,6 +137,13 @@ export interface ChangeReminderInput extends GroupScope {
   rule?: ReminderRuleSpec;
   now: Date;
 }
+export interface ChangeTaskReminderInput extends GroupScope {
+  taskId: string;
+  expectedVersion: number;
+  mode: "add" | "replace" | "clear";
+  rule?: ReminderRuleSpec;
+  now: Date;
+}
 export interface ChangeSeriesInput extends GroupScope {
   taskId: string;
   expectedVersion: number;
@@ -203,6 +210,15 @@ export interface ChangeReminderStepResult {
   title: string;
   mode: "add" | "replace" | "clear";
   occurrenceSchedule: OccurrenceScheduleView;
+}
+export interface ChangeTaskReminderStepResult {
+  kind: "change_task_reminder";
+  taskId: string;
+  title: string;
+  mode: "add" | "replace" | "clear";
+  /** The moment the saved reminder names; a dateless task has no occurrence to read one from. */
+  reminderAt: Date | null;
+  timezone: string;
 }
 export interface ChangeSeriesStepResult {
   kind: "change_series";
@@ -803,6 +819,97 @@ export async function changeReminderInTx(tx: DbTransaction, input: ChangeReminde
     mode: input.mode,
     occurrenceSchedule: scheduleView(after),
     touched: [{ entity: "occurrence", id: input.occurrenceId, version: after.version }],
+  };
+}
+
+/**
+ * Reminders of a task that has no day. Creation already puts an explicit reminder on the task row
+ * itself (`occurrence_id is null`) and lets the planning review step aside for it; this is the same
+ * thing for a task that already exists, which until now refused because every path was keyed by an
+ * occurrence. The delivery is planned by the fuzzy rebuild after the group commits.
+ */
+export async function changeTaskReminderInTx(tx: DbTransaction, input: ChangeTaskReminderInput): Promise<InTx<ChangeTaskReminderStepResult>> {
+  const task = await loadTask(tx, input.workspaceId, input.taskId, input.expectedVersion);
+  if (task.timeMode !== "fuzzy") throw new DomainRuleError("a task with a date carries its reminders on the date");
+  if (task.status !== "active") throw new DomainRuleError("task is already closed or cancelled");
+
+  const explicit = await tx
+    .select({ id: reminderRules.id })
+    .from(reminderRules)
+    .where(
+      and(
+        eq(reminderRules.workspaceId, input.workspaceId),
+        eq(reminderRules.taskId, input.taskId),
+        sql`${reminderRules.occurrenceId} is null`,
+        eq(reminderRules.origin, "explicit"),
+        eq(reminderRules.active, true),
+      ),
+    );
+  const beforeRuleIds = explicit.map((item) => item.id);
+  if (input.mode !== "add" && beforeRuleIds.length) {
+    await tx
+      .update(reminderRules)
+      .set({ active: false })
+      .where(and(eq(reminderRules.workspaceId, input.workspaceId), inArray(reminderRules.id, beforeRuleIds)));
+    await tx
+      .update(reminderDeliveries)
+      .set({ status: "cancelled", suppressedReason: "superseded" })
+      .where(
+        and(
+          eq(reminderDeliveries.workspaceId, input.workspaceId),
+          inArray(reminderDeliveries.reminderRuleId, beforeRuleIds),
+          inArray(reminderDeliveries.status, ["pending", "processing"]),
+        ),
+      );
+  }
+
+  const insertedRuleIds: string[] = [];
+  if (input.mode !== "clear") {
+    if (!input.rule) throw new DomainRuleError("reminder rule is required");
+    const insertedRuleId = crypto.randomUUID();
+    insertedRuleIds.push(insertedRuleId);
+    await tx.insert(reminderRules).values({
+      id: insertedRuleId,
+      workspaceId: input.workspaceId,
+      taskId: input.taskId,
+      triggerKind: input.rule.triggerKind,
+      ...(input.rule.exactAt ? { exactAt: input.rule.exactAt } : {}),
+      ...(input.rule.anchor ? { anchor: input.rule.anchor } : {}),
+      ...(input.rule.offsetSeconds !== undefined ? { offsetSeconds: input.rule.offsetSeconds } : {}),
+      ...(input.rule.daysOffset !== undefined ? { daysOffset: input.rule.daysOffset } : {}),
+      ...(input.rule.localTime ? { localTime: input.rule.localTime } : {}),
+      purpose: input.rule.purpose,
+      quietPolicy: input.rule.quietPolicy,
+      origin: "explicit",
+    });
+  }
+
+  const [after] = await tx
+    .update(tasks)
+    .set({ version: sql`${tasks.version} + 1`, updatedAt: input.now })
+    .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, input.taskId), eq(tasks.version, input.expectedVersion)))
+    .returning();
+  if (!after) throw new DomainRuleError("task changed while updating reminder");
+
+  await tx.insert(actionEvents).values({
+    workspaceId: input.workspaceId,
+    groupId: input.groupId,
+    actionType: "change_task_reminder",
+    entityType: "task",
+    entityId: input.taskId,
+    postVersion: after.version,
+    beforeState: { ...taskMutableState(task), explicitTaskReminderRuleIds: input.mode === "add" ? [] : beforeRuleIds },
+    afterState: { ...taskMutableState(after), insertedRuleIds },
+  });
+  await tx.insert(taskEvents).values({ workspaceId: input.workspaceId, taskId: input.taskId, actorUserId: input.actorUserId, eventType: "reminder:changed" });
+  return {
+    kind: "change_task_reminder",
+    taskId: input.taskId,
+    title: after.title,
+    mode: input.mode,
+    reminderAt: input.rule?.exactAt ?? null,
+    timezone: after.timezone,
+    touched: [{ entity: "task", id: input.taskId, version: after.version }],
   };
 }
 

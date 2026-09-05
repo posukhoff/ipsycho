@@ -159,15 +159,23 @@ export class ReminderSchedulingService {
           eq(tasks.status, "active"),
           eq(tasks.timeMode, "fuzzy"),
           sql`${tasks.reviewAt} IS NOT NULL`,
-          sql`NOT EXISTS (
-          SELECT 1 FROM ${reminderRules} rr
-          WHERE rr.workspace_id = ${tasks.workspaceId}
-            AND rr.task_id = ${tasks.id}
+          sql`(NOT EXISTS (
+          SELECT 1 FROM reminder_rules rr
+          WHERE rr.workspace_id = tasks.workspace_id
+            AND rr.task_id = tasks.id
             AND rr.occurrence_id IS NULL
             AND rr.purpose = 'planning_review'
             AND rr.origin = 'default'
             AND rr.active = true
-        )`,
+        ) OR EXISTS (
+          SELECT 1 FROM reminder_rules rr
+          WHERE rr.workspace_id = tasks.workspace_id
+            AND rr.task_id = tasks.id
+            AND rr.occurrence_id IS NULL
+            AND rr.origin = 'explicit'
+            AND rr.active = true
+            AND NOT EXISTS (SELECT 1 FROM reminder_deliveries rd WHERE rd.workspace_id = rr.workspace_id AND rd.reminder_rule_id = rr.id)
+        ))`,
         ),
       )
       .limit(limit);
@@ -233,6 +241,31 @@ export class ReminderSchedulingService {
     // day. Two rules mean two deliveries in the same minute, so the review contact steps aside.
     const explicitCoversReview = await this.explicitReminderCoversReview(workspaceId, taskId, row.task);
     const shouldSchedule = row.task.status === "active" && row.task.timeMode === "fuzzy" && Boolean(row.task.reviewAt) && !explicitCoversReview;
+    // An explicit reminder the user put on a dateless task lives on the task row, so nothing keyed by
+    // an occurrence ever planned its delivery. This is that plan, and it runs whether or not the
+    // review rule needs anything: the two are independent contacts.
+    const explicitRules = await this.database.db
+      .select()
+      .from(reminderRules)
+      .where(
+        and(
+          eq(reminderRules.workspaceId, workspaceId),
+          eq(reminderRules.taskId, taskId),
+          sql`${reminderRules.occurrenceId} IS NULL`,
+          eq(reminderRules.origin, "explicit"),
+          eq(reminderRules.active, true),
+        ),
+      );
+    const plannedRuleIds = new Set(
+      (
+        await this.database.db
+          .select({ ruleId: reminderDeliveries.reminderRuleId })
+          .from(reminderDeliveries)
+          .where(and(eq(reminderDeliveries.workspaceId, workspaceId), eq(reminderDeliveries.taskId, taskId), sql`${reminderDeliveries.occurrenceId} IS NULL`))
+      ).map((row) => row.ruleId),
+    );
+    const unplanned = row.task.status === "active" ? explicitRules.filter((rule) => !plannedRuleIds.has(rule.id)) : [];
+
     const created = await this.database.db.transaction(async (tx): Promise<typeof reminderDeliveries.$inferInsert | null> => {
       if (existingIds.length) {
         await tx
@@ -300,13 +333,49 @@ export class ReminderSchedulingService {
       return delivery;
     });
 
-    if (created?.status === "pending" && created.id && created.scheduledFor) {
-      await this.queue.enqueue(created.id, created.scheduledFor).catch((error) => {
-        logger.error("failed to enqueue planning review; reconciliation will retry", { deliveryId: created?.id, error: safeError(error) });
+    const explicitDeliveries = await this.planTaskLevelReminders(workspaceId, userId, row.task, row.settings, unplanned, now);
+    let enqueued = 0;
+    for (const delivery of [created, ...explicitDeliveries]) {
+      if (delivery?.status !== "pending" || !delivery.id || !delivery.scheduledFor) continue;
+      await this.queue.enqueue(delivery.id, delivery.scheduledFor).catch((error) => {
+        logger.error("failed to enqueue task reminder; reconciliation will retry", { deliveryId: delivery.id, error: safeError(error) });
       });
-      return 1;
+      enqueued += 1;
     }
-    return 0;
+    return enqueued;
+  }
+
+  /** Deliveries for reminders that hang on the task itself, with no occurrence to anchor them. */
+  private async planTaskLevelReminders(
+    workspaceId: string,
+    userId: string,
+    taskRow: typeof tasks.$inferSelect,
+    settingsRow: typeof userSettings.$inferSelect,
+    rules: ReadonlyArray<typeof reminderRules.$inferSelect>,
+    now: Date,
+  ): Promise<Array<typeof reminderDeliveries.$inferInsert>> {
+    if (!rules.length) return [];
+    const task = taskDefinitionFromRow(taskRow);
+    const plans = planReminders({ task, occurrence: null, rules: rules.map(reminderRuleSpecFromRow), settings: reminderSettingsFromRow(settingsRow), now });
+    const rows: Array<typeof reminderDeliveries.$inferInsert> = [];
+    for (const plan of plans) {
+      const rule = rules[plan.ruleIndex];
+      if (!rule) continue;
+      rows.push({
+        id: randomUUID(),
+        workspaceId,
+        recipientUserId: userId,
+        reminderRuleId: rule.id,
+        taskId: taskRow.id,
+        intendedFor: plan.intendedFor,
+        scheduledFor: plan.scheduledFor,
+        status: plan.suppressedReason ? "suppressed" : "pending",
+        ...(plan.suppressedReason ? { suppressedReason: plan.suppressedReason } : {}),
+        deduplicationKey: `${rule.id}:task:${plan.intendedFor.toISOString()}`,
+      });
+    }
+    if (rows.length) await this.database.db.insert(reminderDeliveries).values(rows).onConflictDoNothing();
+    return rows;
   }
 
   /** Earliest pending user-facing reminder of one occurrence; what the user will actually receive next. */
