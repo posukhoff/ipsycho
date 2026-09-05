@@ -12,6 +12,7 @@ import {
   languageKeyboard,
   pausedSeriesKeyboard,
   weekPlanKeyboard,
+  weeklyBriefingKeyboard,
   quickRescheduleKeyboard,
   quickRescheduleReasonKeyboard,
   remindersKeyboard,
@@ -67,6 +68,7 @@ const ROUTES = [
   /^prefs:tz:open$/,
   /^gl:(active|paused|completed):\d{1,3}$/,
   /^goal:[0-9a-f-]{36}$/,
+  /^goal:step:[0-9a-f-]{36}$/,
   /^rem:p:\d{1,3}$/,
   /^account:delete_confirm$/,
   /^ai:(consent|decline)$/,
@@ -104,6 +106,7 @@ const KEYBOARDS = {
   todayListKeyboard: taskListKeyboard([MULTI_GROUP], "ru", { source: "today", page: 1, pages: 2, rest: 0, pageCallback: (page) => `tdy:${page}` }),
   taskScopeKeyboard: taskScopeKeyboard("week", { overdue: 3, today: 4, week: 9, month: 12, all: 20, nodate: 2 }, "ru", 2),
   pausedSeriesKeyboard: pausedSeriesKeyboard([{ id: TASK_ID, title: "Зарядка по будням", recurrence: "FREQ=WEEKLY" }], "ru", { page: 1, pages: 3, rest: 4 }),
+  weeklyBriefingKeyboard: weeklyBriefingKeyboard([{ id: GOAL_UUID, title: "Запустить первую платную группу с очень длинным названием" }], "ru"),
   weekPlanKeyboard: weekPlanKeyboard([{ id: TASK_ID, title: "Разобраться с налогами", picked: true }], "ru", { page: 1, pages: 3, rest: 5 }),
   taskGroupKeyboard: taskGroupKeyboard(MULTI_GROUP, "tasks", "ru", "overdue"),
   goalsScopeKeyboard: goalsScopeKeyboard("active", "ru"),
@@ -321,4 +324,11 @@ test("a card opened from a filtered list goes back to that filter, not to the de
   // Without a filter nothing changes: the list button still leads to the task screen.
   assert.ok(buttonsOf(taskDetailKeyboard(OCCURRENCE_ID, "ru")).includes("nav:tasks"));
   assert.ok(buttonsOf(taskListKeyboard([SINGLE_GROUP], "ru", { source: "tasks" })).includes(`view:occ:${OCCURRENCE_ID}`));
+});
+
+test("the week card offers a step for a goal nothing has moved", () => {
+  const buttons = buttonsOf(weeklyBriefingKeyboard([{ id: GOAL_UUID, title: "Запустить группу" }], "ru"));
+  assert.deepEqual(buttons, [`goal:step:${GOAL_UUID}`, "nav:week"]);
+  // With nothing idle the card keeps only the way to the pool.
+  assert.deepEqual(buttonsOf(weeklyBriefingKeyboard([], "ru")), ["nav:week"]);
 });

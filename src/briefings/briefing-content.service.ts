@@ -10,6 +10,7 @@ import { plural, t } from "../telegram/copy/index.js";
 import { targetWeekStart, previousWeekRange } from "../core/week-plan.js";
 import { taskOccurrences, tasks } from "../database/schema.js";
 import { POOL_MEMBERSHIP } from "../tasks/tasks.repository.js";
+import { ContextService } from "../context/context.service.js";
 
 const NONTERMINAL = ["scheduled", "open", "in_progress"] as const;
 /** Telegram's hard limit is 4096; a card with a long day and a full week pool must stay under it. */
@@ -17,7 +18,10 @@ const BRIEFING_MAX_CHARS = 3_900;
 
 @Injectable()
 export class BriefingContentService {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(
+    private readonly database: DatabaseService,
+    private readonly context: ContextService,
+  ) {}
 
   async build(input: { workspaceId: string; kind: "morning" | "weekly"; localDate: string; timezone: string; now?: Date; locale?: TelegramLocale }) {
     const locale: TelegramLocale = input.locale ?? "ru";
@@ -86,12 +90,20 @@ export class BriefingContentService {
       ]);
       const lines = [t(locale, "briefing_weekly_title"), "", t(locale, "week_plan_summary", { done: done?.count ?? 0, stale: stale?.count ?? 0 }), ""];
       lines.push((pool?.count ?? 0) > 0 ? t(locale, "briefing_week_cta") : t(locale, "briefing_pool_empty"));
+      // A goal nothing has moved for weeks is the one thing the week card can raise on its own:
+      // it says how long it has been quiet and offers to work out the next step.
+      const idle = await this.context.idleGoals(input.workspaceId, input.now ?? new Date()).catch(() => []);
+      if (idle.length) {
+        lines.push("", t(locale, "briefing_goals_idle"));
+        for (const goal of idle) lines.push(`🎯 ${goal.title} — ${t(locale, "briefing_goal_idle_days", { days: goal.idleDays })}`);
+      }
       return {
         text: lines.join("\n"),
         hasContent: true,
         reviewKinds: [] as Array<"evening" | "weekly">,
         decisionOccurrenceIds: [] as string[],
         weekTasks: [] as Array<{ id: string; title: string }>,
+        idleGoals: idle,
       };
     };
 

@@ -112,7 +112,9 @@ test("AI prompt stays inside its size budget without context", () => {
   // The budget exists so rules keep moving into code rather than accumulating here.
   // It is a budget, not a rule: raising it is a decision, and the number says by how much.
   // 2026-09-04: raised from 9600 for the three worked examples (§16), which sit in the cacheable prefix.
-  assert.ok(prompt.length < 14_500, `prompt is ${prompt.length} characters`);
+  // 2026-09-05: raised by 200 for two rules the server cannot decide alone — which reminder a
+  // dateless task can take, and what one stalled goal gets asked for.
+  assert.ok(prompt.length < 14_700, `prompt is ${prompt.length} characters`);
 });
 
 test("AI prompt ends with one local CURRENT_TIME line and the context when given", () => {

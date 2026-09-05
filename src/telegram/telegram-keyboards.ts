@@ -340,6 +340,18 @@ export function taskDetailKeyboard(occurrenceId: string, locale: TelegramLocale 
     .text(t(locale, "to_tasks_button"), scope ? `tsk:${scope}:0` : "nav:tasks");
 }
 
+/**
+ * The week card's buttons: the pool screen, and one row per goal nothing has moved. The row is the
+ * only place the bot proposes work of its own, and it asks the model only when tapped.
+ */
+export function weeklyBriefingKeyboard(idleGoals: ReadonlyArray<{ id: string; title: string }>, locale: TelegramLocale = "ru"): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const goal of idleGoals.slice(0, 3)) {
+    keyboard.text(t(locale, "goal_step_button", { title: goal.title.length > 24 ? `${goal.title.slice(0, 23)}…` : goal.title }), `goal:step:${goal.id}`).row();
+  }
+  return keyboard.text(t(locale, "week_plan_button"), "nav:week");
+}
+
 /** The three languages plus "follow Telegram", so the value is a tap and not a command. */
 export function languageKeyboard(locale: TelegramLocale = "ru"): InlineKeyboard {
   return new InlineKeyboard()

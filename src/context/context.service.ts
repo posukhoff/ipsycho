@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { normalizeTopicDirective, type TopicDirective } from "../core/context-policy.js";
+import { idleGoals, type IdleGoal } from "../core/goal-attention.js";
 import { ContextRepository } from "./context.repository.js";
 import { DomainRuleError } from "../core/errors.js";
 
@@ -16,6 +17,15 @@ export class ContextService {
   async goalsOverview(workspaceId: string, status?: "active" | "paused" | "completed") {
     const rows = await this.repository.listGoalsWithTasks(workspaceId);
     return status ? rows.filter((row) => row.goal.status === status) : rows;
+  }
+
+  /** Active goals that nothing has moved for a while, longest first; the week card names them. */
+  async idleGoals(workspaceId: string, now = new Date()): Promise<IdleGoal[]> {
+    const rows = await this.repository.listGoalActivity(workspaceId);
+    return idleGoals(
+      rows.map((row) => ({ id: row.id, title: row.title, reviewEnabled: row.reviewEnabled, lastActivityAt: new Date(row.lastActivityAt) })),
+      now,
+    );
   }
 
   async findGoalOverview(workspaceId: string, goalId: string) {

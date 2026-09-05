@@ -236,6 +236,34 @@ export class ContextRepository {
       .limit(limit);
   }
 
+  /**
+   * When each active goal last moved: its own change, a linked task's change, or a linked task
+   * finished. Read from the rows themselves, so no counter has to be kept up to date.
+   */
+  async listGoalActivity(workspaceId: string) {
+    return this.database.db
+      .select({
+        id: goals.id,
+        title: goals.title,
+        reviewEnabled: goals.reviewEnabled,
+        lastActivityAt: sql<Date>`greatest(
+          ${goals.updatedAt},
+          coalesce((
+            select max(t.updated_at) from task_goals tg
+            join tasks t on t.workspace_id = tg.workspace_id and t.id = tg.task_id
+            where tg.workspace_id = goals.workspace_id and tg.goal_id = goals.id
+          ), ${goals.createdAt}),
+          coalesce((
+            select max(o.completed_at) from task_goals tg
+            join task_occurrences o on o.workspace_id = tg.workspace_id and o.task_id = tg.task_id
+            where tg.workspace_id = goals.workspace_id and tg.goal_id = goals.id and o.status = 'done'
+          ), ${goals.createdAt})
+        )`,
+      })
+      .from(goals)
+      .where(and(eq(goals.workspaceId, workspaceId), eq(goals.status, "active")));
+  }
+
   async findMemory(workspaceId: string, userId: string, memoryId: string) {
     const [row] = await this.database.db
       .select()

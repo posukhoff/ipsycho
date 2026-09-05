@@ -3,13 +3,16 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../../dist/database/database.service.js";
 import { BriefingContentService } from "../../dist/briefings/briefing-content.service.js";
+import { ContextService } from "../../dist/context/context.service.js";
+import { ContextRepository } from "../../dist/context/context.repository.js";
 import { BriefingSchedulingService } from "../../dist/briefings/briefing-scheduling.service.js";
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url) throw new Error("TEST_DATABASE_URL is required; run npm run test:e2e");
 
 const database = new DatabaseService({ databaseUrl: url });
-const content = new BriefingContentService(database);
+const context = new ContextService(new ContextRepository(database));
+const content = new BriefingContentService(database, context);
 const TIMEZONE = "Europe/Kyiv";
 let telegramUserSequence = Date.now() + 5_000;
 
@@ -172,4 +175,49 @@ test("a card is not first created for an hour that has already passed, so enabli
   await scheduling.reconcile(new Date("2026-09-08T09:00:00Z"));
   const kept = (await rows()).find((row) => row.local_date === "2026-09-08");
   assert.equal(kept.status, "pending");
+});
+
+async function goal(scope, title, { idleDays = 0, reviewEnabled = true, status = "active" } = {}) {
+  const goalId = randomUUID();
+  const at = new Date(Date.now() - idleDays * 86_400_000);
+  await database.pool.query("insert into goals(id, workspace_id, created_by_user_id, title, status, review_enabled, created_at, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$7)", [
+    goalId,
+    scope.workspaceId,
+    scope.userId,
+    title,
+    status,
+    reviewEnabled,
+    at,
+  ]);
+  return goalId;
+}
+
+test("the weekly card raises a goal nothing has moved, and a linked task counts as movement", async () => {
+  // `goals.review_enabled` was written and never read: a goal could sit untouched for months and
+  // nothing in the product ever mentioned it.
+  const scope = await fixture();
+  const forgotten = await goal(scope, "Запустить платную группу", { idleDays: 40 });
+  await goal(scope, "Английский", { idleDays: 3 });
+  await goal(scope, "Личное", { idleDays: 90, reviewEnabled: false });
+
+  const card = await content.build({ workspaceId: scope.workspaceId, kind: "weekly", localDate: "2026-09-13", timezone: TIMEZONE, now: new Date() });
+  assert.match(card.text, /Цели без движения:/u);
+  assert.match(card.text, /🎯 Запустить платную группу — тишина 40 дн\./u);
+  assert.equal(/Английский/u.test(card.text), false, "a goal touched three days ago is not silence");
+  assert.equal(/Личное/u.test(card.text), false, "review turned off means leave it alone");
+  assert.deepEqual(
+    card.idleGoals.map((row) => row.id),
+    [forgotten],
+  );
+
+  // A task linked to the goal and touched today is movement, so the goal goes quiet again.
+  const taskId = await poolTask(scope, "Собрать лендинг");
+  await database.pool.query("insert into task_goals(workspace_id, task_id, goal_id, source, confidence) values ($1,$2,$3,'user_explicit',1)", [
+    scope.workspaceId,
+    taskId,
+    forgotten,
+  ]);
+  const after = await content.build({ workspaceId: scope.workspaceId, kind: "weekly", localDate: "2026-09-13", timezone: TIMEZONE, now: new Date() });
+  assert.equal(/Цели без движения/u.test(after.text), false);
+  assert.deepEqual(after.idleGoals, []);
 });

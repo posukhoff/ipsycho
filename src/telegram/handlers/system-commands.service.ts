@@ -19,6 +19,7 @@ import { deployedBuildLine } from "../telegram-ui.js";
 import { TelegramService } from "../telegram.service.js";
 import { OnboardingService } from "./onboarding.service.js";
 import { ScreensService } from "./screens.service.js";
+import { ContextService } from "../../context/context.service.js";
 import { logger } from "../../observability/logger.js";
 
 const ACCOUNT_DELETE_CONFIRM = "account:delete_confirm";
@@ -30,6 +31,7 @@ const PAUSED_SERIES_CALLBACK = /^paused:(\d{1,3})$/;
 const GROUP_CALLBACK = /^grp:(t|d):([0-9a-f-]{36})(?::(overdue|today|week|month|all|nodate))?$/;
 const GOALS_SCOPE_CALLBACK = /^gl:(active|paused|completed):(\d{1,3})$/;
 const GOAL_CALLBACK = /^goal:([0-9a-f-]{36})$/;
+const GOAL_STEP_CALLBACK = /^goal:step:([0-9a-f-]{36})$/;
 const REMINDERS_PAGE_CALLBACK = /^rem:p:(\d{1,3})$/;
 const HISTORY_CLEAR_CALLBACK = "history:clear";
 const PROFILE_OPEN_CALLBACK = "profile:open";
@@ -49,6 +51,7 @@ export class SystemCommandsService {
     private readonly chatReply: TelegramChatReplyService,
     private readonly screens: ScreensService,
     private readonly onboarding: OnboardingService,
+    private readonly context: ContextService,
   ) {}
 
   register(bot: Bot<AppContext>): void {
@@ -81,6 +84,7 @@ export class SystemCommandsService {
     bot.callbackQuery(PAUSED_SERIES_CALLBACK, (ctx) => this.pausedSeriesPage(ctx));
     bot.callbackQuery(GROUP_CALLBACK, (ctx) => this.openGroup(ctx));
     bot.callbackQuery(GOALS_SCOPE_CALLBACK, (ctx) => this.goalsPage(ctx));
+    bot.callbackQuery(GOAL_STEP_CALLBACK, (ctx) => this.goalStep(ctx));
     bot.callbackQuery(GOAL_CALLBACK, (ctx) => this.openGoal(ctx));
     bot.callbackQuery(REMINDERS_PAGE_CALLBACK, (ctx) => this.remindersPage(ctx));
     bot.callbackQuery(HISTORY_CLEAR_CALLBACK, (ctx) => this.clearHistory(ctx));
@@ -334,6 +338,32 @@ export class SystemCommandsService {
     if (shown) return void (await ctx.answerCallbackQuery());
     await ctx.answerCallbackQuery({ text: t(locale, "list_changed_toast") });
     await this.screens.goals(ctx, true);
+  }
+
+  /**
+   * The one thing the bot proposes on its own: a goal nothing has moved for weeks. The week card
+   * names it, and this button asks the model for a concrete step — the same turn the user could
+   * have typed, so it is journaled, reported and undoable like any other.
+   */
+  private async goalStep(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { access, settings, locale } = activeState(ctx);
+    const goalId = GOAL_STEP_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
+    if (!goalId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    const overview = await this.context.findGoalOverview(access.workspaceId, goalId).catch(() => null);
+    if (!overview || overview.goal.status !== "active") return void (await ctx.answerCallbackQuery({ text: t(locale, "goal_step_gone_toast") }));
+    await ctx.answerCallbackQuery();
+    const chatId = ctx.chat?.id ?? ctx.callbackQuery.from.id;
+    const result = await this.chat.processText({
+      workspaceId: access.workspaceId,
+      userId: access.user.id,
+      aiStatus: access.user.aiStatus,
+      timezone: settings.timezone,
+      language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null,
+      text: t(locale, "goal_step_prompt", { title: overview.goal.title }),
+      telegramChatId: chatId,
+      telegramMessageId: ctx.callbackQuery.message?.message_id ?? 0,
+    });
+    await this.chatReply.reply(ctx, access, result);
   }
 
   private async remindersPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
