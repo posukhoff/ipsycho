@@ -8,3 +8,6 @@ dist/
 
 # Eval runs are local artefacts; the committed baseline lives in eval/baseline.json.
 eval/results/
+
+# Coverage output is a build artefact; CI uploads lcov.info as its own artifact.
+coverage/
