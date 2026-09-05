@@ -1276,3 +1276,37 @@ test("cancelling a task closes the task itself, not only the date in front of it
   assert.equal(task?.status, "active");
   assert.equal(occurrence?.status, "open");
 });
+
+test("an occurrence-only group locks the task it belongs to, so two crossing groups cannot deadlock", async () => {
+  // The occurrence pass used to reach the task row through a join, after the task pass had already
+  // taken its own rows. Two groups naming one task and the other's occurrence then took the same
+  // two task rows in opposite orders. The owner is locked in the task pass now, so this apply
+  // waits for a task row held by someone else instead of grabbing it in the wrong order.
+  const { workspaceId, userId } = await fixture();
+  const { taskId, occurrenceId } = await createOccurrence(workspaceId, userId);
+  await database.pool.query("update tasks set recurrence_rule='FREQ=DAILY', recurrence_timezone='Europe/Kyiv' where id=$1", [taskId]);
+  const blocker = await database.pool.connect();
+  try {
+    await blocker.query("begin");
+    await blocker.query("select id from tasks where id=$1 for update", [taskId]);
+    const now = new Date();
+    const apply = groups.apply({
+      workspaceId,
+      actorUserId: userId,
+      groupId: randomUUID(),
+      groupExists: false,
+      now,
+      undoExpiresAt: new Date(now.getTime() + 60_000),
+      steps: [{ kind: "update_occurrence", occurrenceId, expectedVersion: 1, operation: "skip" }],
+    });
+    const raced = await Promise.race([apply.then(() => "applied"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 700))]);
+    assert.equal(raced, "waiting", "the apply must be waiting for the task row the other transaction holds");
+    await blocker.query("rollback");
+    await apply;
+    const [occurrence] = await database.db.select().from(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId));
+    assert.equal(occurrence?.status, "skipped");
+  } finally {
+    await blocker.query("rollback").catch(() => undefined);
+    blocker.release();
+  }
+});

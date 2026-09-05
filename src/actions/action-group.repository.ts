@@ -1011,6 +1011,17 @@ async function lockTargets(tx: DbTransaction, workspaceId: string, actorUserId: 
   for (const id of createdTaskIds) taskIds.delete(id);
   const versions = new VersionTracker();
   const sorted = (set: Set<string>) => [...set].sort();
+  // The task behind an addressed occurrence is locked in the task pass, not by the join below:
+  // two groups that name a task of one series and an occurrence of another would otherwise take
+  // the same two task rows in opposite orders and deadlock. An occurrence never changes its task,
+  // so reading the pair without a lock here is safe.
+  if (occurrenceIds.size) {
+    const owners = await tx
+      .select({ taskId: taskOccurrences.taskId })
+      .from(taskOccurrences)
+      .where(and(eq(taskOccurrences.workspaceId, workspaceId), inArray(taskOccurrences.id, sorted(occurrenceIds))));
+    for (const owner of owners) if (!createdTaskIds.has(owner.taskId)) taskIds.add(owner.taskId);
+  }
   if (taskIds.size) {
     const ids = sorted(taskIds);
     const rows = await tx
@@ -1025,17 +1036,13 @@ async function lockTargets(tx: DbTransaction, workspaceId: string, actorUserId: 
   if (occurrenceIds.size) {
     const ids = sorted(occurrenceIds);
     const rows = await tx
-      .select({ id: taskOccurrences.id, version: taskOccurrences.version, taskId: tasks.id, taskVersion: tasks.version })
+      .select({ id: taskOccurrences.id, version: taskOccurrences.version })
       .from(taskOccurrences)
-      .innerJoin(tasks, and(eq(tasks.workspaceId, taskOccurrences.workspaceId), eq(tasks.id, taskOccurrences.taskId)))
       .where(and(eq(taskOccurrences.workspaceId, workspaceId), inArray(taskOccurrences.id, ids)))
       .orderBy(taskOccurrences.id)
       .for("update");
     if (rows.length !== ids.length) throw new DomainRuleError("occurrence target is missing");
-    for (const row of rows) {
-      versions.register("occurrence", row.id, row.version);
-      if (!taskIds.has(row.taskId)) versions.register("task", row.taskId, row.taskVersion);
-    }
+    for (const row of rows) versions.register("occurrence", row.id, row.version);
   }
   if (goalIds.size) {
     const ids = sorted(goalIds);
