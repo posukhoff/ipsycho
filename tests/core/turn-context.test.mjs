@@ -244,7 +244,6 @@ test("settings are human-readable without a version and the context carries no I
     timezone,
     language: "auto",
     morningDigest: "09:00",
-    eveningDigest: "off",
     weeklyReview: "вс 20:00",
     quietHours: { enabled: true, weekdayStart: "22:00", weekdayEnd: "08:00", weekendStart: "23:00", weekendEnd: "09:00" },
     snoozedUntil: "04.09, 19:00",

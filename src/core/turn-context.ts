@@ -42,7 +42,6 @@ export interface ModelSettings {
   timezone: string;
   language: string;
   morningDigest: string;
-  eveningDigest: string;
   weeklyReview: string;
   quietHours: { enabled: boolean; weekdayStart: string; weekdayEnd: string; weekendStart: string; weekendEnd: string };
   snoozedUntil?: string;
@@ -138,7 +137,6 @@ export interface ContextSettingsRow {
   pinnedLanguage: string | null;
   morningDigestEnabled: boolean;
   morningReferenceTime: string;
-  eveningDigestEnabled: boolean;
   eveningReferenceTime: string;
   weeklyReviewEnabled: boolean;
   weeklyReviewWeekday: number;
@@ -431,7 +429,6 @@ function modelSettings(settings: ContextSettingsRow, now: Date, locale: Presenta
     timezone: settings.timezone,
     language: settings.pinnedLanguage?.trim() || "auto",
     morningDigest: settings.morningDigestEnabled ? settings.morningReferenceTime : "off",
-    eveningDigest: settings.eveningDigestEnabled ? settings.eveningReferenceTime : "off",
     weeklyReview: settings.weeklyReviewEnabled ? `${WEEKDAY_SHORT[locale][settings.weeklyReviewWeekday - 1] ?? WEEKDAY_SHORT[locale][6]} ${settings.weeklyReviewTime}` : "off",
     // Structured, not prose: the model is told to reuse unchanged values, and it can only do that
     // with fields it can copy. As one localized string it kept sending back an incomplete change.
