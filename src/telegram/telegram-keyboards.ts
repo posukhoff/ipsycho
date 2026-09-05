@@ -222,7 +222,7 @@ export function groupCallback(group: TelegramGroupCard, source: GroupSource): st
 }
 
 /** The date window the list is showing, and every other window one tap away. */
-export function taskScopeKeyboard(scope: TaskScope, counts: Record<TaskScope, number>, locale: TelegramLocale = "ru"): InlineKeyboard {
+export function taskScopeKeyboard(scope: TaskScope, counts: Record<TaskScope, number>, locale: TelegramLocale = "ru", pausedCount = 0): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (counts.overdue) keyboard.text(mark(scope === "overdue", t(locale, "scope_overdue_button", { count: counts.overdue })), "tsk:overdue:0");
   keyboard
@@ -232,7 +232,32 @@ export function taskScopeKeyboard(scope: TaskScope, counts: Record<TaskScope, nu
     .text(mark(scope === "month", t(locale, "scope_month_button")), "tsk:month:0")
     .text(mark(scope === "all", t(locale, "scope_all_button")), "tsk:all:0");
   if (counts.nodate) keyboard.text(mark(scope === "nodate", t(locale, "scope_nodate_button")), "tsk:nodate:0");
-  return keyboard.row();
+  keyboard.row();
+  // A paused series is in no window: its parent row is not active and its future dates are gone.
+  if (pausedCount) keyboard.text(t(locale, "paused_series_button", { count: pausedCount }), "paused:0").row();
+  return keyboard;
+}
+
+/** Paused series, one row each: the tap that brings the series back. */
+export function pausedSeriesKeyboard(
+  rows: ReadonlyArray<{ id: string; title: string }>,
+  locale: TelegramLocale = "ru",
+  paging: { page?: number; pages?: number; rest?: number } = {},
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const row of rows) {
+    const title = row.title.length > 24 ? `${row.title.slice(0, 23)}\u2026` : row.title;
+    keyboard.text(t(locale, "resume_series_button", { title }), `series:resume:${row.id}`).row();
+  }
+  const page = paging.page ?? 0;
+  const pages = paging.pages ?? 1;
+  if (pages > 1) {
+    if (page > 0) keyboard.text(t(locale, "page_prev_button"), `paused:${page - 1}`);
+    if (page < pages - 1) keyboard.text(t(locale, "page_next_button", { count: paging.rest ?? 0 }), `paused:${page + 1}`);
+    keyboard.row();
+  }
+  keyboard.text(t(locale, "back_button"), "nav:tasks").row();
+  return appendFooter(keyboard, locale);
 }
 
 function mark(active: boolean, label: string): string {

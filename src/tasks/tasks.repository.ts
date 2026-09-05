@@ -127,6 +127,30 @@ export class TasksRepository {
     return limit === undefined ? query : query.limit(limit);
   }
 
+  /**
+   * Series the user paused. Their parent row is not `active` and every future occurrence is
+   * cancelled, so they appear in no other list: without this query a paused series is invisible
+   * and cannot be resumed.
+   */
+  async listPausedSeriesForTelegram(workspaceId: string, options: { limit: number; offset?: number }) {
+    return this.database.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "paused"), isNotNull(tasks.recurrenceRule)))
+      .orderBy(sql`case ${tasks.importance} when 'critical' then 0 when 'required' then 1 else 2 end`, desc(tasks.updatedAt))
+      .limit(options.limit)
+      .offset(options.offset ?? 0);
+  }
+
+  /** The chip on the task screen counts them all: a capped list would understate what is hidden. */
+  async countPausedSeries(workspaceId: string): Promise<number> {
+    const [row] = await this.database.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, "paused"), isNotNull(tasks.recurrenceRule)));
+    return row?.count ?? 0;
+  }
+
   async listFuzzyForTelegram(workspaceId: string, limit = 12) {
     return this.database.db
       .select()

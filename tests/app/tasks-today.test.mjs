@@ -87,6 +87,8 @@ test("the task list collapses same-titled rows and every filter reports its own 
       { task: task("late", { title: "Старое" }), occurrence: occurrenceOn("l1", "2026-08-14T06:00:00Z", true) },
     ],
     listFuzzyForTelegram: async () => [task("someday", { title: "Гараж", timeMode: "fuzzy", fuzzyHorizonText: "на неделе" })],
+    listPausedSeriesForTelegram: async () => [task("paused", { title: "Зарядка", recurrenceRule: "FREQ=WEEKLY" })],
+    countPausedSeries: async () => 1,
   };
   const service = new TasksService(repository, {}, {});
 
@@ -98,6 +100,8 @@ test("the task list collapses same-titled rows and every filter reports its own 
   );
   assert.equal(week.groups[1].rows.length, 2, "the September call is outside the week window");
   assert.deepEqual(week.counts, { overdue: 1, today: 1, week: 2, month: 2, all: 3, nodate: 1 });
+  // A paused series is in no window; the screen offers it as its own list instead of hiding it.
+  assert.equal(week.pausedCount, 1);
 
   const all = await service.listGroupedForTelegram("workspace", { scope: "all", localDate: "2026-08-23" });
   assert.equal(all.groups.find((group) => group.title === "Позвонить маме").rows.length, 3);

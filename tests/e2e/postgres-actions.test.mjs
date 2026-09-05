@@ -726,6 +726,60 @@ test("findCurrentOccurrence prefers in-progress, then open, then the nearest sch
   assert.notEqual(later, sooner);
 });
 
+test("a paused series comes back: resume restores its future dates and asks for reconciliation", async () => {
+  const { workspaceId, userId } = await fixture();
+  const taskId = randomUUID();
+  await database.pool.query(
+    "insert into tasks(id, workspace_id, created_by_user_id, title, kind, importance, status, time_mode, timezone, planned_start_at, recurrence_rule, recurrence_timezone) values ($1,$2,$3,'Зарядка','task','normal','active','point','Europe/Kyiv',$4,'FREQ=DAILY','Europe/Kyiv')",
+    [taskId, workspaceId, userId, new Date(Date.now() + 24 * 3_600_000)],
+  );
+  const occurrenceIds = [randomUUID(), randomUUID()];
+  for (const [index, id] of occurrenceIds.entries()) {
+    await database.pool.query("insert into task_occurrences(id, workspace_id, task_id, status, timezone, planned_start_at) values ($1,$2,$3,'scheduled','Europe/Kyiv',$4)", [
+      id,
+      workspaceId,
+      taskId,
+      new Date(Date.now() + (index + 1) * 24 * 3_600_000),
+    ]);
+  }
+
+  const paused = await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId: randomUUID(),
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
+    steps: [{ kind: "change_series", taskId, expectedVersion: 1, operation: "pause" }],
+  });
+  assert.equal(paused.reconcileTaskIds.length, 0);
+  const afterPause = (await database.pool.query("select status, version from tasks where id=$1", [taskId])).rows[0];
+  assert.equal(afterPause.status, "paused");
+  const cancelled = (await database.pool.query("select status, skip_reason from task_occurrences where task_id=$1", [taskId])).rows;
+  assert.deepEqual(
+    cancelled.map((row) => [row.status, row.skip_reason]),
+    [
+      ["cancelled", "series_paused_projection"],
+      ["cancelled", "series_paused_projection"],
+    ],
+  );
+
+  const resumed = await groups.apply({
+    workspaceId,
+    actorUserId: userId,
+    groupId: randomUUID(),
+    groupExists: false,
+    now: new Date(),
+    undoExpiresAt: new Date(Date.now() + 60_000),
+    steps: [{ kind: "change_series", taskId, expectedVersion: afterPause.version, operation: "resume" }],
+  });
+  // Without reconciliation the series would come back with only the dates it had before the pause.
+  assert.deepEqual(resumed.reconcileTaskIds, [taskId]);
+  assert.equal((await database.pool.query("select status from tasks where id=$1", [taskId])).rows[0].status, "active");
+  const back = (await database.pool.query("select status, skip_reason from task_occurrences where task_id=$1", [taskId])).rows;
+  assert.equal(back.filter((row) => row.status !== "cancelled" && row.skip_reason === null).length, 2, "both future dates are live again");
+});
+
 test("unlinking a task from its goal is journaled with the link it removed and undo restores it", async () => {
   const { workspaceId, userId } = await fixture();
   const goalId = await createGoal(workspaceId, userId, "Здоровье");

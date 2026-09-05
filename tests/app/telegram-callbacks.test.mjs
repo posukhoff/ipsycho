@@ -9,6 +9,7 @@ import {
   goalListKeyboard,
   goalsScopeKeyboard,
   languageKeyboard,
+  pausedSeriesKeyboard,
   quickRescheduleKeyboard,
   quickRescheduleReasonKeyboard,
   remindersKeyboard,
@@ -23,7 +24,7 @@ import {
   taskMoreKeyboard,
   taskScopeKeyboard,
 } from "../../dist/telegram/telegram-ui.js";
-import { buttonsOf, callbackContext, lastButtons } from "./helpers/telegram-harness.mjs";
+import { buttonsOf, callbackContext, lastButtons, lastReplyButtons } from "./helpers/telegram-harness.mjs";
 
 const OCCURRENCE_ID = randomUUID();
 const SECOND_OCCURRENCE_ID = randomUUID();
@@ -56,7 +57,7 @@ const ROUTES = [
   /^resched:(1h|evening|tomorrow|custom):[0-9a-f-]{36}$/,
   /^rr:(h|e|t):(t|d|e|o):[0-9a-f-]{36}$/,
   /^follow:(seen|result):(15m|1h|evening|custom|none):[0-9a-f-]{36}$/,
-  /^series:(pause|cancel):[0-9a-f-]{36}$/,
+  /^series:(pause|resume|cancel):[0-9a-f-]{36}$/,
   /^rem:(cancel|mute):[0-9a-f-]{36}$/,
   /^act:(confirm|cancel|undo):[0-9a-f-]{36}$/,
   /^topic:end:[0-9a-f-]{36}$/,
@@ -77,6 +78,7 @@ const ROUTES = [
   /^review:weekly:start$/,
   /^tsk:(overdue|today|week|month|all|nodate):\d{1,3}$/,
   /^tdy:\d{1,3}$/,
+  /^paused:\d{1,3}$/,
   /^grp:(t|d):[0-9a-f-]{36}$/,
 ];
 
@@ -100,7 +102,8 @@ const KEYBOARDS = {
     pageCallback: (page) => `tsk:week:${page}`,
   }),
   todayListKeyboard: taskListKeyboard([MULTI_GROUP], "ru", { source: "today", page: 1, pages: 2, rest: 0, pageCallback: (page) => `tdy:${page}` }),
-  taskScopeKeyboard: taskScopeKeyboard("week", { overdue: 3, today: 4, week: 9, month: 12, all: 20, nodate: 2 }, "ru"),
+  taskScopeKeyboard: taskScopeKeyboard("week", { overdue: 3, today: 4, week: 9, month: 12, all: 20, nodate: 2 }, "ru", 2),
+  pausedSeriesKeyboard: pausedSeriesKeyboard([{ id: TASK_ID, title: "Зарядка по будням", recurrence: "FREQ=WEEKLY" }], "ru", { page: 1, pages: 3, rest: 4 }),
   taskGroupKeyboard: taskGroupKeyboard(MULTI_GROUP, "tasks", "ru"),
   goalsScopeKeyboard: goalsScopeKeyboard("active", "ru"),
   goalListKeyboard: goalListKeyboard([{ id: GOAL_UUID, title: "Запустить первую платную группу" }], "ru", { page: 0, pages: 2, rest: 4, scope: "paused" }),
@@ -125,14 +128,22 @@ test("every generated callback payload fits Telegram's 64-byte limit and is rout
 
 function service(overrides = {}) {
   const applied = [];
+  const seriesOperations = [];
+  const rerendered = [];
   const tasks = {
     getOccurrenceContext: async () => overrides.context ?? null,
+    getTask: async () => overrides.seriesTask ?? null,
     recordInteraction: async () => undefined,
     getTaskCardExtras: async () => ({ checklist: [], goalTitle: null }),
     ...overrides.tasks,
   };
   const actions = {
     validateResolved: async () => overrides.issues ?? [],
+    applySeriesOperation: async (_scope, taskId, expectedVersion, operation) => {
+      seriesOperations.push({ taskId, expectedVersion, operation });
+      if (overrides.applyThrows) throw overrides.applyThrows;
+      return { applied: { groupId: GROUP_ID, count: 1, titles: [], items: [] } };
+    },
     applyResolved: async (resolved) => {
       applied.push(resolved);
       if (overrides.applyThrows) throw overrides.applyThrows;
@@ -146,8 +157,9 @@ function service(overrides = {}) {
     showFuzzyTask: async () => Boolean(overrides.context),
     taskCard: async () => "карточка",
     occurrenceKeyboard: () => new InlineKeyboard().text("ok", `occ:done:${OCCURRENCE_ID}`),
+    pausedSeries_: async () => void rerendered.push(true),
   };
-  return { service: new TaskCallbacksService(tasks, {}, settings, actions, {}, screens), applied };
+  return { service: new TaskCallbacksService(tasks, {}, settings, actions, {}, screens), applied, seriesOperations, rerendered };
 }
 
 const context = {
@@ -204,6 +216,34 @@ test("More and Back only swap the keyboard, they never write", async () => {
   await handler.occurrence(back);
   assert.equal(applied.length, 0);
   assert.ok(lastButtons(back).includes(`occ:done:${OCCURRENCE_ID}`));
+});
+
+test("resuming a series redraws the paused list and offers no Undo, because undo cannot take the dates back", async () => {
+  const seriesTask = { id: TASK_ID, version: 4, title: "Зарядка", status: "paused", recurrenceRule: "FREQ=DAILY" };
+  const { service: handler, seriesOperations, rerendered } = service({ seriesTask });
+  const ctx = callbackContext(`series:resume:${TASK_ID}`);
+  await handler.series(ctx);
+  assert.deepEqual(seriesOperations, [{ taskId: TASK_ID, expectedVersion: 4, operation: "resume" }]);
+  assert.equal(rerendered.length, 1, "the list still showing the series as paused must be redrawn");
+  assert.deepEqual(lastReplyButtons(ctx), [], "undo of resume would leave a paused series with live dates");
+  assert.match(ctx.answers[0], /\S/);
+});
+
+test("pausing a series keeps its Undo, which does restore what it changed", async () => {
+  const seriesTask = { id: TASK_ID, version: 2, title: "Зарядка", status: "active", recurrenceRule: "FREQ=DAILY" };
+  const { service: handler, seriesOperations } = service({ seriesTask });
+  const ctx = callbackContext(`series:pause:${TASK_ID}`);
+  await handler.series(ctx);
+  assert.deepEqual(seriesOperations, [{ taskId: TASK_ID, expectedVersion: 2, operation: "pause" }]);
+  assert.deepEqual(lastReplyButtons(ctx), [`act:undo:${GROUP_ID}`]);
+});
+
+test("a series button for a task that is gone reports it instead of acting", async () => {
+  const { service: handler, seriesOperations } = service({});
+  const ctx = callbackContext(`series:resume:${TASK_ID}`);
+  await handler.series(ctx);
+  assert.deepEqual(seriesOperations, []);
+  assert.match(ctx.answers[0], /\S/);
 });
 
 test("a card whose text Telegram refuses to edit still loses its buttons", async () => {

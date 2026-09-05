@@ -37,8 +37,42 @@ Relative time uses your timezone; unclear or sensitive changes need confirmation
 Do not send passwords or access keys in chat.
 Limits: 60 messages / 60 AI calls per hour; voice up to 5 min and 20 MB.
 
-### guide
-undefined
+### guide: tasks
+📋 Tasks
+
+A task can have an exact time, time window, deadline, or deliberately approximate horizon. Include why it matters, constraints, people, materials, and a next step — that becomes task context for planning and the weekly review.
+
+For a multi-step job, list the steps and AI can propose a checklist. Unchecked items are never silently completed with the task.
+
+/tasks shows overdue work and the next 7 days by default; the buttons under the list switch to today, the month, everything, or tasks without a date. Identical items collapse into one line — the ▸ arrow opens all of its dates.
+
+### guide: goals
+🎯 Goals
+
+A goal answers “why”: it connects related tasks and helps choose priorities. You can change its title, why, and context in an ordinary message.
+
+Linked tasks appear in /goals. During the weekly review, AI discusses progress and helps plan the next week — without hidden automatic changes.
+
+### guide: reminders
+🔔 Reminders
+
+An event is contacted before it starts and at the start; an all-day event is contacted that morning. A task with an exact time is contacted at its planned time. Important deadlines receive additional planning contacts before and around the due date.
+
+Quiet hours and rescheduling are respected. Cancel or move any reminder in a normal message; a reminder is never created in the past.
+
+### guide: reports
+🗓 Briefings and reviews
+
+The morning briefing gathers the day's plan. The evening review helps close the day and decide what to move. The weekly review is a conversation about goals, habits, blockers, and the next week's plan.
+
+Change morning, evening, and weekly review times in /settings using ordinary language. A review never creates or changes tasks without clear agreement.
+
+### guide: ai
+🤖 AI processing
+
+AI receives only limited relevant context from your personal workspace: the current conversation, tasks, goals, and non-sensitive profile. It cannot access other users' data, the database, or credentials.
+
+Do not send passwords or access keys. External AI processing requires consent; voice is transcribed first and audio is not stored. “Clear AI history” removes only history used by AI, not tasks, goals, or your profile.
 
 ### settings
 ⚙️ Settings
@@ -76,6 +110,11 @@ Main: Позвонить клиенту
 2. • Позвонить маме · 3 dates · next 06/09, 12:00 ▸
 
 To change, complete, or reschedule a task, just write it in a message.
+
+### paused series
+⏸ Paused series: 3
+
+9. 🔁 Полить цветы — every week: Mon
 
 ### task group
 • Позвонить маме

@@ -9,6 +9,7 @@ import {
   remindersText,
   settingsText,
   taskCardText,
+  pausedSeriesText,
   taskGroupText,
   tasksOverviewText,
   terminalTaskText,
@@ -104,16 +105,21 @@ const REMINDERS = [
   { delivery: { id: "d4", scheduledFor: new Date("2026-09-09T06:00:00Z") }, task: { title: "Полить цветы", timezone: TIMEZONE } },
 ];
 
+const GUIDE_SECTIONS = ["tasks", "goals", "reminders", "reports", "ai"];
+
 function render(locale) {
   const copy = deterministicCopy(locale);
   const sections = [
     ["start", copy.ready],
     ["onboarding: timezone", copy.startOnboarding],
     ["help", helpText(config, locale)],
-    ["guide", guideText(locale)],
+    // Every guide section, because `guideText(locale)` used to pin the literal string "undefined":
+    // the function takes the section first, so the whole in-product guide had no coverage at all.
+    ...GUIDE_SECTIONS.map((section) => [`guide: ${section}`, guideText(section, locale)]),
     ["settings", settingsText(settings, NOW, 42, locale)],
     ["today", todayText(groupTaskRows([listRow], LOCAL_DATE), LOCAL_DATE, { locale, completedCount: 2, staleCount: 3, now: NOW })],
     ["tasks", tasksOverviewText(groupTaskRows([listRow, ...repeatedRows], LOCAL_DATE), { scope: "week", locale, now: NOW })],
+    ["paused series", pausedSeriesText([{ title: "Полить цветы", recurrenceRule: "FREQ=WEEKLY;BYDAY=MO", recurrenceEndLocalDate: null }], { locale, total: 3, offset: 8 })],
     ["task group", taskGroupText(groupTaskRows(repeatedRows, LOCAL_DATE)[0], locale, NOW)],
     ["goals", goalsOverviewText([GOAL], { scope: "active", locale })],
     ["goal", goalDetailText(GOAL, locale)],

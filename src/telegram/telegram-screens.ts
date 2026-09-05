@@ -1,4 +1,5 @@
 import { compactText } from "../core/telegram-ux.js";
+import { recurrenceLabel } from "../core/recurrence-label.js";
 import { localDateAt, parseLocalDate, shiftLocalDate } from "../core/timezone.js";
 import { selectCardDetails } from "../core/card-details.js";
 import type { TaskScope } from "../core/task-list-view.js";
@@ -131,6 +132,22 @@ export function tasksOverviewText(
   const lines = [header, ""];
   for (const [index, group] of groups.entries()) lines.push(`${offset + index + 1}. ${groupLine(group, now, locale)}`);
   lines.push("", t(locale, "tasks_hint"));
+  return compactText(lines.join("\n"), 3_800);
+}
+
+/** Paused series: the title and the rhythm each one will pick up again. */
+export function pausedSeriesText(
+  rows: ReadonlyArray<{ title: string; recurrenceRule: string | null; recurrenceEndLocalDate?: string | null }>,
+  options: { locale?: TelegramLocale; total?: number; offset?: number } = {},
+): string {
+  const locale = options.locale ?? "ru";
+  if (!rows.length) return t(locale, "paused_series_empty");
+  const offset = options.offset ?? 0;
+  const lines = [t(locale, "paused_series_header", { count: options.total ?? rows.length }), ""];
+  for (const [index, row] of rows.entries()) {
+    const rhythm = recurrenceLabel(row.recurrenceRule, row.recurrenceEndLocalDate ?? null, locale);
+    lines.push(`${offset + index + 1}. 🔁 ${row.title}${rhythm ? ` — ${rhythm}` : ""}`);
+  }
   return compactText(lines.join("\n"), 3_800);
 }
 

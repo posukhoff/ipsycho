@@ -20,6 +20,8 @@ import {
   goalsOverviewText,
   goalsScopeKeyboard,
   languageKeyboard,
+  pausedSeriesKeyboard,
+  pausedSeriesText,
   remindersKeyboard,
   remindersText,
   screenFooterKeyboard,
@@ -69,7 +71,7 @@ export class ScreensService {
   async tasks_(ctx: AppContext, edit = false, scope: TaskScope = DEFAULT_TASK_SCOPE, page = 0): Promise<void> {
     const { access, settings, locale } = activeState(ctx);
     const localDate = localDateAt(new Date(), settings.timezone);
-    const { groups, counts } = await this.tasks.listGroupedForTelegram(access.workspaceId, { scope, localDate });
+    const { groups, counts, pausedCount } = await this.tasks.listGroupedForTelegram(access.workspaceId, { scope, localDate });
     const view = paginate(groups, page, PAGE_SIZE);
     const keyboard = taskListKeyboard(view.items, locale, {
       source: "tasks",
@@ -79,8 +81,27 @@ export class ScreensService {
       rest: view.rest,
       pageCallback: (next) => `tsk:${scope}:${next}`,
     });
-    for (const row of taskScopeKeyboard(scope, counts, locale).inline_keyboard) keyboard.row(...row);
+    for (const row of taskScopeKeyboard(scope, counts, locale, pausedCount).inline_keyboard) keyboard.row(...row);
     await this.present(ctx, tasksOverviewText(view.items, { scope, total: groups.length, offset: view.page * PAGE_SIZE, locale }), appendFooter(keyboard, locale), edit);
+  }
+
+  /**
+   * Paused series. They are in no date window, so this is the only screen that shows them and the
+   * only place the series can be started again.
+   */
+  async pausedSeries_(ctx: AppContext, edit = false, page = 0): Promise<void> {
+    const { access, locale } = activeState(ctx);
+    const { rows, total } = await this.tasks.listPausedSeriesForTelegram(access.workspaceId, { limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+    if (!total) return this.present(ctx, pausedSeriesText([], { locale }), screenFooterKeyboard(locale), edit);
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const current = Math.min(page, pages - 1);
+    const offset = current * PAGE_SIZE;
+    const keyboard = pausedSeriesKeyboard(
+      rows.map((task) => ({ id: task.id, title: task.title })),
+      locale,
+      { page: current, pages, rest: Math.max(0, total - (current + 1) * PAGE_SIZE) },
+    );
+    await this.present(ctx, pausedSeriesText(rows, { locale, total, offset }), keyboard, edit);
   }
 
   /** One collapsed line opened up: the dates it stood for, each leading to its own card. */

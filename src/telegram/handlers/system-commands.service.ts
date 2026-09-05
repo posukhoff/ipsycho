@@ -26,6 +26,7 @@ const GUIDE_CALLBACK = /^guide:(help|index|tasks|goals|reminders|reports|ai)$/;
 const NAV_CALLBACK = /^nav:(today|tasks|reminders|settings|goals)$/;
 const TASK_SCOPE_CALLBACK = /^tsk:(overdue|today|week|month|all|nodate):(\d{1,3})$/;
 const TODAY_PAGE_CALLBACK = /^tdy:(\d{1,3})$/;
+const PAUSED_SERIES_CALLBACK = /^paused:(\d{1,3})$/;
 const GROUP_CALLBACK = /^grp:(t|d):([0-9a-f-]{36})$/;
 const GOALS_SCOPE_CALLBACK = /^gl:(active|paused|completed):(\d{1,3})$/;
 const GOAL_CALLBACK = /^goal:([0-9a-f-]{36})$/;
@@ -75,6 +76,7 @@ export class SystemCommandsService {
     bot.callbackQuery(NAV_CALLBACK, (ctx) => this.navigate(ctx));
     bot.callbackQuery(TASK_SCOPE_CALLBACK, (ctx) => this.tasksPage(ctx));
     bot.callbackQuery(TODAY_PAGE_CALLBACK, (ctx) => this.todayPage(ctx));
+    bot.callbackQuery(PAUSED_SERIES_CALLBACK, (ctx) => this.pausedSeriesPage(ctx));
     bot.callbackQuery(GROUP_CALLBACK, (ctx) => this.openGroup(ctx));
     bot.callbackQuery(GOALS_SCOPE_CALLBACK, (ctx) => this.goalsPage(ctx));
     bot.callbackQuery(GOAL_CALLBACK, (ctx) => this.openGoal(ctx));
@@ -274,6 +276,14 @@ export class SystemCommandsService {
     if (!match?.[1] || match[2] === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     await ctx.answerCallbackQuery();
     await this.screens.tasks_(ctx, true, match[1] as TaskScope, Number(match[2]));
+  }
+
+  private async pausedSeriesPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
+    const { locale } = activeState(ctx);
+    const match = PAUSED_SERIES_CALLBACK.exec(ctx.callbackQuery.data);
+    if (match?.[1] === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
+    await ctx.answerCallbackQuery();
+    await this.screens.pausedSeries_(ctx, true, Number(match[1]));
   }
 
   private async todayPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {

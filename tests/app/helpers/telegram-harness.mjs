@@ -10,6 +10,7 @@ export function callbackContext(data, options = {}) {
   const answers = [];
   const edits = [];
   const markups = [];
+  const replies = [];
   const ctx = {
     callbackQuery: { data, message: { message_id: 42, chat: { id: 777 } } },
     chat: { id: 777, type: "private" },
@@ -18,6 +19,7 @@ export function callbackContext(data, options = {}) {
     answers,
     edits,
     markups,
+    replies,
     answerCallbackQuery: async (payload) => void answers.push(payload?.text ?? null),
     editMessageText: async (text, extra) => {
       if (editFails) throw new Error("message is not modified");
@@ -28,7 +30,11 @@ export function callbackContext(data, options = {}) {
       if (editFails) throw new Error("message is not modified");
       markups.push(extra?.reply_markup ?? null);
     },
-    reply: async (text) => void edits.push(text),
+    // A reply is a new message, so its keyboard is recorded apart from the one left on the card.
+    reply: async (text, extra) => {
+      edits.push(text);
+      replies.push({ text, markup: extra?.reply_markup ?? null });
+    },
   };
   return ctx;
 }
@@ -43,4 +49,9 @@ export function buttonsOf(markup) {
 /** The last keyboard the handler set, as callback payloads. */
 export function lastButtons(ctx) {
   return buttonsOf(ctx.markups[ctx.markups.length - 1]);
+}
+
+/** The keyboard on the last message the handler sent as a reply, as callback payloads. */
+export function lastReplyButtons(ctx) {
+  return buttonsOf(ctx.replies[ctx.replies.length - 1]?.markup);
 }

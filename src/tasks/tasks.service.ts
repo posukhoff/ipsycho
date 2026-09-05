@@ -259,9 +259,15 @@ export class TasksService {
 
   /** The task list for one filter: groups in reading order, plus what every other filter would show. */
   async listGroupedForTelegram(workspaceId: string, input: { scope: TaskScope; localDate: string }) {
-    const rows = await this.listScreenRows(workspaceId);
+    const [rows, pausedCount] = await Promise.all([this.listScreenRows(workspaceId), this.repository.countPausedSeries(workspaceId)]);
     const groups = groupTaskRows(filterByScope(rows, input.scope, input.localDate), input.localDate);
-    return { groups, counts: scopeCounts(rows, input.localDate), total: groups.length };
+    return { groups, counts: scopeCounts(rows, input.localDate), total: groups.length, pausedCount };
+  }
+
+  /** One page of paused series, the one list where they are visible at all, plus how many there are. */
+  async listPausedSeriesForTelegram(workspaceId: string, input: { limit: number; offset?: number }) {
+    const [rows, total] = await Promise.all([this.repository.listPausedSeriesForTelegram(workspaceId, input), this.repository.countPausedSeries(workspaceId)]);
+    return { rows, total };
   }
 
   /**

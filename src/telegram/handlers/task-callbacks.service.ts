@@ -17,7 +17,7 @@ import { logger } from "../../observability/logger.js";
 const UUID = "[0-9a-f-]{36}";
 const VIEW_CALLBACK = new RegExp(`^view:(occ|task):(${UUID})$`);
 const OCCURRENCE_CALLBACK = new RegExp(`^occ:(start|done|skip|cant|cancel|cancel_one|resched|more|back|check):(${UUID})$`);
-const SERIES_CALLBACK = new RegExp(`^series:(pause|cancel):(${UUID})$`);
+const SERIES_CALLBACK = new RegExp(`^series:(pause|resume|cancel):(${UUID})$`);
 const REMINDER_CALLBACK = new RegExp(`^rem:(cancel|mute):(${UUID})$`);
 const ACTION_CALLBACK = new RegExp(`^act:(confirm|cancel|undo):(${UUID})$`);
 const TOPIC_CONTROL_CALLBACK = new RegExp(`^topic:end:(${UUID})$`);
@@ -167,7 +167,7 @@ export class TaskCallbacksService {
   private async series(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
     const match = SERIES_CALLBACK.exec(ctx.callbackQuery.data);
-    const operation = match?.[1] as "pause" | "cancel" | undefined;
+    const operation = match?.[1] as "pause" | "resume" | "cancel" | undefined;
     const taskId = match?.[2];
     if (!operation || !taskId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     const task = await this.tasks.getTask(access.workspaceId, taskId);
@@ -179,10 +179,18 @@ export class TaskCallbacksService {
         task.version,
         operation,
       );
-      const message = t(locale, operation === "pause" ? "series_paused" : "series_cancelled");
+      const message = t(locale, operation === "pause" ? "series_paused" : operation === "resume" ? "series_resumed" : "series_cancelled");
       await ctx.answerCallbackQuery({ text: message });
-      await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
-      if (result.applied) await ctx.reply(`${message}.`, { reply_markup: new InlineKeyboard().text(t(locale, "undo_button"), `act:undo:${result.applied.groupId}`) });
+      // Resume comes from the paused list, and the row it acted on is gone: redraw that screen
+      // instead of leaving a list that still shows the series as paused.
+      if (operation === "resume") await this.screens.pausedSeries_(ctx, true);
+      else await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
+      // Resume materializes dates outside the journal, so undo would restore the paused parent and
+      // leave those dates live and reminding. Pausing again is the honest way back, and the card
+      // offers it as soon as the series is active.
+      if (result.applied && operation !== "resume")
+        await ctx.reply(`${message}.`, { reply_markup: new InlineKeyboard().text(t(locale, "undo_button"), `act:undo:${result.applied.groupId}`) });
+      else if (result.applied) await ctx.reply(`${message}.`);
     } catch (error) {
       logger.error("series callback failed", { taskId, error: safeError(error) });
       await this.stale(ctx, "series_changed_toast");
