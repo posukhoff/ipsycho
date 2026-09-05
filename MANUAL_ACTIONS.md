@@ -39,6 +39,37 @@ This file contains only checks that cannot be proven by the local automated suit
 - [ ] Exercise transport errors and process restarts during AI retry, reminder processing and action acknowledgement; record whether the known external duplicate/missing-acknowledgement window is acceptable for release.
 - [ ] Force a fatal Telegram polling failure and verify the process exits non-zero and the deployment supervisor restarts it.
 
+## Telegram Mini App
+
+Run after the Mini App is enabled in production ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) § "Mini App: domain, TLS and registration"). The app is the browsing surface only: the conversation, the reaction cards, `/start` and the account gates stay in chat, and the bot must remain usable by someone who never opens the app.
+
+### The public edge
+
+- [ ] From a machine that is not the VPS: `https://<domain>/app/` answers 200, `https://<domain>/health`, `/ready` and `/` answer 404, and `http://<domain>/app/` answers 308 to HTTPS. The 404s are the check that matters — a catch-all route would publish the commit SHA, the database state and the loop names.
+- [ ] The certificate is valid, matches the domain, and `docker compose logs caddy` shows it was obtained rather than reused from a stale volume.
+- [ ] `curl -sSI https://<domain>/app/` carries `Content-Security-Policy` with `frame-ancestors https://web.telegram.org https://*.telegram.org`, `Strict-Transport-Security`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and **no `X-Frame-Options`** — `DENY` there is what makes the app a blank page inside Telegram Web.
+- [ ] The CSP `script-src` contains no `'unsafe-inline'`. The API is same-origin with no cookie, so an XSS in the app is full account control.
+- [ ] `index.html` comes back `no-store` and a hashed asset under `/app/assets/` comes back `public, max-age=31536000, immutable`.
+- [ ] `curl -H 'X-Forwarded-For: 1.2.3.4' https://<domain>/api/v1/me` (unauthenticated) is refused and the app's log shows the real client address, not `1.2.3.4`. A limiter keyed on a client-controlled header lets one attacker lock out the only legitimate user.
+- [ ] Nothing in `docker compose logs` — app or caddy — contains `hash=`, `auth_date=`, a first name, or any part of an `Authorization: tma …` value, for a rejected request and for a successful one.
+- [ ] `3000` and `5432` are still unreachable from outside the VPS.
+
+### Real clients
+
+- [ ] Open the app from the chat menu button on **iOS**, **Android**, **desktop** and **Telegram Web in a browser**. The web case is the one that fails on its own: it runs the app in an iframe, and a wrong framing header renders a blank page rather than an error.
+- [ ] On each client: the theme matches Telegram's (switch Telegram between light and dark and reopen), the viewport fills the sheet after `expand()`, the safe-area insets are respected on a notched phone, and the Telegram BackButton walks the app's history and closes the app at the root rather than dead-ending.
+- [ ] A deep link opens the right screen: tap the launch button on a reminder card and land on that occurrence, on the morning card and land on Today, on the weekly card and land on the week plan. Confirm the id travelled in the URL **fragment** — it must not appear in any server-side log.
+- [ ] Edit the fragment by hand to another user's occurrence id and confirm the app shows a not-found screen, not an error and not data.
+- [ ] Set Telegram to English with no pinned language and confirm the app has no Cyrillic; pin `uk` and confirm it follows.
+- [ ] With the app open, disable the account with the admin CLI and make one more action in the app: it is refused immediately, without a restart.
+- [ ] Close the app and confirm the conversation is on screen underneath, unchanged.
+
+### Both surfaces at once (rollout step 2)
+
+- [ ] Change a task in the app, then `/status` and the journal in chat show the same change with the same Undo affordance as the equivalent button press. A change made in the app produces no chat message — confirm that is what happens, rather than a duplicate card.
+- [ ] Receive a real reminder, tap Готово in chat, then open the same task from the launch button and confirm the app shows it as done.
+- [ ] With `WEBAPP_ENABLED=false`, confirm the bot behaves exactly as it did before this change: no launch buttons, no menu button, and every browsing command still answers in chat.
+
 ## Production operations
 
 - [ ] Protect `main`, require CI and deploy only the verified commit described in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

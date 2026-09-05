@@ -2,3 +2,8 @@ node_modules
 .git
 .env
 .core-dist
+# The web workspace is built inside the image. Copying a host-built `web/dist` in would ship
+# whatever was last built locally, and `web/node_modules` is a platform-specific tree that npm
+# would then have to repair.
+web/node_modules
+web/dist

@@ -44,7 +44,38 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    # No published app port: /health and /ready remain internal to Docker/VPS.
+    # No published app port: /health and /ready remain internal to Docker/VPS. Caddy reaches the
+    # app over the compose network as `app:3000` and publishes only /app and /api/v1.
+
+  # TLS termination and the only public entry point. Behind the `webapp` profile, so a deployment
+  # that has not enabled the Mini App yet (rollout step 1, `WEBAPP_ENABLED=false`) starts exactly
+  # the two services it started before and opens no ports. Turn it on with `COMPOSE_PROFILES=webapp`
+  # in /opt/ipsycho/.env — see docs/DEPLOYMENT.md § "Mini App: domain, TLS and registration".
+  caddy:
+    profiles: ["webapp"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    # Interpolation runs for every service regardless of the active profile, so these cannot be
+    # `:?required` — that would break `docker compose config` and every deploy before the domain
+    # exists. Caddy fails loudly at startup instead when either is empty.
+    environment:
+      WEBAPP_DOMAIN: ${WEBAPP_DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Losing this volume means re-issuing on next start,
+      # which Let's Encrypt rate-limits — back it up or accept the reissue window.
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

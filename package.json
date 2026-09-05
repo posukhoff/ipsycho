@@ -3,13 +3,18 @@
   "version": "1.0.0-rc.4",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "web"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
   "scripts": {
     "predev": "tsc -p tsconfig.json",
     "dev": "bash scripts/dev.sh",
+    "dev:web": "npm -w @ipsycho/web run dev",
     "build": "rm -rf dist && tsc -p tsconfig.json",
+    "build:web": "npm -w @ipsycho/web run build",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "migrate": "tsx src/database/migrate.ts",
@@ -18,11 +23,12 @@
     "test:app": "npm run build && node --test tests/app/*.test.mjs",
     "test:e2e": "sh scripts/test-e2e.sh",
     "eval:agent": "npm run build && node scripts/eval-agent.mjs",
-    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test:core && npm run test:app",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test:core && npm run test:app && npm run check:web",
     "lint": "eslint src tests scripts --max-warnings=0",
     "format": "prettier --write \"{src,tests,scripts}/**/*.{ts,mjs,json}\"",
     "format:check": "prettier --check \"{src,tests,scripts}/**/*.{ts,mjs,json}\"",
-    "coverage": "npm run build && c8 node --test tests/core/*.test.mjs tests/app/*.test.mjs"
+    "coverage": "npm run build && c8 node --test tests/core/*.test.mjs tests/app/*.test.mjs",
+    "check:web": "npm -w @ipsycho/web run typecheck && npm -w @ipsycho/web run lint && npm -w @ipsycho/web run format:check && npm -w @ipsycho/web run build"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "2.0.2",

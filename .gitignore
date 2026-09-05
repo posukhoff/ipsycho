@@ -11,3 +11,6 @@ eval/results/
 
 # Coverage output is a build artefact; CI uploads lcov.info as its own artifact.
 coverage/
+
+# Agent worktrees are local scratch checkouts.
+.claude/worktrees/

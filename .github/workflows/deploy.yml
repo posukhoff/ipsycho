@@ -18,7 +18,8 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The remote rebuild now compiles the Mini App bundle as well as the server.
+    timeout-minutes: 25
     environment: production
     steps:
       - name: Configure SSH
@@ -41,3 +42,44 @@ jobs:
           # The script is taken from the target commit so a deploy uses its own rollback logic.
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             "cd /opt/ipsycho && git fetch --prune origin && git show '$DEPLOY_SHA:scripts/deploy-remote.sh' > /tmp/deploy-remote.sh && DEPLOY_SHA='$DEPLOY_SHA' bash /tmp/deploy-remote.sh"
+
+      # `deploy-remote.sh` proves the app process is up by asking it for its commit over the
+      # compose network. That says nothing about the public edge, which is a separate container
+      # with its own certificate. Skipped until the Mini App domain exists (rollout step 1), so
+      # this workflow keeps working before the domain is chosen.
+      - name: Check the Mini App over HTTPS
+        env:
+          WEBAPP_DOMAIN: ${{ vars.WEBAPP_DOMAIN }}
+        run: |
+          set -u
+          if [ -z "${WEBAPP_DOMAIN:-}" ]; then
+            echo "WEBAPP_DOMAIN repository variable is unset; the Mini App edge is not deployed yet. Skipping."
+            exit 0
+          fi
+
+          probe() { curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null || echo 000; }
+
+          code=000
+          for attempt in $(seq 1 10); do
+            code="$(probe "https://$WEBAPP_DOMAIN/app/")"
+            [ "$code" = "200" ] && break
+            echo "attempt $attempt: /app answered $code"
+            sleep 6
+          done
+          if [ "$code" != "200" ]; then
+            echo "::error::https://$WEBAPP_DOMAIN/app/ answered $code, expected 200"
+            exit 1
+          fi
+          echo "app_ok https://$WEBAPP_DOMAIN/app/"
+
+          # The Caddyfile has no catch-all route on purpose: /health and /ready report the commit
+          # SHA, the database state and the loop names. If a catch-all ever comes back, Caddy
+          # answers 200 here instead of 404 and this is the check that notices.
+          for path in /health /ready /; do
+            code="$(probe "https://$WEBAPP_DOMAIN$path")"
+            if [ "$code" != "404" ]; then
+              echo "::error::https://$WEBAPP_DOMAIN$path answered $code, expected 404 — the edge is exposing more than /app and /api/v1"
+              exit 1
+            fi
+          done
+          echo "edge_closed_ok /health /ready / all answered 404"

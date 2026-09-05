@@ -8,19 +8,30 @@ server whenever a verified commit reaches `main`.
 
 ```text
 GitHub main -- GitHub Actions -- SSH --> VPS /opt/ipsycho
+                                         |-- caddy (80/443, `webapp` profile only)
+                                         |     `-- /app*, /api/v1/* --> app:3000
                                          |-- app (non-root Docker container)
                                          `-- postgres (internal Docker network)
 ```
 
-The app and PostgreSQL are intentionally not published to the public internet.
-Telegram long polling needs only outbound HTTPS access.
+PostgreSQL is never published, and the app container publishes no port of its
+own: `/health` and `/ready` stay inside the Docker network. Telegram long
+polling needs only outbound HTTPS access.
+
+Until the Mini App is enabled that is the whole deployment — the `caddy` service
+sits behind a Compose profile and does not start, so nothing listens on 80 or
+443. Once the profile is on, Caddy is the single public entry point and forwards
+exactly two path prefixes to the app. Everything else, `/health` and `/ready`
+included, gets a 404 from Caddy; see
+[Mini App: domain, TLS and registration](#mini-app-domain-tls-and-registration).
 
 ## First server setup
 
 1. Create an Ubuntu 24.04 VPS in an EU location with at least 2 vCPU, 4 GB RAM
    and 40 GB disk. Add an SSH key at creation time.
 2. In the provider firewall permit inbound SSH (`22/tcp`) only from your own
-   current IP. Do not expose `3000` or `5432`.
+   current IP. Do not expose `3000` or `5432`. Leave `80` and `443` closed for
+   now; they are opened as one explicit step when the Mini App goes live.
 3. Install Docker Engine and the Compose plugin using Docker's official Ubuntu
    instructions. Create a non-root operator user named `deploy` and grant it
    Docker access.
@@ -65,6 +76,17 @@ Telegram long polling needs only outbound HTTPS access.
    | `DEPLOY_SSH_PRIVATE_KEY_BASE64` | the private key for Actions to SSH into the VPS, base64-encoded (`base64 -w0 < key`) so newlines survive the secret store |
    | `DEPLOY_KNOWN_HOSTS` | pinned `ssh-keyscan -H <host>` output, verified against the provider console fingerprint |
 
+   Add one environment **variable** (not a secret — it is a public host name)
+   once the Mini App domain exists:
+
+   | Variable | Value |
+   | --- | --- |
+   | `WEBAPP_DOMAIN` | the Mini App host name, e.g. `app.example.com` |
+
+   While it is unset the deploy workflow skips its public HTTPS check and says
+   so. Once it is set, every deploy must see `https://<domain>/app/` answer 200
+   and `/health`, `/ready` and `/` answer 404, or the workflow fails.
+
 Pushes to `main` first run CI. A successful CI run deploys its exact commit;
 the server checks out that commit in detached mode, so the deployed code cannot
 silently advance to a later, unverified commit. Keep server-specific changes in
@@ -82,6 +104,217 @@ are no longer pruned during a deploy; schedule
 Container logs rotate at 5 × 10 MB per service. `stop_grace_period: 30s` gives
 the old container time to release the migration advisory lock before the new
 one starts.
+
+## Mini App: domain, TLS and registration
+
+The Telegram Mini App is the browsing surface: lists, task detail, forms,
+settings. The conversation, the reaction cards and the account gates stay in
+chat. Turning it on makes the process reachable from the internet for the first
+time, so the steps below are deliberately separate from the base deployment and
+none of them happens automatically.
+
+Nothing in this repository names a domain. Choose one, then set it in
+`/opt/ipsycho/.env`; the `Caddyfile` reads it from the environment.
+
+### 1. Choose the domain and point DNS at the VPS — manual
+
+Pick a host name you control, for example `app.example.com`. A dedicated
+subdomain is worth it: the certificate, the CSP and the deploy check are all
+scoped to it, and a shared host makes each of those someone else's problem too.
+
+Create the DNS records at the registrar and wait for them to resolve:
+
+```text
+A     app.example.com  ->  <VPS IPv4>
+AAAA  app.example.com  ->  <VPS IPv6>   (only if the VPS has one)
+```
+
+```sh
+dig +short app.example.com
+```
+
+Do not continue until that prints the VPS address. Caddy's certificate request
+fails if the name does not resolve to this machine, and a failed ACME order is
+rate-limited.
+
+### 2. Open 80 and 443 — manual
+
+In the provider firewall (and `ufw`, if it is in use) permit inbound `80/tcp`,
+`443/tcp` and `443/udp`. Port 80 is required: Caddy uses it for the HTTP-01
+challenge and then serves nothing but redirects to HTTPS. `3000` and `5432`
+stay closed.
+
+### 3. Configure `/opt/ipsycho/.env` — manual
+
+```sh
+WEBAPP_ENABLED=true
+WEBAPP_URL=https://app.example.com/app
+WEBAPP_DOMAIN=app.example.com
+ACME_EMAIL=you@example.com
+COMPOSE_PROFILES=webapp
+```
+
+- `WEBAPP_ENABLED` mounts the API and the static files inside the app. Default
+  is `false`, which is the rollout-step-1 state and the rollback state.
+- `WEBAPP_URL` is what the bot puts in `web_app` buttons. It is the public
+  HTTPS URL of `/app` with **no trailing slash**: the bot appends the route
+  fragment to it (`${WEBAPP_URL}/#/today`, `/#/task/<id>`, `/#/week`).
+- `WEBAPP_DOMAIN` and `ACME_EMAIL` are read by the `Caddyfile`. Both are
+  required together: with either empty Caddy refuses to start with a config
+  error rather than falling back to some default host.
+- `COMPOSE_PROFILES=webapp` is what starts the `caddy` service at all. Without
+  it `docker compose up` brings up `postgres` and `app` exactly as before and
+  opens no ports — which is why enabling the Mini App cannot happen by accident.
+  Compose reads it from `.env` like any other variable, so `deploy-remote.sh`
+  and every manual `docker compose` in `/opt/ipsycho` pick it up with no flag.
+
+### 4. Issue the certificate — manual, once
+
+```sh
+cd /opt/ipsycho
+APP_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
+docker compose logs -f caddy
+```
+
+Watch for `certificate obtained successfully`. Then verify the edge from
+**outside** the VPS:
+
+```sh
+curl -sS -o /dev/null -w '%{http_code}\n' https://app.example.com/app/     # 200
+curl -sS -o /dev/null -w '%{http_code}\n' https://app.example.com/health   # 404
+curl -sS -o /dev/null -w '%{http_code}\n' https://app.example.com/ready    # 404
+curl -sS -o /dev/null -w '%{http_code}\n' https://app.example.com/         # 404
+curl -sSI http://app.example.com/app/ | head -1                            # 308
+```
+
+The three 404s are the point of the `Caddyfile`, not a nicety: `/health` and
+`/ready` report the deployed commit SHA, the database state and the names of
+the periodic loops. Caddy answers a path that matches no route with an empty
+`200`, so a catch-all `reverse_proxy` — the shape almost every tutorial
+suggests — publishes all of it. The config has explicit `handle` blocks for
+`/app*` and `/api/v1/*` and a final `respond 404`; the deploy workflow re-checks
+those four responses after every release.
+
+Renewal is automatic: Caddy renews about 30 days before expiry and needs
+nothing but port 80 or 443 reachable. Certificates and the ACME account key
+live in the `caddy_data` volume. Losing that volume is not fatal but forces a
+re-issue on the next start, which Let's Encrypt rate-limits — include it if you
+extend the backup script, or accept the window.
+
+### 5. Register the Mini App with BotFather — manual
+
+In [@BotFather](https://t.me/BotFather):
+
+1. `/newapp`, choose this bot.
+2. Title, short description, a 640×360 photo, and no demo GIF.
+3. Web App URL: `https://app.example.com/app`.
+4. Short name — this becomes `t.me/<bot>/<shortname>`.
+
+`/myapps` edits any of it afterwards. The short name matters only for
+`t.me/<bot>/<shortname>?startapp=` links; the bot's own buttons use
+`WEBAPP_URL` directly.
+
+### 6. Set the chat menu button — automatic, with a manual fallback
+
+With `WEBAPP_ENABLED=true` the bot sets its own chat menu button at startup,
+and leaves it alone when the flag is off. To set or repair it by hand:
+
+```sh
+curl -sS -X POST "https://api.telegram.org/bot<TOKEN>/setChatMenuButton" \
+  -H 'Content-Type: application/json' \
+  -d '{"menu_button":{"type":"web_app","text":"Открыть","web_app":{"url":"https://app.example.com/app"}}}'
+```
+
+To put it back to the default commands menu:
+
+```sh
+curl -sS -X POST "https://api.telegram.org/bot<TOKEN>/setChatMenuButton" \
+  -H 'Content-Type: application/json' -d '{"menu_button":{"type":"commands"}}'
+```
+
+### 7. Rollback
+
+The Mini App has two rollback levers and they are not the same size.
+
+```sh
+# Turn the surface off; the bot keeps working exactly as before.
+cd /opt/ipsycho
+sed -i 's/^WEBAPP_ENABLED=true$/WEBAPP_ENABLED=false/' .env
+docker compose up -d
+curl -sS -X POST "https://api.telegram.org/bot<TOKEN>/setChatMenuButton" \
+  -H 'Content-Type: application/json' -d '{"menu_button":{"type":"commands"}}'
+```
+
+`WEBAPP_ENABLED=false` unmounts the API and the static files, so the app answers
+nothing even though Caddy is still listening. It does not remove the menu button
+Telegram already stored, which is why the second command is part of the rollback.
+Buttons already sent in scroll-back keep pointing at a URL that now returns a
+404 from the app — acceptable, and the reason the browsing commands are not
+deleted from the bot until the app has been used in production.
+
+To take the edge down entirely, remove `COMPOSE_PROFILES=webapp` from `.env` and
+run `docker compose up -d --remove-orphans`; ports 80 and 443 stop being served.
+Close them in the firewall too if the outage is expected to last.
+
+### 8. Revocation and the blast radius of a stolen `initData`
+
+Every API request carries `Authorization: tma <initDataRaw>` — the payload
+Telegram signs with the bot token. There is no session store, no cookie and no
+refresh, so this string *is* the credential.
+
+- **Disabling one user is immediate.** The guard re-resolves the allowlist
+  through `AccessService` on every request, so the admin CLI takes effect on the
+  next call on both surfaces. Nothing is cached, and no restart is needed.
+- **Rotating the bot token invalidates every outstanding `initData` at once.**
+  The signing key is derived from the token, so every previously issued payload
+  stops verifying the moment the new token is in `.env`. This is the emergency
+  lever when a device is lost or a payload may have leaked. It also restarts the
+  bot and every user must reopen the app, so it is not a routine action. After
+  rotating, re-run step 6 — a token change does not move the menu button, but
+  the old one points at the same URL and will simply fail to authenticate.
+- **The 24-hour `auth_date` cap is a bound, not revocation.** A Mini App never
+  refreshes `initData` while it is open, so a stolen payload is usable until it
+  ages out. Use one of the two levers above; do not wait for the clock.
+- **Never log the credential.** `initData` must not reach a log line, an error
+  message or an access log. Caddy's access log is off for this reason
+  (`log { output discard }` in the `Caddyfile`). If a request log is genuinely
+  needed for an investigation, filter the header rather than logging it raw:
+
+  ```caddyfile
+  log {
+  	output file /data/access.log
+  	format filter {
+  		request>headers>Authorization delete
+  		request>headers>Cookie delete
+  	}
+  }
+  ```
+
+  Turn it off again afterwards.
+
+### 9. Why the proxy hop is configured the way it is
+
+The app's IP rate limiter is the only thing standing between an unauthenticated
+attacker and the signature check. Behind a proxy it sees the proxy's address for
+every request unless the hop is configured on both sides, and a limiter keyed on
+a header the client controls is worse than none: one attacker can fill the
+bucket for the only legitimate user.
+
+- Caddy declares no `trusted_proxies`, so it trusts no inbound
+  `X-Forwarded-For` or `Forwarded` when deciding the client IP. Caddy is the
+  edge; there is nothing in front of it to trust.
+- The `reverse_proxy` block sets `header_up X-Forwarded-For {client_ip}`, which
+  **replaces** the header instead of appending to it, and deletes `X-Real-IP`
+  and `Forwarded`. A client-supplied value cannot survive the hop. Use exactly
+  `{client_ip}`: the plausible long form `{http.request.client_ip}` is not a
+  registered placeholder and Caddy forwards that literal string to the app,
+  which makes every request share one rate-limit bucket and produces no error
+  anywhere.
+- `main.ts` sets `trust proxy` to that one Compose hop, so `req.ip` is the
+  address Caddy saw.
+
+If you ever put a CDN or a second proxy in front of Caddy, all three of those
+have to change together. Changing one is how the limiter silently stops working.
 
 ## Backups and operations
 

@@ -15,7 +15,8 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The image now builds the Mini App bundle as well as the server.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -34,6 +35,16 @@ jobs:
           name: coverage
           path: coverage/lcov.info
           retention-days: 14
+
+      # The Caddyfile is the only publicly reachable configuration in the repository: a syntax
+      # error there is an outage, and a stray catch-all route publishes /health and /ready. The
+      # domain is supplied by the environment in production, so adapt against a placeholder.
+      - name: Validate the Caddyfile
+        run: |
+          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e WEBAPP_DOMAIN=ci.example \
+            -e ACME_EMAIL=ci@ci.example \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
