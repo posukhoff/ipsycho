@@ -17,10 +17,16 @@ export function t(locale: TelegramLocale, key: CopyKey, params: Record<string, s
   return template.replace(/\{(\w+)\}/gu, (match, name: string) => (name in params ? String(params[name]) : match));
 }
 
+export type PluralNoun = "task" | "date" | "deed";
+
 /** Count with the right plural form: `plural(locale, 3, "task")` → "3 задачи". */
-export function plural(locale: TelegramLocale, count: number, noun: "task" | "date"): string {
-  const forms = PLURALS[locale][noun];
-  return `${count} ${pickForm(locale, count, forms)}`;
+export function plural(locale: TelegramLocale, count: number, noun: PluralNoun): string {
+  return `${count} ${pluralForm(locale, count, noun)}`;
+}
+
+/** The noun alone, for a line that already prints the count. */
+export function pluralForm(locale: TelegramLocale, count: number, noun: PluralNoun): string {
+  return pickForm(locale, count, PLURALS[locale][noun]);
 }
 
 function pickForm(locale: TelegramLocale, count: number, forms: readonly [string, string, string]): string {
@@ -36,13 +42,16 @@ const PLURALS = {
   ru: {
     task: ["задача", "задачи", "задач"],
     date: ["дата", "даты", "дат"],
+    deed: ["дело", "дела", "дел"],
   },
   uk: {
     task: ["завдання", "завдання", "завдань"],
     date: ["дата", "дати", "дат"],
+    deed: ["справа", "справи", "справ"],
   },
   en: {
     task: ["task", "tasks", "tasks"],
     date: ["date", "dates", "dates"],
+    deed: ["task", "tasks", "tasks"],
   },
 } as const satisfies Record<TelegramLocale, Record<string, readonly [string, string, string]>>;

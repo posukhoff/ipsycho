@@ -2,7 +2,7 @@ import { compactText } from "../core/telegram-ux.js";
 import { occurrenceLocalDate } from "../core/local-schedule.js";
 import { recurrenceLabel } from "../core/recurrence-label.js";
 import { localDateAt } from "../core/timezone.js";
-import { plural, t } from "./copy/index.js";
+import { plural, pluralForm, t } from "./copy/index.js";
 import { formatLocalDateTime, intlLocale } from "../core/time-presentation.js";
 import { selectCardDetails } from "../core/card-details.js";
 import type { TelegramLocale } from "./telegram-locale.js";
@@ -275,14 +275,7 @@ export function formatDateLabel(value: string, timezone?: string, now?: Date): s
 }
 
 export function taskWord(count: number, locale: TelegramLocale = "ru"): string {
-  if (locale === "en") return count === 1 ? "task" : "tasks";
-  if (locale === "uk") return count === 1 ? "справа" : count >= 2 && count <= 4 ? "справи" : "справ";
-  const mod100 = count % 100;
-  const mod10 = count % 10;
-  if (mod100 >= 11 && mod100 <= 14) return "дел";
-  if (mod10 === 1) return "дело";
-  if (mod10 >= 2 && mod10 <= 4) return "дела";
-  return "дел";
+  return pluralForm(locale, count, "deed");
 }
 
 export function messageWord(count: number, locale: TelegramLocale = "ru"): string {

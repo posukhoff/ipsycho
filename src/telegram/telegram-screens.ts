@@ -295,12 +295,11 @@ export function todayText(
   if (completedCount) footer.push(`\n✅ ${locale === "en" ? "Completed today" : locale === "uk" ? "Виконано сьогодні" : "Выполнено сегодня"}: ${completedCount}`);
   if (staleCount) footer.push(`\n${t(locale, "today_stale", { count: staleCount })}`);
   if (!groups.length) {
-    const empty = locale === "en" ? "Nothing is planned." : locale === "uk" ? "Запланованих справ немає." : "Запланированных дел нет.";
-    return [title, "", empty, ...footer].join("\n");
+    return [title, "", t(locale, "nothing_planned"), ...footer].join("\n");
   }
   const main = groups.find((group) => group.importance !== "normal") ?? groups[0];
   const lines = [`${title} · ${total} ${taskWord(total, locale)}`];
-  if (main && !offset) lines.push(`\n${locale === "en" ? "Main" : locale === "uk" ? "Головне" : "Главное"}: ${main.title}`);
+  if (main && !offset) lines.push(`\n${t(locale, "label_main")}: ${main.title}`);
   lines.push("");
   for (const [index, group] of groups.entries()) lines.push(`${offset + index + 1}. ${todayGroupLine(group, localDate, locale, now)}`);
   lines.push(...footer);
