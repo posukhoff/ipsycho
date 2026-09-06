@@ -64,25 +64,17 @@
 		output discard
 	}
 
-	# Hashed asset filenames, so the content at a URL never changes. Nest sets the same header;
-	# stating it at the edge means a mistake on one side cannot produce a stale-forever index.
-	# This assumes Vite's default `assetsDir`; if `web/vite.config.ts` renames it the assets fall
-	# through to the block below and are merely uncached, never stale.
-	@app_assets path /app/assets/*
-	handle @app_assets {
-		header >Cache-Control "public, max-age=31536000, immutable"
-		import to_app
-	}
-
 	# `/app` and everything under it, and nothing else. Not `/app*`: that also matches `/apple`,
 	# which the app answers with Nest's own 404 — a body that quotes the requested path back. An
 	# unmatched path must be refused at the edge, by the `handle` at the bottom of this block.
 	@app path /app /app/*
 	handle @app {
-		# `index.html` names the current asset hashes, so it must never be cached. `>` replaces the
-		# header rather than adding to it: Nest sets the same value on what it serves, and two
-		# identical `Cache-Control` lines are one header a proxy or a browser may read either way.
-		header >Cache-Control "no-store"
+		# `Cache-Control` is deliberately not set here. `main.ts` sets it per file — `no-store` for
+		# `index.html`, which names the current asset hashes, and a year plus `immutable` for the
+		# fingerprinted rest — which is more precise than any path glob the edge could write, and it
+		# stays right if Vite's `assetsDir` is renamed. Restating it here produced the header twice:
+		# `header` runs before `reverse_proxy` copies the upstream response, so even the replacing
+		# form `>Cache-Control` set an empty slot that Nest's own value was then appended to.
 		# `default-src 'none'` means every fetch kind the bundle uses has to be listed here. If it
 		# starts loading self-hosted fonts or a web manifest, add `font-src 'self'` or
 		# `manifest-src 'self'`. Do not widen `script-src`, and do not delete the policy.
@@ -96,7 +88,8 @@
 		request_body {
 			max_size 64KB
 		}
-		header >Cache-Control "no-store"
+		# The API sets none of its own, so this is the only one.
+		header Cache-Control "no-store"
 		import to_app
 	}
 

@@ -49,7 +49,7 @@ Run after the Mini App is enabled in production ([docs/DEPLOYMENT.md](docs/DEPLO
 - [ ] The certificate is valid, matches the domain, and `docker compose logs caddy` shows it was obtained rather than reused from a stale volume.
 - [ ] `curl -sSI https://<domain>/app/` carries `Content-Security-Policy` with `frame-ancestors https://web.telegram.org https://*.telegram.org`, `Strict-Transport-Security`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and **no `X-Frame-Options`** — `DENY` there is what makes the app a blank page inside Telegram Web.
 - [ ] The CSP `script-src` contains no `'unsafe-inline'`. The API is same-origin with no cookie, so an XSS in the app is full account control.
-- [ ] `index.html` comes back `no-store` and a hashed asset under `/app/assets/` comes back `public, max-age=31536000, immutable`.
+- [ ] `index.html` comes back `no-store` and a hashed asset under `/app/assets/` comes back `public, max-age=31536000, immutable` — each exactly once. Both come from `main.ts`; the edge does not restate them, because `header` runs before `reverse_proxy` copies the response and produced the header twice.
 - [ ] `curl -H 'X-Forwarded-For: 1.2.3.4' https://<domain>/api/v1/me` (unauthenticated) is refused and the app's log shows the real client address, not `1.2.3.4`. A limiter keyed on a client-controlled header lets one attacker lock out the only legitimate user.
 - [ ] Nothing in `docker compose logs` — app or caddy — contains `hash=`, `auth_date=`, a first name, or any part of an `Authorization: tma …` value, for a rejected request and for a successful one.
 - [ ] `3000` and `5432` are still unreachable from outside the VPS.
