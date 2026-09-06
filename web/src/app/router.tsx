@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { haptics } from "../lib/telegram.js";
-import { DEFAULT_ROUTE, parentRoute, parseRoute, routeHref, routePath, sameRoute, type Route } from "./routes.js";
+import { DEFAULT_ROUTE, parentRoute, parseRoute, routeHref, routePath, sameRoute, withoutLaunchParams, type Route } from "./routes.js";
 
 /**
  * The fragment router.
@@ -43,16 +43,17 @@ function urlFor(route: Route): string {
 
 export function RouterProvider({ initialRoute, children }: { initialRoute?: Route | undefined; children: ReactNode }): ReactNode {
   const [route, setRoute] = useState<Route>(() => {
-    const fromUrl = window.location.hash ? currentRoute() : null;
+    const fromUrl = withoutLaunchParams(window.location.hash) ? currentRoute() : null;
     return fromUrl ?? initialRoute ?? DEFAULT_ROUTE;
   });
   const [depth, setDepth] = useState(currentDepth);
   const interceptors = useRef<Array<() => void>>([]);
 
-  // The launch URL may carry no fragment at all: the menu button opens the bare app. Stamp the
-  // resolved route in so a reload lands on the same screen and `depth` starts at a known 0.
+  // The launch URL may carry no route at all: the menu button opens the bare app, and Telegram's
+  // own launch parameters are not one. Stamp the resolved route in so a reload lands on the same
+  // screen, `depth` starts at a known 0, and the parameter blob leaves the address bar.
   useEffect(() => {
-    if (!window.location.hash) window.history.replaceState({ depth: 0 }, "", urlFor(route));
+    if (!withoutLaunchParams(window.location.hash)) window.history.replaceState({ depth: 0 }, "", urlFor(route));
     // Intentionally once, on mount: this is about the entry URL, not about later navigation.
   }, []);
 

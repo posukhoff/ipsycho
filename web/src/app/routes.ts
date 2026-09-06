@@ -76,9 +76,30 @@ function goalScope(value: string | undefined): GoalScope {
   return GOAL_SCOPES.find((scope) => scope === value) ?? "active";
 }
 
+/**
+ * Telegram's launch parameters, stripped out of the fragment before it is read as a route.
+ *
+ * A Mini App is opened with `tgWebAppData`, `tgWebAppVersion`, `tgWebAppThemeParams` and the rest
+ * appended to the URL **fragment** — the same fragment this router uses as its address — and when
+ * the link already carried a route they are appended to it. Dropping them here loses nothing:
+ * `telegram-web-app.js` is loaded before this bundle and has already read them from
+ * `location.hash`, and `Telegram.WebApp` keeps `initData` in memory afterwards.
+ *
+ * This is invisible outside a real client. A browser opens the app with no launch parameters, so
+ * every route parses; opened from Telegram, the whole blob became the first path segment and every
+ * route was `notFound` — whose parent is `today`, so the back arrow appeared to navigate forwards.
+ */
+export function withoutLaunchParams(fragment: string): string {
+  const withoutHash = fragment.startsWith("#") ? fragment.slice(1) : fragment;
+  return withoutHash
+    .split("&")
+    .filter((part) => !/^tgWebApp[A-Za-z]*=/.test(part))
+    .join("&");
+}
+
 /** Parses `#/task/<id>?x=1`. Anything unrecognised is a not-found, never a thrown error. */
 export function parseRoute(fragment: string): Route {
-  const withoutHash = fragment.startsWith("#") ? fragment.slice(1) : fragment;
+  const withoutHash = withoutLaunchParams(fragment);
   const [pathPart = "", queryPart = ""] = withoutHash.split("?", 2);
   const query = new URLSearchParams(queryPart);
   const segments = pathPart.split("/").filter((segment) => segment.length > 0);
