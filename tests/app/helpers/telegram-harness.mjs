@@ -6,7 +6,16 @@ import { InlineKeyboard } from "grammy";
  * button without a bot, a network or a database.
  */
 export function callbackContext(data, options = {}) {
-  const { workspaceId = "ws-1", userId = "user-1", locale = "ru", settings = { version: 1, timezone: "Europe/Kyiv", morningReferenceTime: "09:00" }, editFails = false } = options;
+  const {
+    workspaceId = "ws-1",
+    userId = "user-1",
+    locale = "ru",
+    settings = { version: 1, timezone: "Europe/Kyiv", morningReferenceTime: "09:00" },
+    editFails = false,
+    // `null` is the flag-off default, which is what every test that does not name it is asserting:
+    // with no Mini App URL on the context no handler can build a `web_app` button.
+    webAppUrl = null,
+  } = options;
   const answers = [];
   const edits = [];
   const markups = [];
@@ -15,7 +24,7 @@ export function callbackContext(data, options = {}) {
     callbackQuery: { data, message: { message_id: 42, chat: { id: 777 } } },
     chat: { id: 777, type: "private" },
     from: { id: 777, language_code: locale },
-    state: { access: { workspaceId, user: { id: userId, telegramUserId: 777 } }, settings, locale },
+    state: { access: { workspaceId, user: { id: userId, telegramUserId: 777 } }, settings, locale, webAppUrl },
     answers,
     edits,
     markups,

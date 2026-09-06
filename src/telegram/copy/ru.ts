@@ -135,6 +135,12 @@ export const ru = {
   goals_button: "🎯 Цели",
   help_button: "📖 Как это работает",
 
+  // Mini App launch buttons. They exist only while WEBAPP_ENABLED is on; with the flag off no
+  // keyboard asks for them, because there is no app to open and a dead end is worse than no button.
+  webapp_open_button: "📲 Открыть в приложении",
+  webapp_open_task_button: "📲 Открыть задачу",
+  webapp_profile_hint: "Профиль и всё, что я о тебе помню, целиком — в приложении.",
+
   // Task and today screens: filters, groups, paging
   tasks_header: "📋 Задачи · {scope} ({count})",
   tasks_scope_empty: "В этом фильтре пусто.",

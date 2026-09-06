@@ -125,6 +125,10 @@ export const en: Record<keyof typeof ru, string> = {
   goals_button: "🎯 Goals",
   help_button: "📖 How it works",
 
+  webapp_open_button: "📲 Open in the app",
+  webapp_open_task_button: "📲 Open the task",
+  webapp_profile_hint: "Your profile and everything I remember about you, in full, are in the app.",
+
   tasks_header: "📋 Tasks · {scope} ({count})",
   tasks_scope_empty: "Nothing in this filter.",
   tasks_hint: "To change, complete, or reschedule a task, just write it in a message.",

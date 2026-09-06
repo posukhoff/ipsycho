@@ -15,7 +15,7 @@ import type { TaskScope } from "../../core/task-list-view.js";
 import type { GoalScope } from "../telegram-ui.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { telegramLocale } from "../telegram-locale.js";
-import { deployedBuildLine } from "../telegram-ui.js";
+import { deployedBuildLine, launchOnlyKeyboard } from "../telegram-ui.js";
 import { TelegramService } from "../telegram.service.js";
 import { OnboardingService } from "./onboarding.service.js";
 import { ScreensService } from "./screens.service.js";
@@ -136,7 +136,7 @@ export class SystemCommandsService {
       const access = await this.access.resolveActiveUser(ctx.from!.id);
       const settings = access ? await this.settings.get(access.user.id) : null;
       if (!access || !settings) throw new Error("invited user registration did not create active access");
-      ctx.state = { access, settings, locale: telegramLocale(settings.pinnedLanguage, ctx.from?.language_code) };
+      ctx.state = { ...ctx.state, access, settings, locale: telegramLocale(settings.pinnedLanguage, ctx.from?.language_code) };
     }
     const { settings, locale } = activeState(ctx);
     if (!settings.onboardingCompletedAt) return this.onboarding.begin(ctx);
@@ -161,14 +161,22 @@ export class SystemCommandsService {
     await ctx.reply(helpText(this.config, locale), { reply_markup: helpKeyboard(locale) });
   }
 
+  /**
+   * `/context` is the one screen command whose answer is a conversation turn rather than a
+   * keyboard, so its launch button (task 10.4) cannot ride along on the reply the model produces.
+   * It follows as one short line with the button on it, and only while the app is on; with the
+   * flag off the command is exactly the single model turn it has always been.
+   */
   private async openProfile(ctx: AppContext): Promise<void> {
-    const { access, settings } = activeState(ctx);
+    const { access, settings, locale, webAppUrl } = activeState(ctx);
     const result = await this.chat.startProfile({
       workspaceId: access.workspaceId,
       userId: access.user.id,
       language: settings.pinnedLanguage ?? ctx.from?.language_code ?? null,
     });
     await this.chatReply.reply(ctx, access, result);
+    const launch = launchOnlyKeyboard(webAppUrl, { name: "profile" }, locale);
+    if (launch) await ctx.reply(t(locale, "webapp_profile_hint"), { reply_markup: launch }).catch(() => undefined);
   }
 
   private async deleteAccount(ctx: CommandContext<AppContext>): Promise<void> {

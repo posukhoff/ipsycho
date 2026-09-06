@@ -53,7 +53,7 @@ export class TaskCallbacksService {
   }
 
   private async occurrence(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
+    const { access, locale, webAppUrl } = activeState(ctx);
     const match = OCCURRENCE_CALLBACK.exec(ctx.callbackQuery.data);
     const action = match?.[1];
     const occurrenceId = match?.[2];
@@ -79,7 +79,7 @@ export class TaskCallbacksService {
       }
       if (action === "resched") {
         await ctx.answerCallbackQuery({ text: t(locale, "resched_prompt_toast") });
-        await ctx.editMessageReplyMarkup({ reply_markup: quickRescheduleKeyboard(occurrenceId, locale) }).catch(() => undefined);
+        await ctx.editMessageReplyMarkup({ reply_markup: quickRescheduleKeyboard(occurrenceId, locale, webAppUrl) }).catch(() => undefined);
         return;
       }
       const state = action === "done" ? "done" : action === "skip" ? "skipped" : "cancelled";

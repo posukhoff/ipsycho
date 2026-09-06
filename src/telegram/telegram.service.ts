@@ -27,6 +27,8 @@ const LOST_UPDATE_AFTER_MS = 10 * 60_000;
 export const TELEGRAM_MESSAGE_MAX = 4_000;
 /** Commands an unknown user may still reach: registration by invitation and account restore. */
 const OPEN_COMMANDS = new Set(["start", "restore"]);
+/** The chat menu button's label. One button serves every chat and Telegram takes no language for it. */
+const CHAT_MENU_BUTTON_TEXT = "Открыть";
 
 @Injectable()
 export class TelegramService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -72,7 +74,12 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       const telegramUserId = ctx.from?.id;
       const access = telegramUserId ? await this.access.resolveActiveUser(telegramUserId) : null;
       const settings = access ? await this.settings.get(access.user.id) : null;
-      ctx.state = { access, settings, locale: telegramLocale(settings?.pinnedLanguage, ctx.from?.language_code ?? settings?.telegramLanguage ?? undefined) };
+      ctx.state = {
+        access,
+        settings,
+        locale: telegramLocale(settings?.pinnedLanguage, ctx.from?.language_code ?? settings?.telegramLanguage ?? undefined),
+        webAppUrl: this.webAppUrl,
+      };
       // Pushes sent outside an update have no `from` to read: remember the language while there is one.
       if (access && settings) await this.settings.rememberTelegramLanguage(access.user.id, ctx.from?.language_code, settings.telegramLanguage);
       // Every line logged while this update is handled carries the update id and the internal user id.
@@ -114,6 +121,17 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     });
   }
 
+  /**
+   * The Mini App origin the launch buttons point at, or `null` when the flag is off.
+   *
+   * The config schema refuses `WEBAPP_ENABLED=true` without a URL, so this is non-null exactly
+   * when the app exists. With the flag off nothing downstream ever builds a `web_app` button: a
+   * button that opens nothing is a worse dead end than no button.
+   */
+  private get webAppUrl(): string | null {
+    return this.config.webAppEnabled ? (this.config.webAppUrl ?? null) : null;
+  }
+
   async sendMessage(telegramUserId: number, text: string, keyboard?: InlineKeyboard): Promise<number> {
     const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), keyboard ? { reply_markup: keyboard } : {});
     return message.message_id;
@@ -125,8 +143,21 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     return `https://t.me/${bot.username}?start=join_${token}`;
   }
 
-  async sendReminder(telegramUserId: number, text: string, occurrenceId?: string, locale = telegramLocale(null, undefined), options: { mute?: boolean } = {}): Promise<number> {
-    const replyMarkup = occurrenceId ? taskKeyboard(occurrenceId, locale, { snooze: true, ...(options.mute ? { mute: true } : {}) }) : undefined;
+  async sendReminder(
+    telegramUserId: number,
+    text: string,
+    occurrenceId?: string,
+    locale = telegramLocale(null, undefined),
+    options: { mute?: boolean; recurring?: boolean } = {},
+  ): Promise<number> {
+    const replyMarkup = occurrenceId
+      ? taskKeyboard(occurrenceId, locale, {
+          snooze: true,
+          ...(options.mute ? { mute: true } : {}),
+          ...(options.recurring ? { recurring: true } : {}),
+          webAppUrl: this.webAppUrl,
+        })
+      : undefined;
     const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), replyMarkup ? { reply_markup: replyMarkup } : {});
     return message.message_id;
   }
@@ -141,8 +172,8 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   ): Promise<number> {
     let keyboard: InlineKeyboard | undefined;
     // One tap gives a task taken for this week its day, so those rows come before the navigation.
-    if (kind === "morning") keyboard = weekTakeTodayKeyboard(weekTasks, locale);
-    if (kind === "weekly") keyboard = weeklyBriefingKeyboard(idleGoals, locale);
+    if (kind === "morning") keyboard = weekTakeTodayKeyboard(weekTasks, locale, this.webAppUrl);
+    if (kind === "weekly") keyboard = weeklyBriefingKeyboard(idleGoals, locale, this.webAppUrl);
     const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), keyboard ? { reply_markup: keyboard } : {});
     return message.message_id;
   }
@@ -152,6 +183,11 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       await this.publishCommandMenu();
     } catch (error) {
       logger.error("Telegram command menu setup failed", { error: safeError(error) });
+    }
+    try {
+      await this.publishChatMenuButton();
+    } catch (error) {
+      logger.error("Telegram chat menu button setup failed", { error: safeError(error) });
     }
     await this.bot.init();
     await this.markLostUpdates();
@@ -238,6 +274,28 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       await this.bot.api.setMyCommands(commands("ru", true), { scope });
       for (const locale of ["ru", "uk", "en"] as const) await this.bot.api.setMyCommands(commands(locale, true), { scope, language_code: locale });
     }
+  }
+
+  /**
+   * The chat menu button, the app's second entrance (task 10.3).
+   *
+   * With the flag off this makes no API call at all: the bot must behave exactly as it did before
+   * the app existed, and `setChatMenuButton` is a write to state Telegram keeps.
+   *
+   * Turning the flag off later does **not** put the button back — Telegram has already stored it,
+   * and nothing here is clever enough to know whether an operator set it by hand. Resetting it to
+   * `{"type":"commands"}` is a documented step of the rollback in `docs/DEPLOYMENT.md` § 7.
+   *
+   * The label is the one user-facing string the bot cannot localize: `setChatMenuButton` takes no
+   * `language_code` and one button serves every chat, so it is a constant here rather than a key
+   * in three dictionaries where two translations could never be shown. It matches the manual
+   * `curl` fallback in `docs/DEPLOYMENT.md` § 6 so the two cannot drift apart unnoticed.
+   */
+  private async publishChatMenuButton(): Promise<void> {
+    const url = this.webAppUrl;
+    if (!url) return;
+    await this.bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: CHAT_MENU_BUTTON_TEXT, web_app: { url } } });
+    logger.info("Telegram chat menu button points at the Mini App", { botIdentity: this.config.botIdentity });
   }
 
   async onApplicationShutdown(): Promise<void> {

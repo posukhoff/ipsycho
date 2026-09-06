@@ -259,6 +259,9 @@ export class ReminderQueueService implements OnApplicationBootstrap, OnApplicati
       });
       const telegramMessageId = await this.telegram.sendReminder(row.telegramUserId, text, row.delivery.occurrenceId ?? undefined, locale, {
         mute: escalation >= 2,
+        // Only a repeat can be skipped, and the card can only offer it once the Mini App has taken
+        // «⚙️ Ещё» away; with WEBAPP_ENABLED off the keyboard ignores this.
+        recurring: Boolean(row.task.recurrenceRule),
       });
       const sentAt = new Date();
       await this.database.db

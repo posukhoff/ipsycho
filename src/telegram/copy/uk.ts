@@ -127,6 +127,10 @@ export const uk: Record<keyof typeof ru, string> = {
   goals_button: "🎯 Цілі",
   help_button: "📖 Як це працює",
 
+  webapp_open_button: "📲 Відкрити в застосунку",
+  webapp_open_task_button: "📲 Відкрити завдання",
+  webapp_profile_hint: "Профіль і все, що я про тебе пам’ятаю, повністю — у застосунку.",
+
   tasks_header: "📋 Завдання · {scope} ({count})",
   tasks_scope_empty: "У цьому фільтрі порожньо.",
   tasks_hint: "Щоб змінити, завершити або перенести завдання, напиши це звичайним повідомленням.",

@@ -13,6 +13,7 @@ import { activeState, type AppContext } from "../telegram-context.js";
 import type { TelegramLocale } from "../telegram-locale.js";
 import {
   appendFooter,
+  appendLaunchButton,
   fuzzyTaskCardText,
   fuzzyTaskDetailKeyboard,
   goalDetailKeyboard,
@@ -72,7 +73,7 @@ export class ScreensService {
   }
 
   async tasks_(ctx: AppContext, edit = false, scope: TaskScope = DEFAULT_TASK_SCOPE, page = 0): Promise<void> {
-    const { access, settings, locale } = activeState(ctx);
+    const { access, settings, locale, webAppUrl } = activeState(ctx);
     const localDate = localDateAt(new Date(), settings.timezone);
     const { groups, counts, pausedCount } = await this.tasks.listGrouped(access.workspaceId, { scope, localDate });
     const view = paginate(groups, page, PAGE_SIZE);
@@ -86,7 +87,8 @@ export class ScreensService {
       pageCallback: (next) => `tsk:${scope}:${next}`,
     });
     for (const row of taskScopeKeyboard(scope, counts, locale, pausedCount).inline_keyboard) keyboard.row(...row);
-    await this.present(ctx, tasksOverviewText(view.items, { scope, total: groups.length, offset: view.page * PAGE_SIZE, locale }), appendFooter(keyboard, locale), edit);
+    const footer = appendLaunchButton(appendFooter(keyboard, locale), webAppUrl, { name: "tasks", scope }, locale);
+    await this.present(ctx, tasksOverviewText(view.items, { scope, total: groups.length, offset: view.page * PAGE_SIZE, locale }), footer, edit);
   }
 
   /**
@@ -94,7 +96,7 @@ export class ScreensService {
    * Every row is a toggle, so the screen is the state and no separate save step exists.
    */
   async weekPlan_(ctx: AppContext, edit = false, page = 0): Promise<void> {
-    const { access, settings, locale } = activeState(ctx);
+    const { access, settings, locale, webAppUrl } = activeState(ctx);
     const today = localDateAt(new Date(), settings.timezone);
     const { rows, total, summary } = await this.tasks.listWeekPlanForTelegram(access.workspaceId, today);
     const view = paginate(rows, page, PAGE_SIZE);
@@ -104,7 +106,7 @@ export class ScreensService {
       { page: view.page, pages: view.pages, rest: view.rest },
     );
     const text = weekPlanText(view.items, { locale, todayLocalDate: today, total, offset: view.page * PAGE_SIZE, summary });
-    await this.present(ctx, text, keyboard, edit);
+    await this.present(ctx, text, appendLaunchButton(keyboard, webAppUrl, { name: "week" }, locale), edit);
   }
 
   /**
@@ -141,9 +143,9 @@ export class ScreensService {
   }
 
   async reminders_(ctx: AppContext, edit = false, page = 0): Promise<void> {
-    const { access, settings, locale } = activeState(ctx);
+    const { access, settings, locale, webAppUrl } = activeState(ctx);
     const rows = await this.reminders.listUpcoming({ workspaceId: access.workspaceId, userId: access.user.id, limit: 40 });
-    if (!rows.length) return this.present(ctx, t(locale, "reminders_none"), screenFooterKeyboard(locale), edit);
+    if (!rows.length) return this.present(ctx, t(locale, "reminders_none"), appendLaunchButton(screenFooterKeyboard(locale), webAppUrl, { name: "reminders" }, locale), edit);
     const now = new Date();
     const view = paginate(rows, page, PAGE_SIZE);
     const buttons = view.items.map(({ delivery, task }) => ({
@@ -154,13 +156,13 @@ export class ScreensService {
     await this.present(
       ctx,
       remindersText(view.items, { locale, timezone: settings.timezone, now }),
-      remindersKeyboard(buttons, locale, { page: view.page, pages: view.pages, rest: view.rest }),
+      appendLaunchButton(remindersKeyboard(buttons, locale, { page: view.page, pages: view.pages, rest: view.rest }), webAppUrl, { name: "reminders" }, locale),
       edit,
     );
   }
 
   async today(ctx: AppContext, edit = false, page = 0): Promise<void> {
-    const { access, settings, locale } = activeState(ctx);
+    const { access, settings, locale, webAppUrl } = activeState(ctx);
     const now = new Date();
     const localDate = localDateAt(now, settings.timezone);
     const [{ groups, staleCount }, completed] = await Promise.all([
@@ -180,20 +182,20 @@ export class ScreensService {
     await this.present(
       ctx,
       todayText(view.items, localDate, { locale, completedCount: completed.length, staleCount, total: groups.length, offset: view.page * PAGE_SIZE, now }),
-      appendFooter(keyboard, locale),
+      appendLaunchButton(appendFooter(keyboard, locale), webAppUrl, { name: "today" }, locale),
       edit,
     );
   }
 
   /** Everything remembered, sensitive facts included: they are hidden from the model, not from the user. */
   async memory_(ctx: AppContext, edit = false): Promise<void> {
-    const { access, locale } = activeState(ctx);
+    const { access, locale, webAppUrl } = activeState(ctx);
     const rows = await this.context.memoryOverview(access.workspaceId, access.user.id);
-    await this.present(ctx, memoryText(rows, locale), screenFooterKeyboard(locale), edit);
+    await this.present(ctx, memoryText(rows, locale), appendLaunchButton(screenFooterKeyboard(locale), webAppUrl, { name: "memory" }, locale), edit);
   }
 
   async goals(ctx: AppContext, edit = false, scope: GoalScope = "active", page = 0): Promise<void> {
-    const { access, locale } = activeState(ctx);
+    const { access, locale, webAppUrl } = activeState(ctx);
     const items = await this.context.goalsOverview(access.workspaceId, scope);
     const view = paginate(items, page, PAGE_SIZE);
     const keyboard = goalListKeyboard(
@@ -202,7 +204,8 @@ export class ScreensService {
       { offset: view.page * PAGE_SIZE, page: view.page, pages: view.pages, rest: view.rest, scope },
     );
     for (const row of goalsScopeKeyboard(scope, locale).inline_keyboard) keyboard.row(...row);
-    await this.present(ctx, goalsOverviewText(view.items, { scope, total: items.length, offset: view.page * PAGE_SIZE, locale }), appendFooter(keyboard, locale), edit);
+    const footer = appendLaunchButton(appendFooter(keyboard, locale), webAppUrl, { name: "goals", scope }, locale);
+    await this.present(ctx, goalsOverviewText(view.items, { scope, total: items.length, offset: view.page * PAGE_SIZE, locale }), footer, edit);
   }
 
   /** One goal with its tasks; the list itself only says how many there are. */
@@ -222,9 +225,10 @@ export class ScreensService {
   }
 
   async settings_(ctx: AppContext, edit = false): Promise<void> {
-    const { access, settings, locale } = activeState(ctx);
+    const { access, settings, locale, webAppUrl } = activeState(ctx);
     const historyMessageCount = await this.chat.historyMessageCount(access.workspaceId, access.user.id);
-    await this.present(ctx, settingsText(settings, new Date(), historyMessageCount, locale), settingsKeyboard(locale, settings), edit);
+    const keyboard = appendLaunchButton(settingsKeyboard(locale, settings), webAppUrl, { name: "settings" }, locale);
+    await this.present(ctx, settingsText(settings, new Date(), historyMessageCount, locale), keyboard, edit);
   }
 
   /** Full task card: row fields plus checklist, goal and the next reminder that will actually fire. */
@@ -264,8 +268,9 @@ export class ScreensService {
 
   /** The card's own keyboard for its current state, optionally with an Undo row for what just happened. */
   occurrenceKeyboard(ctx: AppContext, context: OccurrenceContext, undoGroupId?: string, undoLabel: "undo_button" | "undo_reschedule_button" = "undo_button"): InlineKeyboard {
-    const { locale } = activeState(ctx);
-    const keyboard = taskKeyboard(context.occurrence.id, locale);
+    const { locale, webAppUrl } = activeState(ctx);
+    // The same card the push carried: «Ещё» when the app is off, the launch button when it is on.
+    const keyboard = taskKeyboard(context.occurrence.id, locale, { recurring: Boolean(context.task.recurrenceRule), webAppUrl });
     if (undoGroupId) keyboard.row().text(t(locale, undoLabel), `act:undo:${undoGroupId}`);
     // The card that replaces a list after an action was the one screen with no way out of it.
     return appendFooter(keyboard.row(), locale);

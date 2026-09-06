@@ -3,6 +3,7 @@ import { t } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 import type { TaskScope } from "../core/task-list-view.js";
 import type { TelegramGroupCard } from "./telegram-format.js";
+import { appendLaunchButton, webAppLink } from "./telegram-webapp.js";
 
 /** Every inline keyboard the bot builds. Each payload must match a handler pattern and fit 64 bytes. */
 export interface TaskKeyboardOptions {
@@ -10,14 +11,29 @@ export interface TaskKeyboardOptions {
   snooze?: boolean;
   /** A critical escalation offers to stop repeating for this occurrence. */
   mute?: boolean;
+  /** Whether this occurrence belongs to a series; only a repeat can be skipped. */
+  recurring?: boolean;
+  /**
+   * The Mini App origin, or `null`/absent when `WEBAPP_ENABLED` is off. It is the only thing that
+   * changes this card: with it, «⚙️ Ещё» becomes a launch button into that occurrence's screen
+   * (task 10.2) and «⏭ Пропустить это» comes out from behind it, because there is no longer an
+   * «Ещё» to hide it in. Without it the card is byte-for-byte the one the bot has always sent.
+   */
+  webAppUrl?: string | null;
 }
 
 export function taskKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", options: TaskKeyboardOptions = {}): InlineKeyboard {
   const keyboard = new InlineKeyboard();
+  const launch = webAppLink(options.webAppUrl, { name: "task", id: occurrenceId });
   keyboard.text(label(locale, "done"), `occ:done:${occurrenceId}`).row();
   if (options.snooze)
     keyboard.text(t(locale, "snooze_15m_button"), `follow:snooze:15m:${occurrenceId}`).text(t(locale, "snooze_1h_button"), `follow:snooze:1h:${occurrenceId}`).row();
-  keyboard.text(label(locale, "later"), `occ:resched:${occurrenceId}`).text(label(locale, "more"), `occ:more:${occurrenceId}`);
+  if (launch && options.recurring) keyboard.text(label(locale, "skip"), `occ:skip:${occurrenceId}`).row();
+  keyboard.text(label(locale, "later"), `occ:resched:${occurrenceId}`);
+  // Cancel and pause-the-series are what «Ещё» led to, and the app does both better than a swapped
+  // keyboard does. The `occ:more` handler stays registered for cards already in scroll-back.
+  if (launch) keyboard.webApp(t(locale, "webapp_open_task_button"), launch);
+  else keyboard.text(label(locale, "more"), `occ:more:${occurrenceId}`);
   if (options.mute) keyboard.row().text(t(locale, "mute_escalation_button"), `rem:mute:${occurrenceId}`);
   return keyboard;
 }
@@ -31,15 +47,22 @@ export function taskMoreKeyboard(occurrenceId: string, recurring = false, taskId
   return keyboard.text(label(locale, "cancel"), `occ:cancel:${occurrenceId}`).row().text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
-export function quickRescheduleKeyboard(occurrenceId: string, locale: TelegramLocale = "ru"): InlineKeyboard {
-  return new InlineKeyboard()
+/**
+ * The three quick moves stay in chat: they answer the reminder that just arrived. Picking an
+ * arbitrary date is browsing — it used to arm a free-text prompt — so with the app on, «📅 Другая
+ * дата» becomes the launch button into that occurrence's reschedule sheet. `resched:custom` stays
+ * registered for cards already in scroll-back.
+ */
+export function quickRescheduleKeyboard(occurrenceId: string, locale: TelegramLocale = "ru", webAppUrl?: string | null): InlineKeyboard {
+  const launch = webAppLink(webAppUrl, { name: "task", id: occurrenceId });
+  const keyboard = new InlineKeyboard()
     .text(label(locale, "plusHour"), `resched:1h:${occurrenceId}`)
     .text(label(locale, "evening"), `resched:evening:${occurrenceId}`)
     .row()
-    .text(label(locale, "tomorrow"), `resched:tomorrow:${occurrenceId}`)
-    .text(label(locale, "otherDate"), `resched:custom:${occurrenceId}`)
-    .row()
-    .text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
+    .text(label(locale, "tomorrow"), `resched:tomorrow:${occurrenceId}`);
+  if (launch) keyboard.webApp(t(locale, "webapp_open_task_button"), launch);
+  else keyboard.text(label(locale, "otherDate"), `resched:custom:${occurrenceId}`);
+  return keyboard.row().text(t(locale, "back_button"), `occ:back:${occurrenceId}`);
 }
 
 export type QuickRescheduleReasonCode = "time" | "dependency" | "energy" | "other";
@@ -216,14 +239,15 @@ export function weekPlanKeyboard(
   return appendFooter(keyboard, locale);
 }
 
-/** The morning card's take-today rows: one tap gives that task today. */
-export function weekTakeTodayKeyboard(rows: ReadonlyArray<{ id: string; title: string }>, locale: TelegramLocale = "ru"): InlineKeyboard {
+/** The morning card's take-today rows: one tap gives that task today, and the app opens the same day. */
+export function weekTakeTodayKeyboard(rows: ReadonlyArray<{ id: string; title: string }>, locale: TelegramLocale = "ru", webAppUrl?: string | null): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const row of rows.slice(0, 8)) {
     const title = row.title.length > 24 ? `${row.title.slice(0, 23)}\u2026` : row.title;
     keyboard.text(t(locale, "week_take_today_row", { title }), `wk:d:${row.id}`).row();
   }
-  return keyboard.text(t(locale, "today_button"), "nav:today");
+  keyboard.text(t(locale, "today_button"), "nav:today");
+  return appendLaunchButton(keyboard, webAppUrl, { name: "today" }, locale);
 }
 
 /** Paused series, one row each: the tap that brings the series back. */
@@ -344,12 +368,13 @@ export function taskDetailKeyboard(occurrenceId: string, locale: TelegramLocale 
  * The week card's buttons: the pool screen, and one row per goal nothing has moved. The row is the
  * only place the bot proposes work of its own, and it asks the model only when tapped.
  */
-export function weeklyBriefingKeyboard(idleGoals: ReadonlyArray<{ id: string; title: string }>, locale: TelegramLocale = "ru"): InlineKeyboard {
+export function weeklyBriefingKeyboard(idleGoals: ReadonlyArray<{ id: string; title: string }>, locale: TelegramLocale = "ru", webAppUrl?: string | null): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const goal of idleGoals.slice(0, 3)) {
     keyboard.text(t(locale, "goal_step_button", { title: goal.title.length > 24 ? `${goal.title.slice(0, 23)}…` : goal.title }), `goal:step:${goal.id}`).row();
   }
-  return keyboard.text(t(locale, "week_plan_button"), "nav:week");
+  keyboard.text(t(locale, "week_plan_button"), "nav:week");
+  return appendLaunchButton(keyboard, webAppUrl, { name: "week" }, locale);
 }
 
 /** The three languages plus "follow Telegram", so the value is a tap and not a command. */

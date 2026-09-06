@@ -157,7 +157,7 @@ export class RescheduleCallbacksService {
 
   /** `follow:snooze:*` on a reminder card repeats the reminder later without touching the task's time. */
   private async followUp(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
+    const { access, locale, webAppUrl } = activeState(ctx);
     const match = FOLLOW_UP_CALLBACK.exec(ctx.callbackQuery.data);
     const choice = match?.[1] as "15m" | "1h" | undefined;
     const occurrenceId = match?.[2];
@@ -167,7 +167,9 @@ export class RescheduleCallbacksService {
       if (!scheduled) return this.stale(ctx, "task_unavailable_toast");
       await ctx.answerCallbackQuery({ text: t(locale, "snooze_reminder_toast") });
       const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
-      const keyboard = context ? taskKeyboard(occurrenceId, locale) : new InlineKeyboard();
+      // The snooze row is spent, but the card must not otherwise change shape under the user:
+      // it keeps the launch button it was sent with, and «Ещё» when the app is off.
+      const keyboard = context ? taskKeyboard(occurrenceId, locale, { recurring: Boolean(context.task.recurrenceRule), webAppUrl }) : new InlineKeyboard();
       await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => undefined);
     } catch (error) {
       logger.error("snooze callback failed", { occurrenceId, error: safeError(error) });

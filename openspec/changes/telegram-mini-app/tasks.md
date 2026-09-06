@@ -107,10 +107,10 @@ started.
 
 Owner: the same agent as group 11. Additive only — no handler is removed here.
 
-- [ ] 10.1 A `web_app` button on the reminder card, the escalation, the morning card and the weekly card, deep-linked with the id in the **fragment** (`${WEBAPP_URL}/#/task/<occurrenceId>`, `/#/today`, `/#/week`) so it never reaches an access log. `src/telegram/telegram.service.ts` already builds these three keyboards in one place.
-- [ ] 10.2 Replace the reminder card's «⚙️ Ещё» and «📅 Другая дата» with a launch button to that occurrence's screen, once group 6.4/6.5 is live. Keep Готово, Отложить 15 м / 1 ч, +1 ч / Вечером / Завтра, Пропустить (repeats only), Замьютить (escalation only), and the reason picker after a quick reschedule.
-- [ ] 10.3 Set the chat menu button to the Mini App at bootstrap when `WEBAPP_ENABLED=true`, and leave it alone when the flag is off.
-- [ ] 10.4 Every screen command gains the launch button while keeping its current screen, so both surfaces work during rollout step 2.
+- [x] 10.1 A `web_app` button on the reminder card, the escalation, the morning card and the weekly card, deep-linked with the id in the **fragment** (`${WEBAPP_URL}/#/task/<occurrenceId>`, `/#/today`, `/#/week`) so it never reaches an access log. `src/telegram/telegram.service.ts` already builds these three keyboards in one place.
+- [x] 10.2 Replace the reminder card's «⚙️ Ещё» and «📅 Другая дата» with a launch button to that occurrence's screen, once group 6.4/6.5 is live. Keep Готово, Отложить 15 м / 1 ч, +1 ч / Вечером / Завтра, Пропустить (repeats only), Замьютить (escalation only), and the reason picker after a quick reschedule.
+- [x] 10.3 Set the chat menu button to the Mini App at bootstrap when `WEBAPP_ENABLED=true`, and leave it alone when the flag is off.
+- [x] 10.4 Every screen command gains the launch button while keeping its current screen, so both surfaces work during rollout step 2.
 
 ## 11. Bot cleanup (last, alone, after production use)
 
