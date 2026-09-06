@@ -35,6 +35,12 @@ services:
     environment:
       HOST: 0.0.0.0
       DATABASE_URL: postgres://ipsycho:${POSTGRES_PASSWORD}@postgres:5432/ipsycho
+      # Warnings and errors also land here, outliving the container's own rotated stream. Set the
+      # variable empty in .env to turn the file off; the stderr stream is unaffected either way.
+      PROBLEM_LOG_FILE: ${PROBLEM_LOG_FILE-/var/log/ipsycho/problems.jsonl}
+    volumes:
+      # Survives redeploys, unlike anything written into the container's own filesystem.
+      - app_problems:/var/log/ipsycho
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,5 +83,6 @@ services:
 
 volumes:
   postgres_data:
+  app_problems:
   caddy_data:
   caddy_config:

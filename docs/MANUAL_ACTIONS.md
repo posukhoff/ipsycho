@@ -2,6 +2,8 @@
 
 This file contains only checks that cannot be proven by the local automated suite. Run `npm run check` and `npm run test:e2e` before starting this checklist.
 
+For the Mini App this is not a formality. Nothing in `web/` has ever executed anywhere but a browser and a static render: the theme, the safe-area insets, the back button, the MainButton, haptics, observer-based paging, optimistic rollback and the live conflict path are covered by the compiler and by fixtures. One such gap has already cost an outage — Telegram appends its launch parameters to the URL fragment the router reads as its address, so the app resolved every route to not-found and would not open from the chat at all. Nothing in a browser reproduces that; a person pressing the button found it.
+
 ## Credentials and access
 
 - [ ] Rotate any PostgreSQL, Telegram or AI credential that may previously have been stored outside the current `.env.example`; never commit `.env`.

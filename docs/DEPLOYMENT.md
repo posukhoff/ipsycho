@@ -19,8 +19,7 @@ own: `/health` and `/ready` stay inside the Docker network. Telegram long
 polling needs only outbound HTTPS access.
 
 Until the Mini App is enabled that is the whole deployment — the `caddy` service
-sits behind a Compose profile and does not start, so nothing listens on 80 or
-443. Once the profile is on, Caddy is the single public entry point and forwards
+sits behind a Compose profile and does not start, so nothing listens on 80 or 443. Once the profile is on, Caddy is the single public entry point and forwards
 exactly two path prefixes to the app. Everything else, `/health` and `/ready`
 included, gets a 404 from Caddy; see
 [Mini App: domain, TLS and registration](#mini-app-domain-tls-and-registration).
@@ -69,18 +68,18 @@ included, gets a 404 from Caddy; see
    you want each production release approved manually.
 4. Add these environment secrets:
 
-   | Secret | Value |
-   | --- | --- |
-   | `DEPLOY_HOST` | VPS public IP or host name |
-   | `DEPLOY_USER` | `deploy` |
+   | Secret                          | Value                                                                                                                     |
+   | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+   | `DEPLOY_HOST`                   | VPS public IP or host name                                                                                                |
+   | `DEPLOY_USER`                   | `deploy`                                                                                                                  |
    | `DEPLOY_SSH_PRIVATE_KEY_BASE64` | the private key for Actions to SSH into the VPS, base64-encoded (`base64 -w0 < key`) so newlines survive the secret store |
-   | `DEPLOY_KNOWN_HOSTS` | pinned `ssh-keyscan -H <host>` output, verified against the provider console fingerprint |
+   | `DEPLOY_KNOWN_HOSTS`            | pinned `ssh-keyscan -H <host>` output, verified against the provider console fingerprint                                  |
 
    Add one environment **variable** (not a secret — it is a public host name)
    once the Mini App domain exists:
 
-   | Variable | Value |
-   | --- | --- |
+   | Variable        | Value                                          |
+   | --------------- | ---------------------------------------------- |
    | `WEBAPP_DOMAIN` | the Mini App host name, e.g. `app.example.com` |
 
    While it is unset the deploy workflow skips its public HTTPS check and says
@@ -275,7 +274,7 @@ Close them in the firewall too if the outage is expected to last.
 
 Every API request carries `Authorization: tma <initDataRaw>` — the payload
 Telegram signs with the bot token. There is no session store, no cookie and no
-refresh, so this string *is* the credential.
+refresh, so this string _is_ the credential.
 
 - **Disabling one user is immediate.** The guard re-resolves the allowlist
   through `AccessService` on every request, so the admin CLI takes effect on the
@@ -332,6 +331,19 @@ If you ever put a CDN or a second proxy in front of Caddy, all three of those
 have to change together. Changing one is how the limiter silently stops working.
 
 ## Backups and operations
+
+> **Open on this server: the backups have nowhere off-site to go.** The local
+> scheme runs and is proven — key in `/home/deploy/ipsycho-secrets/backup.key`,
+> cron at 03:15, seven daily and four weekly copies, and a restore into a
+> throwaway container on the first of the month (verified live: `backup_ok …
+offsite=no`, `restore_check_ok … tables=26`). But the copies **and** the
+> encryption key sit on the same disk as the database, so losing that disk loses
+> the data and the ability to read whatever survived. What is missing is a bucket
+> and its credentials; after that it is one `S3_BACKUP_URI` in the cron line.
+>
+> Also unversioned by anything that checks it: `AI_PRICING_JSON` is stamped
+> `revision: 2026-09-05`. Change the model or the tariff and the cost figures
+> stay quietly wrong.
 
 Before treating the bot as production-ready, configure encrypted Compose
 backups with an S3-compatible bucket and a separate backup key file. Keep that
@@ -394,6 +406,37 @@ Two watchers run in production since 2026-09-05:
 ```cron
 */5 * * * *  cd /opt/ipsycho && ./scripts/watchdog.sh >> /opt/ipsycho/backups/watchdog.log 2>&1
 ```
+
+### Reading what the agent ran into
+
+Every warning and error is appended to `/var/log/ipsycho/problems.jsonl` inside
+the app container, on the `app_problems` named volume, one JSON object per line.
+Docker's own stream still gets the same lines, but it holds five services
+interleaved and rotates 10 MB at a time, which answers "is it up" and not "how
+often does a turn get rejected, and with which code".
+
+```sh
+cd /opt/ipsycho
+docker compose exec -T app cat /var/log/ipsycho/problems.jsonl > /tmp/problems.jsonl
+jq -r '.event' /tmp/problems.jsonl | sort | uniq -c | sort -rn        # what goes wrong, by frequency
+jq 'select(.event == "AI action rejected") | .issues[].code' /tmp/problems.jsonl | sort | uniq -c
+jq 'select(.userId == "…")' /tmp/problems.jsonl                       # one person's bad evening
+```
+
+Every line produced inside one Telegram turn carries the same `updateId` and
+`userId`, so a single message's trail groups without a correlation step. The
+content is what already goes to stderr — identifiers, counters and sanitized
+error identity, never a message body — so the file adds no new disclosure, only
+a longer life for the same records. That life is bounded by rotation and nothing
+else: at 16 MB the file becomes `problems.jsonl.1` and one generation is kept
+(`PROBLEM_LOG_MAX_BYTES` moves the cap, an empty `PROBLEM_LOG_FILE` in
+`/opt/ipsycho/.env` turns the file off entirely). The volume is not in the
+encrypted backup set, which is deliberate: these are diagnostics, not data the
+product owes anyone.
+
+A path the runtime cannot write disables the file after one `problem log
+disabled` line on stderr — the bot keeps serving, and the stream keeps every
+record.
 
 `scripts/watchdog.sh` polls `/ready` and, after two consecutive failures, sends
 one Telegram message to the owner and one more when the app recovers. It shares

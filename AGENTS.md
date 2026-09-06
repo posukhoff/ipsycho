@@ -13,7 +13,7 @@
 - `migrations/`: ordered PostgreSQL migrations. Add a new numbered migration; do not rewrite a migration that may already have run.
 - `tests/app/`: application contract tests. `tests/e2e/`: PostgreSQL integration coverage.
 - `web/`: the Telegram Mini App (Vite + React), an npm workspace built from the server's own zod contracts in `src/api/contracts/`.
-- `README.md` plus `docs/`: the operational overview, then `DEPLOYMENT.md` (server and backups), `MANUAL_ACTIONS.md` (release checks needing a real Telegram account), `AGENT_FLOW.md` (agent behaviour), `CODE_REVIEW.md`, and `IMPROVEMENT_PLAN.md` (what is deliberately left open).
+- `README.md` plus `docs/`: the operational overview, then `DEPLOYMENT.md` (server and backups), `MANUAL_ACTIONS.md` (release checks needing a real Telegram account), `AGENT_FLOW.md` (agent behaviour), `CODE_REVIEW.md`.
 
 ## Discovery and planning
 
@@ -29,6 +29,17 @@
 - Commit a state mutation and its action journal atomically where supported. Risky or inferred actions require confirmation; expose Undo only for truthfully reversible state.
 - Logs may contain identifiers, counters, and sanitized error identity, but not message bodies, secrets, access tokens, raw provider payloads, or sensitive memory.
 - Keep migration locking and the single-app-process assumption intact. Treat Telegram delivery as a non-transactional external side effect and design retries for ambiguous outcomes.
+
+Load-bearing details that read as arbitrary and are not:
+
+- `src/core/` imports nothing from outside itself; that is what lets it be tested on its own.
+- Action mutations lock with `FOR UPDATE ORDER BY id` inside the transaction; the order is the deadlock avoidance, not a style.
+- No `parse_mode` anywhere in Telegram output. The whole class of escaping bugs is absent because nothing is ever parsed as markup.
+- `callback_data` is at most 64 bytes and every uuid in it is matched by a regex before use.
+- `src/core/applied-report.ts` reports only what was actually stored, with the value before and after. A report of what was attempted would be a lie the user cannot check.
+- Every code in `src/chat/turn-errors.ts` says what the user can change. A code that only says what failed is not finished.
+- `scripts/backup-compose.sh` publishes atomically and proves the archive by decrypting it before publishing, not after.
+- Do not lower the coverage threshold in `.c8rc.json`.
 
 ## Verification
 
@@ -69,3 +80,21 @@ The chat and the Mini App are one product with one journal. Which surface a thin
 - **Rollback for the reduced bot is a revert, not `WEBAPP_ENABLED=false`.** With the flag off the bot still has the conversation, the cards and the account gates, but nothing to browse with.
 
 - `src/database/schema.ts` must match the applied migrations: `tests/e2e/schema-drift.test.mjs` compares tables, index and constraint names, and foreign keys with their `ON DELETE` behaviour against the live database. Add the SQL migration and the schema declaration in the same change.
+
+## Decisions already taken
+
+Settled, with the reason, so they are not re-argued from scratch. Changing one is a product decision; discovering one is not.
+
+- **No habits.** A repeating task with no end date already is one.
+- **No "Started" button**, and no new `in_progress` rows. The value stays in the enum and is read for old rows, so every occurrence has one card shape.
+- **Memory, goals and `plan` stay model actions.** A task cannot reference a goal created in the same message, so without `plan` "a goal and its first steps" would break into two turns.
+- **Pausing a series is offered only for repeats with no end date.** Pausing a series that has one only loses dates.
+- **The bot has no browsing screens.** They moved to the Mini App; the chat keeps the conversation, the reaction cards and the deterministic gates. Rollback is a revert, not `WEBAPP_ENABLED=false`.
+- **The Mini App has no chat screen and no goal creation.** The app opens inside the chat, so a second conversational surface would need its own turn identity, a migration and an async lifecycle to save a swipe; and a goal is a sentence, not a form.
+
+Deliberately not refactored, each because the obvious split breaks a transaction:
+
+- `action-mutations.repository.ts` is not carved up: one step is one transaction there.
+- Repositories are not lifted out of `AccessService`, `reminder-*` or `briefing-*`: account deletion, delivery suppression and audit are each one transaction, and a wrapper would tear it.
+- `briefing-content` and `reminder-queue` still call `telegram-ui`: that is the delivery path into Telegram, not presentation leaking into the domain.
+- The rate limiter ignores in-flight turns: one chat's updates are already strictly sequential (`sequentialize`), so the only race is between a live turn and `AiRetryService`.

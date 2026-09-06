@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createProblemSink } from "./problem-log.js";
 
 /**
  * One JSON line per event, with a level, a timestamp and whatever the caller attached.
@@ -7,6 +8,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
  *
  * `runWithLogContext` binds fields to everything logged while an async task runs, so one
  * Telegram update's turn id appears on every line it produced without being threaded through.
+ *
+ * Warnings and errors additionally go to PROBLEM_LOG_FILE when it is set, where they outlive the
+ * container's own log and can be read on their own. See problem-log.ts.
  */
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Record<string, unknown>;
@@ -16,6 +20,7 @@ const configured = (process.env.LOG_LEVEL ?? "info").toLowerCase();
 const threshold = LEVEL_RANK[(configured in LEVEL_RANK ? configured : "info") as LogLevel];
 
 const context = new AsyncLocalStorage<LogFields>();
+const problems = createProblemSink(process.env);
 
 export function runWithLogContext<T>(fields: LogFields, work: () => T): T {
   return context.run({ ...context.getStore(), ...fields }, work);
@@ -24,8 +29,10 @@ export function runWithLogContext<T>(fields: LogFields, work: () => T): T {
 function emit(level: LogLevel, event: string, fields?: LogFields): void {
   if (LEVEL_RANK[level] < threshold) return;
   const line = JSON.stringify({ ts: new Date().toISOString(), level, event, ...context.getStore(), ...fields });
-  if (level === "error" || level === "warn") process.stderr.write(`${line}\n`);
-  else process.stdout.write(`${line}\n`);
+  if (level === "error" || level === "warn") {
+    process.stderr.write(`${line}\n`);
+    problems.record(line);
+  } else process.stdout.write(`${line}\n`);
 }
 
 export const logger = {

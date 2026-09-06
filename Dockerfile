@@ -40,6 +40,9 @@ COPY migrations ./migrations
 # The image runs as `node`, and the checkout on the server may have any umask: make everything the
 # runtime reads readable, and directories traversable. `a+rX` adds execute only where it belongs.
 RUN chmod -R a+rX ./migrations ./dist ./web/dist ./package.json
+# The problem log's home. Docker gives a fresh named volume the ownership of the directory it
+# covers, so creating it here as `node` is what makes the volume writable without a host chown.
+RUN mkdir -p /var/log/ipsycho && chown node:node /var/log/ipsycho
 # Runtime has no reason to run as root; migration/app only need network and read access.
 USER node
 CMD ["sh", "-c", "node dist/database/migrate.js && node dist/main.js"]
