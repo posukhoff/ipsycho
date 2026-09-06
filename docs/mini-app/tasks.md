@@ -120,12 +120,18 @@ so is never noticed.
 
 ### 11.1 Commands removed
 
-`/tasks`, `/task`, `/today`, `/week`, `/goals`, `/reminders`, `/settings`, `/memory`, `/context`,
+`/tasks`, `/task`, `/today`, `/week`, `/goals`, `/reminders`, `/settings`, `/memory`,
 `/timezone`, `/language`, `/morning`, `/weekly`, `/quiet`, `/snooze`, `/reminder_defaults`.
 
-- [ ] Each answers, for one release, one sentence naming the app plus a launch button, then is gone.
-- [ ] `setMyCommands` updated in the same change so the client menu stops advertising them.
-- [ ] Settings still change by conversation: the agent's `settings` action is untouched, and `/help` says so.
+~~`/context`~~ **stays.** This inventory classified it by the screen it also opened; by the rule the
+split rests on it is a conversation turn — `ChatService.startProfile` asks the model and answers in
+chat, exactly like `goal:step:*`. The app's profile screen is a read-only view of what the interview
+writes, not a replacement for it, so the command keeps its launch button and `/help` names it under
+the conversation.
+
+- [x] Each answers, for one release, one sentence naming the app plus a launch button, then is gone.
+- [x] `setMyCommands` updated in the same change so the client menu stops advertising them.
+- [x] Settings still change by conversation: the agent's `settings` action is untouched, and `/help` says so.
 
 ### 11.2 Commands kept
 
@@ -133,7 +139,7 @@ so is never noticed.
 `/restore`, `/ai_revoke`. `/start` onboarding is unchanged — it is the bootstrap before the app has
 ever been opened.
 
-- [ ] `/help` rewritten: what the conversation does, what the app does, what the cards do. Its
+- [x] `/help` rewritten: what the conversation does, what the app does, what the cards do. Its
       `guide:` sub-navigation is deleted with the rest of the screens.
 
 ### 11.3 Callbacks removed
@@ -143,8 +149,10 @@ it asks the model and answers in chat), `paused:*`, `wk:t`, `wk:p`, `wk:d`, `rem
 `prefs:*`, `tzapply:*`, `profile:open`, `history:clear`, `guide:*`, `occ:more`, `occ:cancel`,
 `occ:cancel_one`, `series:*`, `resched:custom`.
 
-- [ ] Every removed pattern gets one deterministic answer for old scroll-back buttons — a sentence
+- [x] Every removed pattern gets one deterministic answer for old scroll-back buttons — a sentence
       and a launch button, never silence, because an unanswered `callback_query` leaves a spinner.
+      All of it lives in one file, `handlers/moved-to-app.service.ts`, so next release deletes the
+      grace period and nothing else.
 
 ### 11.4 Callbacks kept
 
@@ -155,31 +163,33 @@ point of the product), `rem:mute`, `ai:{consent,decline}`, `voice:{consent,decli
 
 ### 11.5 Files
 
-- [ ] Delete `src/telegram/handlers/screens.service.ts` and `handlers/week-callbacks.service.ts`; drop them from `telegram-handlers.module.ts` and `telegram-handlers.service.ts`.
-- [ ] `handlers/system-commands.service.ts`: keep `/start`, `/help`, `/status`, `/clear`, `/cancel`, `/retry_ai`, `/invite`, `/delete_account`, `/restore`, `/ai_revoke`, `ai:*`, `account:delete_confirm`, `goal:step:*`. Remove the rest.
-- [ ] `handlers/settings-commands.service.ts`: file goes away entirely once the seven commands and `prefs:*`/`tzapply:*` are gone. Anything the onboarding flow shares with it moves into `handlers/onboarding.service.ts` first.
-- [ ] `handlers/task-callbacks.service.ts`: keep `occ:{done,skip,resched,back}`, `rem:mute`, `act:*`. Remove `view:*`, `occ:{more,cancel,cancel_one}`, `series:*`, `rem:cancel`.
-- [ ] `handlers/reschedule-callbacks.service.ts`: keep everything except the `custom` branch.
-- [ ] `telegram-keyboards.ts`: keep `taskKeyboard`, `quickRescheduleKeyboard` (minus «Другая дата»), `quickRescheduleReasonKeyboard`, `quickRescheduleReasonText`, `weeklyBriefingKeyboard` (goal steps plus a launch button), `BUTTON_LABELS` for the surviving labels. Delete `taskMoreKeyboard`, `settingsKeyboard`, `languageKeyboard`, `taskListKeyboard`, `taskScopeKeyboard`, `taskGroupKeyboard`, `taskDetailKeyboard`, `fuzzyTaskDetailKeyboard`, `weekPlanKeyboard`, `weekTakeTodayKeyboard`, `pausedSeriesKeyboard`, `remindersKeyboard`, `goalsScopeKeyboard`, `goalListKeyboard`, `goalDetailKeyboard`, `screenFooterKeyboard`, `appendFooter`, `groupCallback`, `mark`, and the `GroupSource`/`GoalScope` types.
-- [ ] `telegram-screens.ts`: the file goes away. `settingsText`, `tasksOverviewText`, `todayText`, `goalsOverviewText`, `goalDetailText`, `remindersText`, `weekPlanText`, `pausedSeriesText`, `memoryText`, `taskGroupText` all have API equivalents by then.
-- [ ] `telegram-format.ts` and `telegram-cards.ts`: keep only what the surviving cards and the two outside importers need — `reminderCardText` (used by `src/reminders/reminder-queue.service.ts`), `todayLine` (used by `src/briefings/briefing-content.service.ts`), `taskCardText`, `terminalTaskText`, `deployedBuildLine`, and the helpers they call. Delete list-only helpers (`groupWhenLabel`, `occurrenceWhen`, `taskWord`, `weekdayLabel` and anything else with no remaining caller).
-- [ ] `telegram-ui.ts` shrinks to the surviving re-exports.
-- [ ] After each deletion pass: `npx eslint src --max-warnings=0` catches unused exports and dead imports; nothing may be left exported-but-unused.
+- [x] Delete `src/telegram/handlers/screens.service.ts` and `handlers/week-callbacks.service.ts`; drop them from `telegram-handlers.module.ts` and `telegram-handlers.service.ts`. `ScreensService.taskCard`/`occurrenceKeyboard` are not screens — the reminder card, a completed reschedule and a typed reason all redraw one occurrence — so they moved to a new `handlers/task-card.service.ts` (43 lines) rather than being deleted.
+- [x] `handlers/system-commands.service.ts`: keep `/start`, `/help`, `/status`, `/clear`, `/cancel`, `/retry_ai`, `/invite`, `/delete_account`, `/restore`, `/ai_revoke`, `ai:*`, `account:delete_confirm`, `goal:step:*`. Remove the rest.
+- [x] `handlers/settings-commands.service.ts`: file goes away entirely once the seven commands and `prefs:*`/`tzapply:*` are gone. Anything the onboarding flow shares with it moves into `handlers/onboarding.service.ts` first. (It shared nothing: `commandArgs` had no other caller, and onboarding's timezone step already owned its own copy.)
+- [x] `handlers/task-callbacks.service.ts`: keep `occ:{done,skip,resched,back}`, `rem:mute`, `act:*`. Remove `view:*`, `occ:{more,cancel,cancel_one}`, `series:*`, `rem:cancel`.
+- [x] `handlers/reschedule-callbacks.service.ts`: keep everything except the `custom` branch.
+- [x] `telegram-keyboards.ts`: keep `taskKeyboard`, `quickRescheduleKeyboard` (minus «Другая дата»), `quickRescheduleReasonKeyboard`, `quickRescheduleReasonText`, `weeklyBriefingKeyboard` (goal steps plus a launch button), `BUTTON_LABELS` for the surviving labels. Delete `taskMoreKeyboard`, `settingsKeyboard`, `languageKeyboard`, `taskListKeyboard`, `taskScopeKeyboard`, `taskGroupKeyboard`, `taskDetailKeyboard`, `fuzzyTaskDetailKeyboard`, `weekPlanKeyboard`, `weekTakeTodayKeyboard`, `pausedSeriesKeyboard`, `remindersKeyboard`, `goalsScopeKeyboard`, `goalListKeyboard`, `goalDetailKeyboard`, `screenFooterKeyboard`, `appendFooter`, `groupCallback`, `mark`, and the `GroupSource`/`GoalScope` types.
+- [x] `telegram-screens.ts`: the file goes away. `settingsText`, `tasksOverviewText`, `todayText`, `goalsOverviewText`, `goalDetailText`, `remindersText`, `weekPlanText`, `pausedSeriesText`, `memoryText`, `taskGroupText` all have API equivalents by then.
+- [x] `telegram-format.ts` and `telegram-cards.ts`: keep only what the surviving cards and the two outside importers need — `reminderCardText` (used by `src/reminders/reminder-queue.service.ts`), `todayLine` (used by `src/briefings/briefing-content.service.ts`), `taskCardText`, `terminalTaskText`, `deployedBuildLine`, and the helpers they call. Delete list-only helpers (`groupWhenLabel`, `occurrenceWhen`, `taskWord`, `weekdayLabel` and anything else with no remaining caller).
+- [x] `telegram-ui.ts` shrinks to the surviving re-exports.
+- [x] After each deletion pass: `npx eslint src --max-warnings=0` catches unused exports and dead imports; nothing may be left exported-but-unused.
 
 ### 11.6 Copy
 
-- [ ] Delete the removed keys from `copy/ru.ts`, `copy/uk.ts`, `copy/en.ts` **in the same commit** — a key present in one dictionary and missing in another does not compile, which is the guard that makes this safe.
-- [ ] `copy/help.ts`: rewrite `helpText`, delete `guideText` and the `GuideDestination` type.
-- [ ] `copy/onboarding.ts` is untouched.
-- [ ] Regenerate `tests/app/__snapshots__/**`; a snapshot that still pins deleted copy is the failure mode this step exists to catch.
+- [x] Delete the removed keys from `copy/ru.ts`, `copy/uk.ts`, `copy/en.ts` **in the same commit** — a key present in one dictionary and missing in another does not compile, which is the guard that makes this safe.
+- [x] `copy/help.ts`: rewrite `helpText`, delete `guideText` and the `GuideDestination` type.
+- [x] ~~`copy/onboarding.ts` is untouched.~~ It could not be: `startOnboarding` and `ready` sent the
+      new user to `/settings`, `/today`, `/tasks` and `/goals`. Those four references became the app
+      and the conversation; nothing else in the file changed.
+- [x] Regenerate `tests/app/__snapshots__/**`; a snapshot that still pins deleted copy is the failure mode this step exists to catch.
 
 ### 11.7 Tests
 
-- [ ] `tests/app/telegram-callbacks.test.mjs`: remove the cases for deleted callbacks, add one asserting a deleted callback answers with a launch button instead of silence.
-- [ ] `tests/app/week-callbacks.test.mjs`: delete; its coverage moves to `tests/app/webapp-week.test.mjs` (group 4).
-- [ ] `tests/app/telegram-cards.test.mjs`, `telegram-copy.test.mjs`, `copy-snapshots.test.mjs`, `localization.test.mjs`: trim to the surviving surface, keep the three-dictionary parity assertion.
-- [ ] `tests/app/nest-module-wiring.test.mjs`: update for the removed providers.
-- [ ] Record the before/after counts of `find src/telegram -name '*.ts' | xargs wc -l` in the archive note. The target is roughly half of today's 5 032 lines.
+- [x] `tests/app/telegram-callbacks.test.mjs`: remove the cases for deleted callbacks, add one asserting a deleted callback answers with a launch button instead of silence.
+- [x] `tests/app/week-callbacks.test.mjs`: delete; its coverage moves to `tests/app/webapp-week.test.mjs` (group 4).
+- [x] `tests/app/telegram-cards.test.mjs`, `telegram-copy.test.mjs`, `copy-snapshots.test.mjs`, `localization.test.mjs`: trim to the surviving surface, keep the three-dictionary parity assertion.
+- [x] `tests/app/nest-module-wiring.test.mjs`: update for the removed providers.
+- [x] Record the before/after counts of `find src/telegram -name '*.ts' | xargs wc -l` in the archive note. **5 240 → 3 248 lines (−1 992, 38 %).** Short of "roughly half" by design: `handlers/moved-to-app.service.ts` (123 lines) is the one-release grace period for every removed command and callback, and deleting it next release lands the directory at ~3 128.
 
 ## 12. Integrated verification
 

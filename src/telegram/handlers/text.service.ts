@@ -13,7 +13,7 @@ import { t } from "../copy/index.js";
 import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { OnboardingService } from "./onboarding.service.js";
-import { ScreensService } from "./screens.service.js";
+import { TaskCardService } from "./task-card.service.js";
 import { RescheduleCallbacksService } from "./reschedule-callbacks.service.js";
 import { logger } from "../../observability/logger.js";
 
@@ -30,7 +30,7 @@ export class TextService {
     private readonly tasks: TasksService,
     private readonly chat: ChatService,
     private readonly chatReply: TelegramChatReplyService,
-    private readonly screens: ScreensService,
+    private readonly card: TaskCardService,
     private readonly rescheduleCallbacks: RescheduleCallbacksService,
     private readonly onboarding: OnboardingService,
   ) {}
@@ -137,8 +137,8 @@ export class TextService {
         const applied = await this.rescheduleCallbacks.applyReschedule(access, pending.occurrenceId, schedule, reason);
         const current = await this.tasks.getOccurrenceContext(access.workspaceId, pending.occurrenceId);
         if (current)
-          await ctx.reply(await this.screens.taskCard(access.workspaceId, current, locale), {
-            reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button"),
+          await ctx.reply(await this.card.text(access.workspaceId, current, locale), {
+            reply_markup: this.card.keyboard(ctx, current, applied.groupId, "undo_reschedule_button"),
           });
         else await ctx.reply(t(locale, "rescheduled_text"));
         return;

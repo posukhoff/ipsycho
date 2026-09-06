@@ -1,19 +1,22 @@
 import { compactText } from "../core/telegram-ux.js";
-import { isOverdueForDisplay, occurrenceLocalDate } from "../core/local-schedule.js";
-import { recurrenceLabel } from "../core/recurrence-label.js";
+import { isOverdueForDisplay } from "../core/local-schedule.js";
 import { localDateAt } from "../core/timezone.js";
-import { plural, pluralForm, t } from "./copy/index.js";
+import { t } from "./copy/index.js";
 import { formatLocalDateTime, intlLocale } from "../core/time-presentation.js";
 import { selectCardDetails } from "../core/card-details.js";
 import type { TelegramLocale } from "./telegram-locale.js";
 
 /**
- * The vocabulary every Telegram view shares: what a card knows about a task and an occurrence,
- * and the small formatters that turn those fields into one localized line.
+ * The vocabulary every Telegram card shares: what a card knows about a task and an occurrence, and
+ * the small formatters that turn those fields into one localized line.
+ *
+ * It used to serve the list screens too — group labels, weekday names, plural task counts, the
+ * settings summary. Those moved to the Mini App with the screens themselves (task 11), so what is
+ * left is only what a card, a reminder and the morning card's one-line-per-task body still need.
  */
-export type TelegramImportance = "normal" | "required" | "critical";
+type TelegramImportance = "normal" | "required" | "critical";
 
-export type TelegramOccurrenceStatus = "scheduled" | "open" | "in_progress" | "done" | "skipped" | "cancelled" | "elapsed";
+type TelegramOccurrenceStatus = "scheduled" | "open" | "in_progress" | "done" | "skipped" | "cancelled" | "elapsed";
 
 export interface TelegramTaskCard {
   title: string;
@@ -48,20 +51,7 @@ export interface TelegramOccurrenceCard {
   completedAt?: Date | string | null;
 }
 
-export type TelegramTaskListRow = { task: TelegramTaskCard & { id: string }; occurrence: TelegramOccurrenceCard | null };
-
-/** What a list screen needs from one collapsed group; the grouping itself lives in `src/core/task-list-view.ts`. */
-export interface TelegramGroupCard {
-  key: string;
-  title: string;
-  importance: TelegramImportance;
-  recurrenceRule: string | null;
-  rows: ReadonlyArray<TelegramTaskListRow>;
-  lead: TelegramTaskListRow;
-  pastCount: number;
-}
-
-export const CARD_COPY = {
+const CARD_COPY = {
   ru: {
     inProgress: "▶️ В работе",
     overdue: "⚠️ Просрочено",
@@ -142,7 +132,7 @@ export function scheduleLine(task: TelegramTaskCard, occurrence: TelegramOccurre
   return `📅 ${when} (${occurrence.timezone})${reminder}${suffix}`;
 }
 
-export function occurrenceWhen(occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale = "ru"): string {
+function occurrenceWhen(occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale = "ru"): string {
   const tz = occurrence.timezone;
   const tag = intlLocale(locale);
   const by = cardCopy(locale).by;
@@ -164,7 +154,7 @@ export function overdueMark(occurrence: TelegramOccurrenceCard, now: Date, local
   return isOverdueForDisplay(occurrence, now) ? t(locale, "scope_overdue") : "";
 }
 
-export function reminderTimeLabel(reminderAt: Date, occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {
+function reminderTimeLabel(reminderAt: Date, occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {
   const anchor = occurrence.plannedStartAt ? new Date(occurrence.plannedStartAt) : occurrence.dueAt ? new Date(occurrence.dueAt) : null;
   if (anchor && localDateAt(anchor, occurrence.timezone) === localDateAt(reminderAt, occurrence.timezone)) return formatTime(reminderAt, occurrence.timezone, locale);
   return formatLocalDateTime(reminderAt, occurrence.timezone, now, intlLocale(locale));
@@ -180,8 +170,6 @@ export function overdueFor(occurrence: TelegramOccurrenceCard, now: Date, locale
   if (minutes < 48 * 60) return ` ${copy.forWord} ${Math.round(minutes / 60)} ${copy.h}`;
   return ` ${copy.forWord} ${Math.round(minutes / (24 * 60))} ${copy.d}`;
 }
-
-/** Detail lines in reading order; fields that only repeat the title, goal or checklist are dropped (see selectCardDetails). */
 
 /** Detail lines in reading order; fields that only repeat the title, goal or checklist are dropped (see selectCardDetails). */
 export function detailLines(task: TelegramTaskCard, locale: CardLocale): string[] {
@@ -206,46 +194,6 @@ export function checklistLines(checklist: TelegramTaskCard["checklist"], limit: 
   return lines;
 }
 
-/** Compact "when" for list screens: exact time, deadline, date or fuzzy horizon. */
-export function overviewWhen(task: TelegramTaskCard, occurrence: TelegramOccurrenceCard | null, now: Date, locale: TelegramLocale = "ru"): string {
-  if (!occurrence) return task.fuzzyHorizonText ? ` · 🫧 ${task.fuzzyHorizonText}` : "";
-  const when = occurrenceWhen(occurrence, now, locale);
-  return when ? ` · ${when}` : "";
-}
-
-/**
- * The "when" of a collapsed group. A group holds everything that reads as one thing, so the line
- * must say how much is hidden behind it: a repeating rule, several times in one day, or several
- * dates. Only the nearest one gets a full timestamp — the rest is a count the user can open.
- */
-export function groupWhenLabel(group: TelegramGroupCard, now: Date, locale: TelegramLocale = "ru"): string {
-  const { lead, rows } = group;
-  if (rows.length < 2) return overviewWhen(lead.task, lead.occurrence, now, locale);
-  const dates = distinctLocalDates(rows);
-  const next = lead.occurrence ? occurrenceWhen(lead.occurrence, now, locale) : lead.task.fuzzyHorizonText ? `🫧 ${lead.task.fuzzyHorizonText}` : "";
-  const rule = group.recurrenceRule ? recurrenceLabel(group.recurrenceRule, lead.task.recurrenceEndLocalDate ?? null, locale) : "";
-  // Several times on one day read better as the times themselves than as "2 dates".
-  const sameDayTimes = dates.length === 1 ? sameDayTimeList(rows, locale) : null;
-  const detail = sameDayTimes ?? [dates.length > 1 ? plural(locale, dates.length, "date") : "", next ? `${t(locale, "group_next")} ${next}` : ""].filter(Boolean).join(" · ");
-  const parts = [rule, detail].filter(Boolean);
-  return parts.length ? ` · ${parts.join(" · ")}` : "";
-}
-
-function sameDayTimeList(rows: ReadonlyArray<TelegramTaskListRow>, locale: TelegramLocale): string | null {
-  const times = rows.map((row) => (row.occurrence?.plannedStartAt ? formatTime(new Date(row.occurrence.plannedStartAt), row.occurrence.timezone, locale) : null));
-  return times.every((time): time is string => time !== null) ? times.join(", ") : null;
-}
-
-function distinctLocalDates(rows: ReadonlyArray<TelegramTaskListRow>): string[] {
-  const dates: string[] = [];
-  for (const { occurrence } of rows) {
-    if (!occurrence) continue;
-    const localDate = occurrenceLocalDate(occurrence);
-    if (localDate && !dates.includes(localDate)) dates.push(localDate);
-  }
-  return dates;
-}
-
 export function relativeDue(occurrence: TelegramOccurrenceCard, now: Date, locale: CardLocale): string {
   const copy = cardCopy(locale);
   const target = occurrence.dueAt ? new Date(occurrence.dueAt) : occurrence.plannedStartAt ? new Date(occurrence.plannedStartAt) : null;
@@ -266,10 +214,6 @@ export function importanceIcon(importance: TelegramImportance): string {
   return importance === "critical" ? "🔴" : importance === "required" ? "🟡" : "";
 }
 
-export function formatLocal(at: Date, timezone: string): string {
-  return formatLocalDateTime(at, timezone, new Date());
-}
-
 export function formatTime(at: Date, timezone: string, locale: CardLocale = "ru"): string {
   return new Intl.DateTimeFormat(intlLocale(locale), { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(at);
 }
@@ -280,45 +224,3 @@ export function formatDateLabel(value: string, timezone?: string, now?: Date): s
   const currentYear = now && timezone ? localDateAt(now, timezone).slice(0, 4) : year;
   return currentYear === year ? `${day}.${month}` : `${day}.${month}.${year}`;
 }
-
-export function taskWord(count: number, locale: TelegramLocale = "ru"): string {
-  return pluralForm(locale, count, "deed");
-}
-
-export function messageWord(count: number, locale: TelegramLocale = "ru"): string {
-  if (locale === "en") return count === 1 ? "message" : "messages";
-  if (locale === "uk") return count === 1 ? "повідомлення" : count >= 2 && count <= 4 ? "повідомлення" : "повідомлень";
-  const mod100 = count % 100;
-  const mod10 = count % 10;
-  if (mod100 >= 11 && mod100 <= 14) return "сообщений";
-  if (mod10 === 1) return "сообщение";
-  if (mod10 >= 2 && mod10 <= 4) return "сообщения";
-  return "сообщений";
-}
-
-export function quietHoursLabel(
-  row: { quietHoursEnabled: boolean; weekdayQuietStart: string; weekdayQuietEnd: string; weekendQuietStart?: string | null; weekendQuietEnd?: string | null },
-  locale: TelegramLocale,
-): string {
-  if (!row.quietHoursEnabled) return locale === "en" ? "off" : locale === "uk" ? "вимкнено" : "выкл";
-  const weekday = `${row.weekdayQuietStart}–${row.weekdayQuietEnd}`;
-  const weekend = row.weekendQuietStart && row.weekendQuietEnd ? `${row.weekendQuietStart}–${row.weekendQuietEnd}` : null;
-  if (!weekend || weekend === weekday) return weekday;
-  return locale === "en"
-    ? `${weekday} (weekdays), ${weekend} (weekends)`
-    : locale === "uk"
-      ? `${weekday} (будні), ${weekend} (вихідні)`
-      : `${weekday} (будни), ${weekend} (выходные)`;
-}
-
-export function weekdayLabel(value: number, locale: TelegramLocale): string {
-  const labels =
-    locale === "en"
-      ? ["?", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-      : locale === "uk"
-        ? ["?", "пн", "вт", "ср", "чт", "пт", "сб", "нд"]
-        : ["?", "пн", "вт", "ср", "чт", "пт", "сб", "вс"];
-  return labels[value] ?? String(value);
-}
-
-/** Which code is answering: the deploy pipeline checks out one exact commit, so its short SHA identifies the build. */

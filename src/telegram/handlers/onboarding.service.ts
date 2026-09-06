@@ -6,7 +6,7 @@ import { bareConfirmationDecision } from "../../core/conversation-control.js";
 import { t } from "../copy/index.js";
 import { deterministicCopy } from "../copy/onboarding.js";
 import { activeState, type AppContext } from "../telegram-context.js";
-import { ScreensService } from "./screens.service.js";
+import { launchOnlyKeyboard } from "../telegram-webapp.js";
 
 const ONBOARD_CALLBACK = /^onb:(tz|digests|quiet|weekly):([A-Za-z_/+-]+|on|off|default|other)$/;
 
@@ -17,10 +17,7 @@ const ONBOARD_CALLBACK = /^onb:(tz|digests|quiet|weekly):([A-Za-z_/+-]+|on|off|d
  */
 @Injectable()
 export class OnboardingService {
-  constructor(
-    private readonly settings: SettingsService,
-    private readonly screens: ScreensService,
-  ) {}
+  constructor(private readonly settings: SettingsService) {}
 
   register(bot: Bot<AppContext>): void {
     bot.callbackQuery(ONBOARD_CALLBACK, (ctx) => this.step(ctx));
@@ -101,11 +98,14 @@ export class OnboardingService {
     await this.settings.setWeeklyPreset(access.user.id, on);
     await this.settings.setPendingInput(access.user.id, null);
     await this.settings.completeOnboarding(access.user.id);
-    await ctx.reply(deterministicCopy(activeState(ctx).locale).onboardingDone);
-    // The three answers are visible and editable in one place, instead of a bare "done".
     const settings = await this.settings.get(access.user.id);
     if (settings) ctx.state = { ...ctx.state, settings };
-    await this.screens.settings_(ctx);
+    const { locale, webAppUrl } = activeState(ctx);
+    // The settings screen used to close onboarding; it lives in the app now, so the last step
+    // hands over the way in. With the app off the sentence stands alone: settings still change by
+    // conversation, which is what the copy says and what the agent's `settings` action still does.
+    const launch = launchOnlyKeyboard(webAppUrl, { name: "settings" }, locale);
+    await ctx.reply(deterministicCopy(locale).onboardingDone, launch ? { reply_markup: launch } : {});
   }
 
   private async step(ctx: CallbackQueryContext<AppContext>): Promise<void> {

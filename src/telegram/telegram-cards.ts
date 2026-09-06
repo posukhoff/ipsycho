@@ -36,16 +36,6 @@ export function taskCardText(task: TelegramTaskCard, occurrence: TelegramOccurre
   return details.length ? `${head.join("\n")}\n\n${details.join("\n")}` : head.join("\n");
 }
 
-export function fuzzyTaskCardText(task: TelegramTaskCard, now: Date = new Date(), locale: CardLocale = "ru"): string {
-  const copy = cardCopy(locale);
-  const title = `${importanceIcon(task.importance)} ${task.title}`.trim();
-  const horizon = task.fuzzyHorizonText ? `🫧 ${task.fuzzyHorizonText}` : copy.noDate;
-  const review = task.reviewAt ? `${copy.comeBack} ${formatLocalDateTime(new Date(task.reviewAt), task.timezone, now, intlLocale(locale))} (${task.timezone})` : "";
-  const head = [title, horizon, review].filter(Boolean);
-  const details = detailLines(task, locale);
-  return details.length ? `${head.join("\n")}\n\n${details.join("\n")}` : head.join("\n");
-}
-
 export function reminderCardText(input: {
   task: TelegramTaskCard;
   occurrence?: TelegramOccurrenceCard | null;
@@ -78,8 +68,6 @@ export function reminderCardText(input: {
   if (prompt) lines.push("", prompt);
   return lines.join("\n").trimEnd();
 }
-
-/** One line with the persisted time of an occurrence: start(–end) / deadline / date, plus the next reminder. */
 
 export function terminalTaskText(task: TelegramTaskCard, status: "done" | "skipped" | "cancelled", now: Date, locale: TelegramLocale = "ru"): string {
   if (status === "done") return `✅ ${task.title}\n${t(locale, "done_toast")} · ${formatTime(now, task.timezone)}`;
@@ -115,8 +103,6 @@ export function todayLine(task: TelegramTaskCard, occurrence: TelegramOccurrence
   const parts = [when, state].filter(Boolean);
   return `${icon} ${task.title}${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
 }
-
-/** Compact "when" for list screens: exact time, deadline, date or fuzzy horizon. */
 
 /** Which code is answering: the deploy pipeline checks out one exact commit, so its short SHA identifies the build. */
 export function deployedBuildLine(commit: string | undefined, locale: TelegramLocale): string {

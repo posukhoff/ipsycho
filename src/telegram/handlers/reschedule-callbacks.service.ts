@@ -13,10 +13,10 @@ import { TasksService } from "../../tasks/tasks.service.js";
 import { t } from "../copy/index.js";
 import { activeState, type ActiveAccess, type AppContext } from "../telegram-context.js";
 import { quickRescheduleReasonKeyboard, quickRescheduleReasonText, taskKeyboard, type QuickRescheduleReasonCode } from "../telegram-ui.js";
-import { ScreensService } from "./screens.service.js";
+import { TaskCardService } from "./task-card.service.js";
 
 const UUID = "[0-9a-f-]{36}";
-const QUICK_RESCHEDULE_CALLBACK = new RegExp(`^resched:(1h|evening|tomorrow|custom):(${UUID})$`);
+const QUICK_RESCHEDULE_CALLBACK = new RegExp(`^resched:(1h|evening|tomorrow):(${UUID})$`);
 const QUICK_RESCHEDULE_REASON_CALLBACK = new RegExp(`^rr:(h|e|t):(t|d|e|o):(${UUID})$`);
 const FOLLOW_UP_CALLBACK = new RegExp(`^follow:snooze:(15m|1h):(${UUID})$`);
 
@@ -32,7 +32,7 @@ export class RescheduleCallbacksService {
     private readonly reminders: ReminderSchedulingService,
     private readonly settings: SettingsService,
     private readonly actions: ActionsService,
-    private readonly screens: ScreensService,
+    private readonly card: TaskCardService,
   ) {}
 
   register(bot: Bot<AppContext>): void {
@@ -87,8 +87,8 @@ export class RescheduleCallbacksService {
     await ctx.answerCallbackQuery({ text: t(locale, "rescheduled_toast") }).catch(() => undefined);
     if (current)
       await ctx
-        .editMessageText(await this.screens.taskCard(access.workspaceId, current, locale), {
-          reply_markup: this.screens.occurrenceKeyboard(ctx, current, applied.groupId, "undo_reschedule_button"),
+        .editMessageText(await this.card.text(access.workspaceId, current, locale), {
+          reply_markup: this.card.keyboard(ctx, current, applied.groupId, "undo_reschedule_button"),
         })
         .catch(() => undefined);
   }
@@ -96,22 +96,11 @@ export class RescheduleCallbacksService {
   private async quickReschedule(ctx: CallbackQueryContext<AppContext>): Promise<void> {
     const { access, locale } = activeState(ctx);
     const match = QUICK_RESCHEDULE_CALLBACK.exec(ctx.callbackQuery.data);
-    const choice = match?.[1] as QuickRescheduleChoice | "custom" | undefined;
+    const choice = match?.[1] as QuickRescheduleChoice | undefined;
     const occurrenceId = match?.[2];
     if (!choice || !occurrenceId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
     const context = await this.tasks.getOccurrenceContext(access.workspaceId, occurrenceId);
     if (!context) return this.stale(ctx, "task_not_found_toast");
-    if (choice === "custom") {
-      await this.settings.setPendingInput(access.user.id, { kind: "reschedule", occurrenceId });
-      await ctx.answerCallbackQuery({ text: t(locale, "resched_custom_toast") });
-      const hint = t(locale, context.task.timeMode === "window" ? "resched_hint_window" : context.task.timeMode === "deadline" ? "resched_hint_deadline" : "resched_hint_point");
-      await ctx
-        .editMessageText(`🕒 ${context.task.title}\n\n${t(locale, "resched_prompt", { hint })}`, {
-          reply_markup: new InlineKeyboard().text(t(locale, "not_now_button"), `occ:back:${occurrenceId}`),
-        })
-        .catch(() => undefined);
-      return;
-    }
     try {
       if (await this.tasks.isRescheduleReasonRequired(access.workspaceId, occurrenceId)) {
         await ctx.answerCallbackQuery({ text: t(locale, "reason_toast") });
@@ -178,10 +167,7 @@ export class RescheduleCallbacksService {
   }
 
   /** A stale button answers with a toast and loses its keyboard, so the card stops inviting the same failing tap. */
-  private async stale(
-    ctx: CallbackQueryContext<AppContext>,
-    key: "task_not_found_toast" | "task_unavailable_toast" | "state_changed_toast" | "series_not_found_toast" | "series_changed_toast" | "action_stale_toast",
-  ): Promise<void> {
+  private async stale(ctx: CallbackQueryContext<AppContext>, key: "task_not_found_toast" | "task_unavailable_toast"): Promise<void> {
     await ctx.answerCallbackQuery({ text: t(ctx.state.locale, key) }).catch(() => undefined);
     await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }).catch(() => undefined);
   }

@@ -5,7 +5,7 @@ import { renderAppliedReport } from "../../dist/core/applied-report.js";
 import { recurrenceLabel } from "../../dist/core/recurrence-label.js";
 import { t } from "../../dist/telegram/copy/index.js";
 import { ru } from "../../dist/telegram/copy/ru.js";
-import { fuzzyTaskCardText, reminderCardText, settingsKeyboard, taskCardText, taskKeyboard, taskMoreKeyboard } from "../../dist/telegram/telegram-ui.js";
+import { quickRescheduleKeyboard, quickRescheduleReasonKeyboard, reminderCardText, taskCardText, taskKeyboard } from "../../dist/telegram/telegram-ui.js";
 
 const now = new Date("2026-08-23T07:40:00Z");
 const task = {
@@ -46,7 +46,7 @@ test("every handler string exists in all three dictionaries and English screens 
   assert.equal(t("en", "invite_created", { link: "L", days: 7 }).includes("{"), false);
 });
 
-test("task, fuzzy and reminder cards are rendered in the user's language", () => {
+test("task and reminder cards are rendered in the user's language", () => {
   const en = taskCardText(task, occurrence, now, "en");
   assert.doesNotMatch(en, cyrillic, en);
   assert.match(en, /Overdue/);
@@ -55,8 +55,6 @@ test("task, fuzzy and reminder cards are rendered in the user's language", () =>
   const uk = taskCardText(task, occurrence, now, "uk");
   assert.match(uk, /Прострочено/);
   assert.match(uk, /щотижня: пн, ср/);
-  const fuzzy = fuzzyTaskCardText({ ...task, recurrenceRule: null, fuzzyHorizonText: "this week", reviewAt: now }, now, "en");
-  assert.match(fuzzy, /Come back:/);
   const reminder = reminderCardText({ task, occurrence, purpose: "follow_up", now, locale: "en", header: "🔴 Past the deadline — reminder #3" });
   assert.match(reminder, /^🔴 Past the deadline — reminder #3\n/);
   assert.match(reminder, /in 7 h/);
@@ -67,8 +65,9 @@ test("keyboards, labels and the applied report follow the locale", () => {
   const labels = (keyboard) => keyboard.inline_keyboard.flat().map((button) => button.text);
   assert.deepEqual(labels(taskKeyboard("11111111-1111-1111-1111-111111111111", "en", { snooze: true, mute: true })).slice(0, 1), ["✅ Done"]);
   assert.ok(labels(taskKeyboard("11111111-1111-1111-1111-111111111111", "en", { snooze: true, mute: true })).includes("🔕 Enough for this task"));
-  assert.ok(labels(taskMoreKeyboard("11111111-1111-1111-1111-111111111111", true, "22222222-2222-2222-2222-222222222222", "uk")).includes("❌ Скасувати завдання"));
-  assert.ok(labels(settingsKeyboard("en", { morningDigestEnabled: true, weeklyReviewEnabled: true, quietHoursEnabled: false })).includes("☀️ Morning: on"));
+  assert.ok(labels(taskKeyboard("11111111-1111-1111-1111-111111111111", "uk", { recurring: true })).includes("⏭ Пропустити це"));
+  assert.ok(labels(quickRescheduleKeyboard("11111111-1111-1111-1111-111111111111", "en")).includes("This evening"));
+  assert.ok(labels(quickRescheduleReasonKeyboard("11111111-1111-1111-1111-111111111111", "tomorrow", "uk")).includes("Немає сил"));
   assert.equal(recurrenceLabel("FREQ=MONTHLY;BYMONTHDAY=1,15", "2026-12-31", "en"), "every month, 1st, 15th until 31.12.2026");
   const report = renderAppliedReport(
     [

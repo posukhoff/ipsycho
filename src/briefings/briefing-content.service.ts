@@ -34,10 +34,11 @@ export class BriefingContentService {
 
     const relevant = occurrenceRows.filter(({ task, occurrence }) => occurrenceFallsOnLocalDate({ ...occurrence, timeMode: task.timeMode }, input.localDate));
 
-    // Tasks taken for this week and still without a day: the morning card is where a day is given
-    // to one of them, so it lists them under what is already scheduled.
+    // Tasks taken for this week and still without a day: the morning card lists them under what is
+    // already scheduled. Giving one of them a day is a tap in the Mini App now, not a row here, so
+    // the card needs their titles and nothing else.
     const pickedForWeek = await this.database.db
-      .select({ id: tasks.id, title: tasks.title, importance: tasks.importance })
+      .select({ title: tasks.title })
       .from(tasks)
       .where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.status, "active"), eq(tasks.pickedWeekStart, targetWeekStart(input.localDate))))
       .orderBy(tasks.updatedAt);
@@ -46,10 +47,9 @@ export class BriefingContentService {
       const now = input.now ?? new Date();
       const ordered = [...relevant].sort((a, b) => importanceRank(a.task.importance) - importanceRank(b.task.importance));
       const weekLines = pickedForWeek.length ? ["", t(locale, "briefing_taken_week"), ...pickedForWeek.slice(0, 8).map((task) => `▸ ${task.title}`)] : [];
-      const weekTasks = pickedForWeek.slice(0, 8).map((task) => ({ id: task.id, title: task.title }));
       if (!ordered.length) {
-        if (!weekLines.length) return { text: `${t(locale, "briefing_morning_title")}\n\n${t(locale, "nothing_planned")}`, hasContent: false, weekTasks };
-        return { text: [t(locale, "briefing_morning_title"), ...weekLines].join("\n"), hasContent: true, weekTasks };
+        if (!weekLines.length) return { text: `${t(locale, "briefing_morning_title")}\n\n${t(locale, "nothing_planned")}`, hasContent: false };
+        return { text: [t(locale, "briefing_morning_title"), ...weekLines].join("\n"), hasContent: true };
       }
       const main = ordered.find(({ task }) => task.importance !== "normal") ?? ordered[0];
       const lines = [`${t(locale, "briefing_morning_title")} · ${plural(locale, ordered.length, "deed")}`];
@@ -58,13 +58,13 @@ export class BriefingContentService {
       for (const row of ordered.slice(0, 6)) lines.push(todayLine(row.task, row.occurrence, input.localDate, locale, now));
       if (ordered.length > 6) lines.push(t(locale, "list_more", { count: ordered.length - 6 }));
       lines.push(...weekLines);
-      return { text: lines.join("\n"), hasContent: true, weekTasks };
+      return { text: lines.join("\n"), hasContent: true };
     };
 
     /**
      * The weekly delivery is the week plan now: what the past week closed, what was taken and left,
-     * and an invitation to pick the coming week. The picking itself is deterministic taps on /week,
-     * so this card carries no conversation.
+     * and an invitation to pick the coming week. The picking itself is deterministic taps on the
+     * week screen, so this card carries no conversation.
      */
     const weekly = async () => {
       const range = previousWeekRange(input.localDate);
@@ -102,7 +102,6 @@ export class BriefingContentService {
         hasContent: true,
         reviewKinds: [] as Array<"evening" | "weekly">,
         decisionOccurrenceIds: [] as string[],
-        weekTasks: [] as Array<{ id: string; title: string }>,
         idleGoals: idle,
       };
     };

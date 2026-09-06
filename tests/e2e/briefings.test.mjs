@@ -64,7 +64,7 @@ test("the morning card lists the day, then what was taken for the week, and offe
   const scope = await fixture();
   const localDate = "2026-09-09"; // Wednesday of the week starting on the 7th.
   await scheduledTask(scope, "Отчёт по проекту", localDate);
-  const takenId = await poolTask(scope, "Разобраться с налогами", "2026-09-07");
+  await poolTask(scope, "Разобраться с налогами", "2026-09-07");
   await poolTask(scope, "Привести в порядок машину", null);
   await poolTask(scope, "Старая метка", "2026-08-31");
 
@@ -75,10 +75,6 @@ test("the morning card lists the day, then what was taken for the week, and offe
   assert.match(built.text, /Разобраться с налогами/);
   assert.doesNotMatch(built.text, /Привести в порядок машину/, "the pool is not the plan; only what was taken is listed");
   assert.doesNotMatch(built.text, /Старая метка/, "a mark from an earlier week is not this week's plan");
-  assert.deepEqual(
-    built.weekTasks.map((task) => task.id),
-    [takenId],
-  );
 });
 
 test("a day with nothing scheduled still shows what was taken for the week", async () => {
@@ -87,12 +83,11 @@ test("a day with nothing scheduled still shows what was taken for the week", asy
   const built = await content.build({ workspaceId: scope.workspaceId, kind: "morning", localDate: "2026-09-09", timezone: TIMEZONE, locale: "ru" });
   assert.equal(built.hasContent, true);
   assert.match(built.text, /Подготовиться к собеседованию/);
-  assert.equal(built.weekTasks.length, 1);
 
   const empty = await fixture();
   const nothing = await content.build({ workspaceId: empty.workspaceId, kind: "morning", localDate: "2026-09-09", timezone: TIMEZONE, locale: "ru" });
   assert.equal(nothing.hasContent, false);
-  assert.deepEqual(nothing.weekTasks, []);
+  assert.doesNotMatch(nothing.text, /Взято на неделю/);
 });
 
 test("the weekly card reports the past week and points at the pool instead of starting a conversation", async () => {
@@ -107,7 +102,8 @@ test("the weekly card reports the past week and points at the pool instead of st
   assert.match(built.text, /План недели/);
   assert.match(built.text, /закрыто: 1/);
   assert.match(built.text, /не начато: 1/);
-  assert.match(built.text, /\/week/);
+  // The pool is a screen in the Mini App now; the card names it instead of naming a command.
+  assert.match(built.text, /в приложении/);
   assert.deepEqual(built.reviewKinds, [], "the weekly delivery no longer opens a review conversation");
 });
 
@@ -115,7 +111,7 @@ test("the weekly card says the pool is empty instead of inviting a pick", async 
   const scope = await fixture();
   const built = await content.build({ workspaceId: scope.workspaceId, kind: "weekly", localDate: "2026-09-09", timezone: TIMEZONE, locale: "en" });
   assert.match(built.text, /pool has no undated tasks/);
-  assert.doesNotMatch(built.text, /\/week/);
+  assert.doesNotMatch(built.text, /in the app/);
 });
 
 test("an overdue task stays in every morning card until it is dealt with", async () => {

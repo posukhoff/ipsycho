@@ -1,23 +1,33 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canCreateRegistrationInvite, deterministicCopy, guideText, helpText, registrationTokenFromStart } from "../../dist/telegram/telegram-handlers.service.js";
+import { canCreateRegistrationInvite, deterministicCopy, helpText, registrationTokenFromStart } from "../../dist/telegram/telegram-handlers.service.js";
 import { telegramLocale } from "../../dist/telegram/telegram-locale.js";
 import { TelegramService } from "../../dist/telegram/telegram.service.js";
-import { deployedBuildLine, goalsOverviewText, settingsText, taskListKeyboard, tasksOverviewText, todayText } from "../../dist/telegram/telegram-ui.js";
-import { groupTaskRows } from "../../dist/core/task-list-view.js";
+import { deployedBuildLine, reminderCardText, taskCardText, todayLine } from "../../dist/telegram/telegram-ui.js";
 
 const config = { aiVoiceMaxBytes: 20 * 1024 * 1024, aiVoiceMaxDurationSeconds: 300, aiMaxMessagesPerHour: 60, aiMaxCallsPerHour: 60 };
+
+/** The commands task 11 deleted. `/help` must not send anyone to one of them. */
+const REMOVED = /\/(tasks|task|today|week|goals|reminders|settings|memory|timezone|language|morning|weekly|quiet|snooze|reminder_defaults)\b/u;
 
 test("start and help copy make natural language the primary interface in Russian", () => {
   assert.match(deterministicCopy("ru").ready, /Пиши как человеку/);
   assert.match(deterministicCopy("ru").ready, /голосовое/);
   const help = helpText(config, "ru");
-  assert.match(help, /команды для создания задач не нужны/);
+  assert.match(help, /команды не нужны/);
   assert.match(help, /голосовое сообщение/);
-  assert.match(help, /Кнопка ниже откроет подробности/);
-  assert.doesNotMatch(help, /Задачи, цели и чек-листы/);
+  // Three surfaces, named: the conversation, the app, and the buttons that stayed on the cards.
+  assert.match(help, /В этом чате/);
+  assert.match(help, /В приложении/);
+  assert.match(help, /На карточках здесь/);
+  // Settings still change by conversation — the agent's `settings` action was never touched.
+  assert.match(help, /Настройки меняются так же/);
+  // The profile is an interview, not a screen: /help must offer it as something you start in chat.
+  assert.match(help, /\/context — я спрашиваю/);
+  assert.match(help, /\/status/);
   assert.doesNotMatch(help, /\/invite/);
-  assert.match(help, /\/tasks или \/task/);
+  assert.doesNotMatch(help, REMOVED);
+  assert.doesNotMatch(deterministicCopy("ru").ready, REMOVED);
   assert.match(help, /Не отправляй в чат пароли/);
 });
 
@@ -25,23 +35,33 @@ test("start and help copy are genuinely localized in Ukrainian", () => {
   assert.match(deterministicCopy("uk").ready, /Пиши як людині/);
   assert.match(deterministicCopy("uk").ready, /голосове/);
   const help = helpText(config, "uk");
-  assert.match(help, /команди для створення завдань не потрібні/);
+  assert.match(help, /команди не потрібні/);
   assert.match(help, /голосове повідомлення/);
-  assert.match(help, /Кнопка нижче відкриє деталі/);
-  assert.doesNotMatch(help, /Завдання, цілі та чеклісти/);
+  assert.match(help, /У цьому чаті/);
+  assert.match(help, /У застосунку/);
+  assert.match(help, /На картках тут/);
+  assert.match(help, /Налаштування змінюються так само/);
+  assert.match(help, /\/context — я питаю/);
   assert.doesNotMatch(help, /\/invite/);
-  assert.match(help, /\/tasks або \/task/);
+  assert.doesNotMatch(help, REMOVED);
+  assert.doesNotMatch(deterministicCopy("uk").ready, REMOVED);
   assert.match(help, /Не надсилай у чат паролі/);
 });
 
-test("English is a first-class locale and primary overview screens do not fall back to Russian", () => {
+test("English is a first-class locale and what the bot still renders does not fall back to Russian", () => {
   assert.equal(telegramLocale(null, "en-US"), "en");
   assert.match(deterministicCopy("en").ready, /For example/);
   assert.match(deterministicCopy("en").ready, /voice message/);
-  assert.match(helpText(config, "en"), /voice message/);
-  assert.match(helpText(config, "en"), /button below for details/);
-  assert.doesNotMatch(helpText(config, "en"), /Tasks, goals, and checklists/);
-  assert.doesNotMatch(helpText(config, "en"), /\/invite/);
+  const help = helpText(config, "en");
+  assert.match(help, /voice message/);
+  assert.match(help, /In the app/);
+  assert.match(help, /On the cards here/);
+  assert.match(help, /Settings change the same way/);
+  assert.match(help, /\/context — I ask what is worth knowing/);
+  assert.doesNotMatch(help, /\/invite/);
+  assert.doesNotMatch(help, REMOVED);
+  assert.doesNotMatch(deterministicCopy("en").ready, REMOVED);
+
   const task = { id: "task", title: "Call doctor", importance: "normal", recurrenceRule: null, fuzzyHorizonText: null, timezone: "Europe/Kyiv" };
   const occurrence = {
     id: "occ",
@@ -52,101 +72,16 @@ test("English is a first-class locale and primary overview screens do not fall b
     plannedLocalDate: null,
     dueAt: null,
     dueLocalDate: null,
+    overdue: true,
   };
-  const screens = [
-    helpText(config, "en"),
-    settingsText(
-      {
-        timezone: "Europe/Kyiv",
-        morningDigestEnabled: false,
-        morningReferenceTime: "09:00",
-        eveningDigestEnabled: false,
-        eveningReferenceTime: "20:00",
-        weeklyReviewEnabled: false,
-        weeklyReviewWeekday: 7,
-        weeklyReviewTime: "20:00",
-        quietHoursEnabled: true,
-        weekdayQuietStart: "22:00",
-        weekdayQuietEnd: "08:00",
-      },
-      new Date(),
-      0,
-      "en",
-    ),
-    tasksOverviewText(groupTaskRows([{ task, occurrence }], "2026-08-12"), { scope: "week", locale: "en" }),
-    todayText(groupTaskRows([{ task, occurrence }], "2026-08-12"), "2026-08-12", { locale: "en", staleCount: 2 }),
-    goalsOverviewText([{ goal: { id: "g1", title: "Health", status: "active", why: "Feel better", targetLocalDate: null }, tasks: [] }], { scope: "active", locale: "en" }),
+  const rendered = [
+    help,
+    deterministicCopy("en").ready,
+    taskCardText(task, occurrence, new Date("2026-08-12T05:00:00Z"), "en"),
+    reminderCardText({ task, occurrence, purpose: "user_reminder", now: new Date("2026-08-12T05:00:00Z"), locale: "en" }),
+    todayLine(task, occurrence, "2026-08-12", "en", new Date("2026-08-12T05:00:00Z")),
   ];
-  for (const screen of screens) assert.doesNotMatch(screen, /[А-Яа-яЁёІіЇїЄє]/);
-});
-
-test("both lists collapse a repeated task into one line and Today shows its times", () => {
-  const recurring = { id: "series", title: "Take medication", importance: "normal", recurrenceRule: "FREQ=DAILY", fuzzyHorizonText: null, timezone: "Europe/Kyiv" };
-  const morning = {
-    id: "morning",
-    status: "open",
-    timezone: "Europe/Kyiv",
-    plannedStartAt: "2026-08-12T09:00:00+03:00",
-    plannedEndAt: null,
-    plannedLocalDate: null,
-    dueAt: null,
-    dueLocalDate: null,
-  };
-  const evening = { ...morning, id: "evening", plannedStartAt: "2026-08-12T21:00:00+03:00" };
-  const rows = [
-    { task: recurring, occurrence: morning },
-    { task: recurring, occurrence: evening },
-  ];
-
-  const groups = groupTaskRows(rows, "2026-08-12");
-  assert.equal(groups.length, 1);
-
-  const overview = tasksOverviewText(groups, { scope: "week", locale: "en" });
-  assert.equal((overview.match(/Take medication/g) ?? []).length, 1);
-
-  const today = todayText(groups, "2026-08-12", { locale: "en" });
-  assert.equal((today.match(/Take medication/g) ?? []).length, 2); // The "Main" line plus the one row.
-  assert.match(today, /09:00/);
-  assert.match(today, /21:00/);
-});
-
-test("task-list keyboard opens each displayed occurrence and can reveal the rest of Today", () => {
-  const task = { id: "task", title: "Call doctor", importance: "normal", recurrenceRule: null, fuzzyHorizonText: null, timezone: "Europe/Kyiv" };
-  const occurrence = {
-    id: "occ",
-    status: "open",
-    timezone: "Europe/Kyiv",
-    plannedStartAt: "2026-08-12T09:00:00+03:00",
-    plannedEndAt: null,
-    plannedLocalDate: null,
-    dueAt: null,
-    dueLocalDate: null,
-  };
-  const groups = groupTaskRows(
-    Array.from({ length: 7 }, (_, index) => ({ task: { ...task, id: `task-${index}`, title: `Call doctor ${index}` }, occurrence: { ...occurrence, id: `occ-${index}` } })),
-    "2026-08-12",
-  );
-  const keyboard = taskListKeyboard(groups.slice(0, 6), "en", { source: "tasks", page: 0, pages: 2, rest: 1, pageCallback: (page) => `tsk:week:${page}` });
-  const callbacks = keyboard.inline_keyboard.flat().map((button) => button.callback_data);
-  assert.ok(callbacks.includes("view:occ:occ-0"));
-  assert.ok(callbacks.includes("tsk:week:1"));
-});
-
-test("Today presents a same-day fuzzy review honestly instead of hiding it", () => {
-  const task = {
-    id: "soulmate-scan",
-    title: "Пройти Soulmate Scan",
-    importance: "normal",
-    recurrenceRule: null,
-    fuzzyHorizonText: "сегодня вечером",
-    reviewAt: "2026-08-23T15:00:00Z",
-    timezone: "Europe/Kyiv",
-  };
-
-  const text = todayText(groupTaskRows([{ task, occurrence: null }], "2026-08-23"), "2026-08-23", { locale: "ru" });
-
-  assert.match(text, /Пройти Soulmate Scan/);
-  assert.match(text, /пересмотреть в 18:00/);
+  for (const text of rendered) assert.doesNotMatch(text, /[А-Яа-яЁёІіЇїЄє]/);
 });
 
 test("registration deep links and invitation authority stay deterministic", async () => {
@@ -163,18 +98,6 @@ test("registration deep links and invitation authority stay deterministic", asyn
   assert.equal(await telegram.registrationLink(token), `https://t.me/IPsychoTestBot?start=join_${token}`);
   telegram.bot = { api: { getMe: async () => ({ username: undefined }) } };
   await assert.rejects(() => telegram.registrationLink(token), /username/i);
-});
-
-test("guide pages explain the day and week cards and external AI processing without exposing sensitive capabilities", () => {
-  const reports = guideText("reports", "ru");
-  assert.match(reports, /Утренняя карточка/);
-  assert.match(reports, /карточка недели/);
-  assert.match(reports, /\/week/);
-  assert.doesNotMatch(reports, /Вечерн/);
-  const ai = guideText("ai", "en");
-  assert.match(ai, /requires consent/);
-  assert.match(ai, /cannot access other users/);
-  assert.match(guideText("goals", "uk"), /\/week/);
 });
 
 test("status reports the deployed build so a deploy can be verified from Telegram", () => {

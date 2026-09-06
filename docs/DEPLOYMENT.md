@@ -249,8 +249,23 @@ curl -sS -X POST "https://api.telegram.org/bot<TOKEN>/setChatMenuButton" \
 nothing even though Caddy is still listening. It does not remove the menu button
 Telegram already stored, which is why the second command is part of the rollback.
 Buttons already sent in scroll-back keep pointing at a URL that now returns a
-404 from the app — acceptable, and the reason the browsing commands are not
-deleted from the bot until the app has been used in production.
+404 from the app.
+
+**The flag is no longer a rollback for the bot's screens.** The browsing screens
+were deleted once the app had been used in production, so turning the flag off
+now leaves the bot with the conversation (free text and voice, including every
+change to settings), the reaction cards (Done · Snooze · +1 h / This evening /
+Tomorrow · Skip · Undo · consent) and the account commands (`/start`, `/help`,
+`/status`, `/clear`, `/cancel`, `/retry_ai`, `/invite`, `/delete_account`,
+`/restore`, `/ai_revoke`, `/context`) — and nothing to browse with. `/tasks`,
+`/today`, `/week`, `/goals`, `/reminders`, `/settings`, `/memory` and the
+settings commands answer one sentence saying where they went, with no button to
+offer while the flag is off. `/context` still starts the profile interview in
+chat; only the launch button that follows it disappears. That is the intended floor, not a regression.
+
+The rollback for the deletion itself is a revert of that commit and a redeploy,
+not a flag: a flag that keeps dead screens alive is how a temporary second
+control model becomes permanent (design.md § 10).
 
 To take the edge down entirely, remove `COMPOSE_PROFILES=webapp` from `.env` and
 run `docker compose up -d --remove-orphans`; ports 80 and 443 stop being served.

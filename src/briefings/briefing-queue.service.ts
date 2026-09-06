@@ -120,7 +120,6 @@ export class BriefingQueueService implements OnApplicationBootstrap {
         row.delivery.kind as BriefingKind,
         built.text,
         telegramLocale(row.settings.pinnedLanguage, row.settings.telegramLanguage ?? undefined),
-        built.weekTasks,
         "idleGoals" in built ? (built.idleGoals as ReadonlyArray<{ id: string; title: string }>) : [],
       );
       await this.database.db

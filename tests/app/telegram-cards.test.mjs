@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fuzzyTaskCardText, reminderCardText, settingsText, taskCardText, tasksOverviewText, todayLine, todayText } from "../../dist/telegram/telegram-ui.js";
-import { groupTaskRows } from "../../dist/core/task-list-view.js";
+import { reminderCardText, taskCardText, todayLine } from "../../dist/telegram/telegram-ui.js";
 import { describeAction } from "../../dist/actions/actions.service.js";
 
 const now = new Date("2026-08-23T07:40:00Z"); // 10:40 Kyiv
@@ -66,23 +65,6 @@ test("task card explains recurrence, windows, overdue duration and another year"
   assert.equal(taskCardText({ title: "Отчёт", importance: "normal", timezone: "Europe/Kyiv" }, deadline, now), "Отчёт\n📅 до 01.09 (Europe/Kyiv)");
 });
 
-test("fuzzy card keeps the horizon and review date and still shows details", () => {
-  assert.equal(
-    fuzzyTaskCardText(
-      {
-        title: "Разобрать гараж",
-        importance: "normal",
-        timezone: "Europe/Kyiv",
-        fuzzyHorizonText: "на этой неделе",
-        reviewAt: new Date("2026-08-28T06:00:00Z"),
-        nextAction: "Вынести старые коробки",
-      },
-      now,
-    ),
-    "Разобрать гараж\n🫧 на этой неделе\n🗓 Вернуться: 28.08, 09:00 (Europe/Kyiv)\n\n➡️ Следующий шаг: Вынести старые коробки",
-  );
-});
-
 test("reminder card leads with what to do now and says how soon", () => {
   const text = reminderCardText({ task, occurrence, purpose: "user_reminder", now: new Date("2026-08-23T14:30:00Z") });
   assert.equal(
@@ -110,59 +92,6 @@ test("reminder card leads with what to do now and says how soon", () => {
     now: new Date("2026-08-23T15:20:00Z"),
   });
   assert.equal(followUp, "↩️ Созвон\n📅 23.08, 18:00 (Europe/Kyiv) · ⚠️ просрочено на 20 мин\n\nКак идёт?");
-});
-
-test("today and task lists always show when, including deadlines and other days", () => {
-  const rows = [
-    {
-      task: { id: "1", title: "Созвон", importance: "required", timezone: "Europe/Kyiv" },
-      occurrence: { ...occurrence, id: "a", plannedStartAt: new Date("2026-08-23T08:00:00Z"), plannedEndAt: new Date("2026-08-23T08:30:00Z") },
-    },
-    {
-      task: { id: "2", title: "Отчёт", importance: "normal", timezone: "Europe/Kyiv" },
-      occurrence: { ...occurrence, id: "b", plannedStartAt: null, dueAt: new Date("2026-08-23T15:00:00Z") },
-    },
-    {
-      task: { id: "3", title: "Вчерашнее", importance: "normal", timezone: "Europe/Kyiv" },
-      occurrence: { ...occurrence, id: "c", overdue: true, plannedStartAt: new Date("2026-08-22T15:00:00Z") },
-    },
-    { task: { id: "4", title: "Гараж", importance: "normal", timezone: "Europe/Kyiv", fuzzyHorizonText: "на неделе" }, occurrence: null },
-  ];
-  const groups = groupTaskRows(rows, "2026-08-23");
-  // Today is the day itself: yesterday's unclosed occurrence is counted below, not listed here.
-  assert.equal(
-    todayText(
-      groups.filter((group) => group.title !== "Вчерашнее"),
-      "2026-08-23",
-      { locale: "ru", completedCount: 1, staleCount: 1, now },
-    ),
-    [
-      "☀️ Сегодня · 3 дела",
-      "",
-      "Главное: Созвон",
-      "",
-      "1. 🟡 Созвон · 11:00–11:30",
-      "2. • Отчёт · до 18:00",
-      "3. 🫧 Гараж",
-      "",
-      "✅ Выполнено сегодня: 1",
-      "",
-      "⚠️ Просрочено раньше: 1",
-    ].join("\n"),
-  );
-  assert.equal(
-    tasksOverviewText(groups, { scope: "week", locale: "ru", now }),
-    [
-      "📋 Задачи · неделя (4)",
-      "",
-      "1. • Вчерашнее · 22.08, 18:00 · просрочено",
-      "2. 🟡 Созвон · 23.08, 11:00–11:30",
-      "3. • Отчёт · до 23.08, 18:00",
-      "4. 🫧 Гараж · 🫧 на неделе",
-      "",
-      "Чтобы изменить, завершить или перенести задачу, напиши это обычным сообщением.",
-    ].join("\n"),
-  );
 });
 
 test("pending confirmation describes the concrete change", () => {
@@ -244,35 +173,6 @@ test("a repeating card names the dates the series skips", () => {
   const occurrence = { id: "1", status: "open", timezone: "Europe/Kyiv", plannedStartAt: new Date("2026-09-15T16:00:00Z") };
   assert.match(taskCardText(task, occurrence, new Date("2026-09-05T09:00:00Z"), "ru"), /🔁 каждую неделю: вт, кроме 08\.09/u);
   assert.match(taskCardText({ ...task, recurrenceExcludedLocalDates: [] }, occurrence, new Date("2026-09-05T09:00:00Z"), "ru"), /🔁 каждую неделю: вт$/u);
-});
-
-test("settings show the quiet-hours window instead of hiding it", () => {
-  const row = {
-    timezone: "Europe/Kyiv",
-    morningDigestEnabled: true,
-    morningReferenceTime: "09:00",
-    eveningDigestEnabled: false,
-    eveningReferenceTime: "20:00",
-    weeklyReviewEnabled: true,
-    weeklyReviewWeekday: 7,
-    weeklyReviewTime: "18:00",
-    quietHoursEnabled: true,
-    weekdayQuietStart: "23:00",
-    weekdayQuietEnd: "08:00",
-    weekendQuietStart: "23:00",
-    weekendQuietEnd: "10:00",
-  };
-  assert.match(settingsText(row, now, 12, "ru"), /🔕 Тихие часы: 23:00–08:00 \(будни\), 23:00–10:00 \(выходные\)/);
-  assert.match(settingsText({ ...row, weekendQuietStart: "23:00", weekendQuietEnd: "08:00" }, now, 12, "ru"), /🔕 Тихие часы: 23:00–08:00\n/);
-  assert.match(settingsText({ ...row, quietHoursEnabled: false }, now, 12, "en"), /🔕 Quiet hours: off/);
-
-  // The quiet window and the digests keep their own timezone. Until it is confirmed it is the Kyiv
-  // default, so the screen has to name it whenever it is not the profile's own zone.
-  const shifted = settingsText({ ...row, timezone: "America/New_York", digestTimezone: "Europe/Kyiv", quietHoursTimezone: "Europe/Kyiv" }, now, 12, "ru");
-  assert.match(shifted, /🔕 Тихие часы: [^\n]* · Europe\/Kyiv/u);
-  assert.match(shifted, /☀️ Утренняя сводка: 09:00 · Europe\/Kyiv/u);
-  const aligned = settingsText({ ...row, digestTimezone: row.timezone, quietHoursTimezone: row.timezone }, now, 12, "ru");
-  assert.equal(/ · Europe\/Kyiv/u.test(aligned), false, "the zone is not repeated when it matches the profile");
 });
 
 test("cards drop fields that only restate the title, the goal or the checklist", () => {

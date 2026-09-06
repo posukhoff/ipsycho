@@ -2,29 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { ScreensService } from "../../dist/telegram/handlers/screens.service.js";
+import { InlineKeyboard } from "grammy";
+import { TaskCardService } from "../../dist/telegram/handlers/task-card.service.js";
 import { TelegramService } from "../../dist/telegram/telegram.service.js";
-import {
-  appendLaunchButton,
-  quickRescheduleKeyboard,
-  screenFooterKeyboard,
-  taskKeyboard,
-  webAppLink,
-  webAppPath,
-  weekTakeTodayKeyboard,
-  weeklyBriefingKeyboard,
-} from "../../dist/telegram/telegram-ui.js";
+import { appendLaunchButton, launchOnlyKeyboard, quickRescheduleKeyboard, taskKeyboard, webAppLink, webAppPath, weeklyBriefingKeyboard } from "../../dist/telegram/telegram-ui.js";
 import { callbackContext } from "./helpers/telegram-harness.mjs";
 
 /**
- * Group 10: the launch buttons.
+ * The launch buttons (group 10), re-stated for the bot group 11 left behind.
  *
- * The claim these tests exist to make provable is the flag-off one. `WEBAPP_ENABLED` defaults to
- * false and production runs it that way until someone deliberately turns it on, so with no URL the
- * bot must be the bot it was before this change: no `web_app` button anywhere, no copy change, no
- * extra API call at bootstrap. Every flag-on assertion below is paired with the flag-off keyboard
- * it was built from, and compared by stripping the launch button back out — so "additive only" is
- * checked structurally rather than asserted in a comment.
+ * Group 10's claim was that with `WEBAPP_ENABLED` off the bot was byte-for-byte the bot it had
+ * always been. Group 11 changed what that claim can mean: the browsing screens are deleted, so the
+ * flag no longer restores them. What survives, and what these tests hold, is the narrower and now
+ * load-bearing half — **with the flag off nothing offers a button that cannot open**: no `web_app`
+ * button anywhere, no dead callback in its place, and no API call at bootstrap.
  */
 
 const APP = "https://app.example.com/app";
@@ -70,29 +61,26 @@ test("with the flag off no keyboard grows a web_app button, whatever else it is 
   for (const off of [undefined, null, ""]) {
     const reminder = taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, webAppUrl: off });
     assert.deepEqual(shape(reminder), shape(taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true })));
-    // The reminder queue passes `recurring` unconditionally; without a URL it must change nothing,
-    // because «Пропустить это» still lives behind «⚙️ Ещё» exactly as it does today.
-    assert.deepEqual(shape(taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, recurring: true, webAppUrl: off })), shape(reminder));
+    assert.deepEqual(webAppUrls(taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, recurring: true, webAppUrl: off })), []);
     assert.deepEqual(shape(quickRescheduleKeyboard(OCCURRENCE_ID, "ru", off)), shape(quickRescheduleKeyboard(OCCURRENCE_ID, "ru")));
-    assert.deepEqual(shape(weekTakeTodayKeyboard([{ id: TASK_ID, title: "Налоги" }], "ru", off)), shape(weekTakeTodayKeyboard([{ id: TASK_ID, title: "Налоги" }], "ru")));
     assert.deepEqual(shape(weeklyBriefingKeyboard([{ id: GOAL_ID, title: "Запуск" }], "ru", off)), shape(weeklyBriefingKeyboard([{ id: GOAL_ID, title: "Запуск" }], "ru")));
-    assert.deepEqual(shape(appendLaunchButton(screenFooterKeyboard("ru"), off, { name: "today" }, "ru")), shape(screenFooterKeyboard("ru")));
+    assert.equal(launchOnlyKeyboard(off, { name: "today" }, "ru"), null);
+    assert.deepEqual(shape(appendLaunchButton(new InlineKeyboard().text("x", "act:undo:1"), off, { name: "today" }, "ru")), [[{ text: "x", data: "act:undo:1" }]]);
   }
 });
 
-test("the flag-off reminder card is the card the bot has always sent, button for button", () => {
-  // Pinned literally rather than by comparison: this is the one keyboard production sends today,
-  // and a change to it is the change this group promised not to make.
+test("the flag-off reminder card is the surviving reactions and nothing that cannot open", () => {
+  // Pinned literally: this is the keyboard production sends with the app off, and «⚙️ Ещё» and
+  // «📅 Другая дата» are gone from it for good — their two-step flows are sheets in the app now,
+  // and the flag being off does not bring a handler for them back (task 11.3).
   assert.deepEqual(shape(taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, mute: true, recurring: true })), [
     [{ text: "✅ Готово", data: `occ:done:${OCCURRENCE_ID}` }],
     [
       { text: "⏰ Через 15 мин", data: `follow:snooze:15m:${OCCURRENCE_ID}` },
       { text: "⏰ Через час", data: `follow:snooze:1h:${OCCURRENCE_ID}` },
     ],
-    [
-      { text: "🕒 Позже", data: `occ:resched:${OCCURRENCE_ID}` },
-      { text: "⚙️ Ещё", data: `occ:more:${OCCURRENCE_ID}` },
-    ],
+    [{ text: "⏭ Пропустить это", data: `occ:skip:${OCCURRENCE_ID}` }],
+    [{ text: "🕒 Позже", data: `occ:resched:${OCCURRENCE_ID}` }],
     [{ text: "🔕 Хватит по этой задаче", data: `rem:mute:${OCCURRENCE_ID}` }],
   ]);
   assert.deepEqual(shape(quickRescheduleKeyboard(OCCURRENCE_ID, "ru")), [
@@ -100,10 +88,7 @@ test("the flag-off reminder card is the card the bot has always sent, button for
       { text: "+1 час", data: `resched:1h:${OCCURRENCE_ID}` },
       { text: "Вечером", data: `resched:evening:${OCCURRENCE_ID}` },
     ],
-    [
-      { text: "Завтра", data: `resched:tomorrow:${OCCURRENCE_ID}` },
-      { text: "📅 Другая дата", data: `resched:custom:${OCCURRENCE_ID}` },
-    ],
+    [{ text: "Завтра", data: `resched:tomorrow:${OCCURRENCE_ID}` }],
     [{ text: "← Назад", data: `occ:back:${OCCURRENCE_ID}` }],
   ]);
 });
@@ -144,10 +129,10 @@ test("a launch link puts the id in the fragment and points at a screen the clien
   }
 });
 
-test("with the flag on the reminder card trades «Ещё» for a launch button and keeps every reaction", () => {
+test("with the flag on the reminder card gains a launch button and keeps every reaction", () => {
   const on = taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, mute: true, webAppUrl: APP });
   assert.deepEqual(webAppUrls(on), [`${APP}/#/task/${OCCURRENCE_ID}`]);
-  assert.ok(!payloads(on).includes(`occ:more:${OCCURRENCE_ID}`), "«Ещё» is what the launch button replaces");
+  assert.ok(!payloads(on).includes(`occ:more:${OCCURRENCE_ID}`), "«Ещё» is deleted, not hidden");
   assert.deepEqual(payloads(on), [
     `occ:done:${OCCURRENCE_ID}`,
     `follow:snooze:15m:${OCCURRENCE_ID}`,
@@ -156,28 +141,30 @@ test("with the flag on the reminder card trades «Ещё» for a launch button a
     `rem:mute:${OCCURRENCE_ID}`,
   ]);
   // The launch button sits where «Ещё» was, next to «Позже», not on a row of its own.
-  assert.deepEqual(shape(on)[2], [
+  assert.deepEqual(shape(on).at(-2), [
     { text: "🕒 Позже", data: `occ:resched:${OCCURRENCE_ID}` },
     { text: "📲 Открыть задачу", webApp: `${APP}/#/task/${OCCURRENCE_ID}` },
   ]);
 
-  // A repeat could only be skipped from behind «Ещё». With «Ещё» gone the card offers it directly.
+  // A repeat could only be skipped from behind «Ещё». With «Ещё» gone the card offers it directly,
+  // whether or not the app is on — there is no longer anywhere else for it to live.
+  assert.ok(payloads(taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, recurring: true })).includes(`occ:skip:${OCCURRENCE_ID}`));
   const repeat = taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, recurring: true, webAppUrl: APP });
   assert.ok(payloads(repeat).includes(`occ:skip:${OCCURRENCE_ID}`));
   assert.ok(!payloads(taskKeyboard(OCCURRENCE_ID, "ru", { snooze: true, webAppUrl: APP })).includes(`occ:skip:${OCCURRENCE_ID}`), "a one-off has nothing to skip");
 });
 
-test("with the flag on «Другая дата» becomes the launch button and the three quick moves stay", () => {
+test("the three quick moves stay in chat, and the arbitrary date is only the launch button", () => {
   const on = quickRescheduleKeyboard(OCCURRENCE_ID, "ru", APP);
   assert.deepEqual(payloads(on), [`resched:1h:${OCCURRENCE_ID}`, `resched:evening:${OCCURRENCE_ID}`, `resched:tomorrow:${OCCURRENCE_ID}`, `occ:back:${OCCURRENCE_ID}`]);
   assert.deepEqual(webAppUrls(on), [`${APP}/#/task/${OCCURRENCE_ID}`]);
   assert.ok(!payloads(on).includes(`resched:custom:${OCCURRENCE_ID}`));
 });
 
-test("the morning and week cards keep their rows and gain one launch button each", () => {
-  const morning = weekTakeTodayKeyboard([{ id: TASK_ID, title: "Налоги" }], "ru", APP);
-  assert.deepEqual(withoutLaunchButtons(morning), withoutLaunchButtons(weekTakeTodayKeyboard([{ id: TASK_ID, title: "Налоги" }], "ru")));
-  assert.deepEqual(webAppUrls(morning), [`${APP}/#/today`]);
+test("the morning card is a launch button, and the week card keeps its goal steps", () => {
+  // The morning card's «делаю сегодня» rows were a list of up to eight taps — browsing, so they
+  // are the day's screen in the app now and the card carries only the way in (task 11.3, `wk:d`).
+  assert.deepEqual(webAppUrls(launchOnlyKeyboard(APP, { name: "today" }, "ru")), [`${APP}/#/today`]);
 
   const weekly = weeklyBriefingKeyboard([{ id: GOAL_ID, title: "Запуск" }], "ru", APP);
   assert.deepEqual(withoutLaunchButtons(weekly), withoutLaunchButtons(weeklyBriefingKeyboard([{ id: GOAL_ID, title: "Запуск" }], "ru")));
@@ -200,8 +187,8 @@ test("a push carries the launch button only when the flag is on", async () => {
 
   telegram.config = { webAppEnabled: false, webAppUrl: undefined };
   await telegram.sendReminder(777, "напоминание", OCCURRENCE_ID, "ru", { recurring: true });
-  await telegram.sendBriefing(777, "morning", "утро", "ru", [{ id: TASK_ID, title: "Налоги" }], []);
-  await telegram.sendBriefing(777, "weekly", "неделя", "ru", [], [{ id: GOAL_ID, title: "Запуск" }]);
+  await telegram.sendBriefing(777, "morning", "утро", "ru", []);
+  await telegram.sendBriefing(777, "weekly", "неделя", "ru", [{ id: GOAL_ID, title: "Запуск" }]);
   assert.deepEqual(
     sent.flatMap((message) => webAppUrls(message.markup)),
     [],
@@ -217,8 +204,8 @@ test("a push carries the launch button only when the flag is on", async () => {
   sent.length = 0;
   telegram.config = { webAppEnabled: true, webAppUrl: APP };
   await telegram.sendReminder(777, "напоминание", OCCURRENCE_ID, "ru", { mute: true, recurring: true });
-  await telegram.sendBriefing(777, "morning", "утро", "ru", [{ id: TASK_ID, title: "Налоги" }], []);
-  await telegram.sendBriefing(777, "weekly", "неделя", "ru", [], [{ id: GOAL_ID, title: "Запуск" }]);
+  await telegram.sendBriefing(777, "morning", "утро", "ru", []);
+  await telegram.sendBriefing(777, "weekly", "неделя", "ru", [{ id: GOAL_ID, title: "Запуск" }]);
   assert.deepEqual(
     sent.flatMap((message) => webAppUrls(message.markup)),
     [`${APP}/#/task/${OCCURRENCE_ID}`, `${APP}/#/today`, `${APP}/#/week`],
@@ -286,85 +273,26 @@ test("the access middleware carries the flag onto every update, and null when it
   assert.deepEqual(seen, [null, null, APP]);
 });
 
-/** ScreensService with every read stubbed: only the keyboards it leaves behind are under test. */
-function screens() {
-  const empty = { overdue: 0, today: 0, week: 0, month: 0, all: 0, nodate: 0 };
-  return new ScreensService(
-    {
-      listGrouped: async () => ({ groups: [], counts: empty, pausedCount: 0 }),
-      listTodayGrouped: async () => ({ groups: [], staleCount: 0 }),
-      listCompletedTodayForTelegram: async () => [],
-      listWeekPlanForTelegram: async () => ({ rows: [], total: 0, summary: { done: 0, takenNotStarted: 0 } }),
-    },
-    { listUpcoming: async () => [] },
-    { memoryOverview: async () => [], goalsOverview: async () => [] },
-    { historyMessageCount: async () => 0 },
-  );
+/**
+ * The card the chat still draws after a reaction. `ScreensService` is gone with the screens; what
+ * a reminder, a completed reschedule and a typed reason share is this one card (task 11.5).
+ */
+function taskCard() {
+  return new TaskCardService({ getTaskCardExtras: async () => ({ checklist: [], goalTitle: null }) }, { nextUserReminderAt: async () => null });
 }
-
-const SETTINGS_ROW = {
-  version: 1,
-  timezone: "Europe/Kyiv",
-  morningDigestEnabled: true,
-  morningReferenceTime: "09:00",
-  eveningDigestEnabled: false,
-  eveningReferenceTime: "20:00",
-  weeklyReviewEnabled: true,
-  weeklyReviewWeekday: 7,
-  weeklyReviewTime: "20:00",
-  quietHoursEnabled: true,
-  weekdayQuietStart: "22:00",
-  weekdayQuietEnd: "08:00",
-};
-
-/** The eight screen commands of task 10.4, and the app screen each one opens. */
-const SCREEN_COMMANDS = [
-  ["/tasks", (service, ctx) => service.tasks_(ctx), "/tasks/week"],
-  ["/today", (service, ctx) => service.today(ctx), "/today"],
-  ["/week", (service, ctx) => service.weekPlan_(ctx), "/week"],
-  ["/goals", (service, ctx) => service.goals(ctx), "/goals/active"],
-  ["/reminders", (service, ctx) => service.reminders_(ctx), "/reminders"],
-  ["/settings", (service, ctx) => service.settings_(ctx), "/settings"],
-  ["/memory", (service, ctx) => service.memory_(ctx), "/memory"],
-];
-
-test("every screen command keeps its screen and gains exactly one launch button", async () => {
-  for (const [command, render, path] of SCREEN_COMMANDS) {
-    const off = callbackContext("nav:today", { settings: SETTINGS_ROW });
-    off.callbackQuery = undefined; // a command sends a new message rather than editing a card
-    await render(screens(), off);
-    const offKeyboard = off.replies.at(-1).markup;
-
-    const on = callbackContext("nav:today", { settings: SETTINGS_ROW, webAppUrl: APP });
-    on.callbackQuery = undefined;
-    await render(screens(), on);
-    const onKeyboard = on.replies.at(-1).markup;
-
-    assert.deepEqual(webAppUrls(offKeyboard), [], `${command} must offer no app while the flag is off`);
-    assert.deepEqual(webAppUrls(onKeyboard), [`${APP}/#${path}`], `${command} must open ${path}`);
-    // The screen itself is untouched: the same rows, in the same order, plus one button.
-    assert.deepEqual(withoutLaunchButtons(onKeyboard), withoutLaunchButtons(offKeyboard), `${command} changed the screen it renders`);
-  }
-});
-
-test("a filter the user chose is the filter the app opens", async () => {
-  const ctx = callbackContext("tsk:overdue:0", { settings: SETTINGS_ROW, webAppUrl: APP });
-  await screens().tasks_(ctx, true, "overdue");
-  assert.deepEqual(webAppUrls(ctx.markups.at(-1)), [`${APP}/#/tasks/overdue`]);
-
-  const goals = callbackContext("gl:paused:0", { settings: SETTINGS_ROW, webAppUrl: APP });
-  await screens().goals(goals, true, "paused");
-  assert.deepEqual(webAppUrls(goals.markups.at(-1)), [`${APP}/#/goals/paused`]);
-});
 
 test("the card left after a reminder action keeps the shape the push had", () => {
   const context = { task: { id: TASK_ID, recurrenceRule: "FREQ=DAILY" }, occurrence: { id: OCCURRENCE_ID } };
-  const off = screens().occurrenceKeyboard(callbackContext("occ:back:x", { settings: SETTINGS_ROW }), context);
+  const off = taskCard().keyboard(callbackContext("occ:back:x"), context);
   assert.deepEqual(webAppUrls(off), []);
-  assert.ok(payloads(off).includes(`occ:more:${OCCURRENCE_ID}`));
+  assert.ok(!payloads(off).includes(`occ:more:${OCCURRENCE_ID}`), "«Ещё» has no handler left to open");
+  assert.ok(payloads(off).includes(`occ:skip:${OCCURRENCE_ID}`), "the series can still be skipped");
 
-  const on = screens().occurrenceKeyboard(callbackContext("occ:back:x", { settings: SETTINGS_ROW, webAppUrl: APP }), context);
+  const on = taskCard().keyboard(callbackContext("occ:back:x", { webAppUrl: APP }), context);
   assert.deepEqual(webAppUrls(on), [`${APP}/#/task/${OCCURRENCE_ID}`]);
-  assert.ok(!payloads(on).includes(`occ:more:${OCCURRENCE_ID}`));
-  assert.ok(payloads(on).includes(`occ:skip:${OCCURRENCE_ID}`), "the series can still be skipped");
+  assert.deepEqual(withoutLaunchButtons(on), withoutLaunchButtons(off), "the app only adds a way in; it changes no reaction");
+
+  // An Undo row is the one thing that may follow the card, and it is a reaction, not a screen.
+  const undone = taskCard().keyboard(callbackContext("occ:back:x", { webAppUrl: APP }), context, "group-1", "undo_reschedule_button");
+  assert.ok(payloads(undone).includes("act:undo:group-1"));
 });

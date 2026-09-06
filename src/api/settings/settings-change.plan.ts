@@ -8,8 +8,8 @@ import type { WebSettingsRow } from "../auth/index.js";
 /**
  * One `SettingsChange` from the contract, turned into the write the bot already performs.
  *
- * Every settings command in `settings-commands.service.ts` builds a `ResolvedActionOf<"settings">`
- * and hands it to `ActionsService`, so the change is validated by the same rules, written by the
+ * A settings change asked for in chat becomes a `ResolvedActionOf<"settings">` the agent hands to
+ * `ActionsService`, so the change is validated by the same rules, written by the
  * same patch builder and journaled with Undo. This function builds the identical action, which is
  * the whole reason `PATCH /settings` takes a discriminated union rather than loose fields: a third
  * writer with its own idea of what a valid quiet-hours window is, is exactly what

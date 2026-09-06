@@ -108,8 +108,8 @@ export const SettingsPatchRequestSchema = z.object({ expectedVersion: VersionSch
  * A PATCH answers with the whole screen, because one change can move three fields at once.
  *
  * `undoGroupId` is here for the same reason it is on every other write: almost every settings change
- * is a journalled `settings` action — the road `settings-commands.service.ts` takes, and the bot
- * attaches an Undo button to it — so a screen with no way to reach that group loses a feature the
+ * is a journalled `settings` action — the road the agent's `settings` action takes in chat, and the
+ * bot attaches an Undo button to it — so a screen with no way to reach that group loses a feature the
  * chat has. It is `null` for the two writes that do not journal, and only for those:
  * `snooze: { kind: "morning" }`, which `SettingsService.snoozeUntilMorning` performs directly, and a
  * timezone change with `applyTo: "digests" | "quiet"`, whose second half is the unjournalled column

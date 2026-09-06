@@ -3,180 +3,53 @@ Hi — I help you remember, plan, and follow through on what matters.
 
 Write naturally or send a voice message. For example: “Remind me to call the doctor tomorrow at 16:00” or “I want to prepare for a half marathon by October”.
 
-Your plan: /today · tasks: /tasks · goals: /goals
-Full guide: /help.
+Your plan, tasks and goals are in the app — the menu button next to the message field opens it.
+How it all works: /help.
 
 ### onboarding: timezone
 Hi, I’m IPsycho — a personal assistant for tasks and plans. Write naturally: I can save a task, remind you, or break a goal into steps.
 
-A few quick questions first; everything can be changed later in /settings.
+A few quick questions first; everything can be changed later — just say what you want.
+
+### onboarding: done
+Setup is complete. Write naturally, for example: “remind me to call the doctor tomorrow at 16:00”.
 
 ### help
 IPsycho, in short
 
-Write naturally or send a voice message — commands are not needed to create tasks. I help you remember, plan, and return to what matters without adding bureaucracy.
+Write naturally or send a voice message — commands are not needed. I help you remember, plan, and return to what matters without adding bureaucracy.
 
-What you can write
+In this chat
 • “Remind me to call the doctor tomorrow at 16:00”
 • “Move ‘buy pet food’ to Friday”
 • “I want to prepare for a half marathon by October”
-• “For the presentation, it is important to align the numbers with Lena”
 • “Do not message me until morning” or “weekly review on Sunday at 18:00”
+Settings change the same way: briefing time, weekly-review day, quiet hours, timezone, language. Just say what you want.
+• /context — I ask what is worth knowing about you, and remember the answers. The app shows what came of it; the asking happens here.
 
-View and manage
-• /today — today’s plan
-• /tasks or /task — all active tasks
-• /week — the pool of undated tasks and the week plan
-• /goals — goals and linked tasks
-• /reminders — upcoming reminders
-• /settings — notification and chat settings
-• /context — what is useful to know about you
-• /memory — everything I remember, sensitive facts included
+In the app
+Today, tasks and task detail, creating and editing, rescheduling, goals, the week plan and the pool, paused series, reminders, settings, memory, and the profile /context builds. Open it from the menu button next to the message field, or from the button on any card.
+
+On the cards here
+Only what answers the message it arrives with: Done, Snooze 15 min / 1 h, +1 h / This evening / Tomorrow, Skip on a repeat, and Undo after a change. Everything else is a tap into the app.
+
+Commands that stayed
 • /status — whether the bot, database, and AI are available
+• /retry_ai — process the last message again
+• /cancel — stop the current input and parsing
+• /clear — remove AI history only, not tasks, goals, or your profile
+• /delete_account and /restore — delete the account, or take it back during the grace period
+• /ai_revoke — withdraw consent for external AI processing
 
-Use the button below for details about tasks, goals, reminders, reports, and AI processing.
-Relative time uses your timezone; unclear or sensitive changes need confirmation. /clear removes only AI history.
+Relative time uses your timezone; unclear or sensitive changes need confirmation.
 Do not send passwords or access keys in chat.
 Limits: 60 messages / 60 AI calls per hour; voice up to 5 min and 20 MB.
 
-### guide: tasks
-📋 Tasks
+### moved to the app
+Lists, filters and settings live in the IPsycho app now. The conversation stays here: say what to create, change, move, or close.
 
-A task can have an exact time, time window, deadline, or deliberately approximate horizon. Include why it matters, constraints, people, materials, and a next step — that becomes task context for the day and week plan.
-
-For a multi-step job, list the steps and AI can propose a checklist. Unchecked items are never silently completed with the task.
-
-/tasks shows overdue work and the next 7 days by default; the buttons under the list switch to today, the month, everything, or tasks without a date. Identical items collapse into one line — the ▸ arrow opens all of its dates.
-
-### guide: goals
-🎯 Goals
-
-A goal answers “why”: it connects related tasks and helps choose priorities. You can change its title, why, and context in an ordinary message.
-
-Linked tasks appear in /goals. A goal changes nothing by itself: it helps choose what to take for the week in /week.
-
-### guide: reminders
-🔔 Reminders
-
-An event is contacted before it starts and at the start; an all-day event is contacted that morning. A task with an exact time is contacted at its planned time. Important deadlines receive additional planning contacts before and around the due date.
-
-Quiet hours and rescheduling are respected. Cancel or move any reminder in a normal message; a reminder is never created in the past.
-
-### guide: reports
-🗓 The day and the week
-
-The morning card shows what is planned for today, and below it the tasks taken for this week: one tap sets a task for today.
-
-Once a week a week card arrives: what closed, what was taken and not started, and an invitation to pick the next week in /week. Picking is taps; the bot changes nothing on its own.
-
-The morning time and the weekly day are set in /settings in ordinary language.
-
-### guide: ai
-🤖 AI processing
-
-AI receives only limited relevant context from your personal workspace: the current conversation, tasks, goals, and non-sensitive profile. It cannot access other users' data, the database, or credentials.
-
-Do not send passwords or access keys. External AI processing requires consent; voice is transcribed first and audio is not stored. “Clear AI history” removes only history used by AI, not tasks, goals, or your profile.
-
-### settings
-⚙️ Settings
-
-Time and language
-🌍 Timezone: Europe/Kyiv
-🗣 Interface language: automatic (Telegram)
-
-Briefings
-☀️ Morning briefing: 08:30
-📅 Weekly review: Sun 18:00
-
-Quiet hours and data
-🔕 Quiet hours: 22:00–08:00 (weekdays), 23:00–09:00 (weekends)
-💬 AI history: 42 messages
-
-Describe what you want to change: briefing time, weekly-review day, language, or quiet hours.
-
-### today
-☀️ Today · 1 task
-
-Main: Позвонить клиенту
-
-1. 🟡 Позвонить клиенту · 05/09, 10:30
-
-✅ Completed today: 2
-
-⚠️ Overdue from before: 3
-
-### tasks
-📋 Tasks · week (2)
-
-1. 🟡 Позвонить клиенту · 05/09, 10:30
-2. • Позвонить маме · 3 dates · next 06/09, 12:00 ▸
-
-To change, complete, or reschedule a task, just write it in a message.
-
-### week plan
-🗂 Week plan from 07.09 · in the pool: 4
-
-Closed last week: 4. Taken and not started: 1.
-
-1. ↩️ 🟡 Разобраться с налогами
-2. ☑️ Привести в порядок машину
-3. ◻️ Подготовиться к собеседованию
-4. ◻️ Позвонить в банк · overdue
-
-Tap a task to take it for the week or put it back in the pool.
-
-### memory
-🧠 What I remember
-
-• Ложится в 23:30, важное лучше до 15:00
-• 🔒 Принимает лекарство утром
-
-🔒 means sensitive: the model does not see it in context. Say what to correct or forget.
-
-### paused series
-⏸ Paused series: 3
-
-9. 🔁 Полить цветы — every week: Mon
-
-### task group
-• Позвонить маме
-
-1. 06/09, 12:00
-2. 09/09, 12:00
-3. 11/09, 12:00
-
-To change, complete, or reschedule a task, just write it in a message.
-
-### goals
-🎯 Goals · active (1)
-
-1. Запустить первую платную группу · by 01.12
-   1 task
-
-To edit a goal or link a task, just write it in a message.
-
-### goal
-🎯 Запустить первую платную группу · by 01.12
-Why: Проверить спрос
-
-• Позвонить клиенту — Подготовить список
-
-To edit a goal or link a task, just write it in a message.
-
-### reminders
-🔔 Upcoming reminders
-
-Today
-• Позвонить клиенту · 09:00, 18:00
-
-Tomorrow
-• Полить цветы · 09:00
-
-Wed 09.09
-• Полить цветы · 09:00
-
-Tap a reminder to cancel it. To move one, just write a message.
+### moved to the app: toast
+This is in the app now
 
 ### task card
 🟡 Позвонить клиенту
@@ -200,6 +73,9 @@ Tap a reminder to cancel it. To move one, just write a message.
 ### terminal card
 ✅ Позвонить клиенту
 Done · 12:00
+
+### morning card line
+🟡 Позвонить клиенту · 05/09, 10:30
 
 ### applied report
 ✅ Task created: “Позвонить клиенту” 🟡

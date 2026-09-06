@@ -5,7 +5,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import { AccessService } from "../access/access.service.js";
 import { APP_CONFIG, type AppConfig } from "../config.js";
 import { SettingsService } from "../settings/settings.service.js";
-import { taskKeyboard, weekTakeTodayKeyboard, weeklyBriefingKeyboard } from "./telegram-ui.js";
+import { launchOnlyKeyboard, taskKeyboard, weeklyBriefingKeyboard } from "./telegram-ui.js";
 import type { BriefingKind } from "../core/digest-policy.js";
 import { compactText } from "../core/telegram-ux.js";
 import { TelegramUpdatesRepository } from "./telegram-updates.repository.js";
@@ -167,14 +167,17 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     kind: BriefingKind,
     text: string,
     locale = telegramLocale(null, undefined),
-    weekTasks: ReadonlyArray<{ id: string; title: string }> = [],
     idleGoals: ReadonlyArray<{ id: string; title: string }> = [],
   ): Promise<number> {
-    let keyboard: InlineKeyboard | undefined;
-    // One tap gives a task taken for this week its day, so those rows come before the navigation.
-    if (kind === "morning") keyboard = weekTakeTodayKeyboard(weekTasks, locale, this.webAppUrl);
+    // The morning card used to carry one «делаю сегодня» row per task taken for the week — a list of
+    // up to eight taps, which is browsing, so it is the day's screen in the app now (design.md § 1).
+    let keyboard: InlineKeyboard | null | undefined;
+    if (kind === "morning") keyboard = launchOnlyKeyboard(this.webAppUrl, { name: "today" }, locale);
     if (kind === "weekly") keyboard = weeklyBriefingKeyboard(idleGoals, locale, this.webAppUrl);
-    const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), keyboard ? { reply_markup: keyboard } : {});
+    // With the app off and no idle goal to propose, the week card has no buttons at all; Telegram
+    // rejects an empty `inline_keyboard`, so the markup is attached only when something is on it.
+    const markup = keyboard?.inline_keyboard.some((row) => row.length > 0) ? { reply_markup: keyboard } : {};
+    const message = await this.bot.api.sendMessage(telegramUserId, compactText(text, TELEGRAM_MESSAGE_MAX), markup);
     return message.message_id;
   }
 
@@ -209,50 +212,34 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     });
   }
 
-  /** The menu lists what a user can reach; commands with a recovery role (/cancel, /timezone) are included on purpose. */
+  /**
+   * The menu lists what a user can reach in chat, and after task 11 that is the conversation plus
+   * the deterministic gates: the browsing commands are screens in the Mini App, reached through the
+   * chat menu button. `/context` is on the list because it starts a conversation, not a screen. Telegram caches this list per client, so publishing it in the same release
+   * that removes the handlers is what stops the menu advertising a command that has moved.
+   */
   private async publishCommandMenu(): Promise<void> {
     const menu = {
       ru: [
-        ["today", "План на сегодня"],
-        ["tasks", "Задачи"],
-        ["week", "План недели"],
-        ["goals", "Цели"],
-        ["reminders", "Ближайшие напоминания"],
-        ["settings", "Настройки"],
-        ["timezone", "Часовой пояс"],
-        ["language", "Язык интерфейса"],
         ["context", "Что мне учитывать"],
         ["cancel", "Отменить текущий ввод"],
+        ["retry_ai", "Повторить обработку"],
         ["status", "Статус"],
         ["clear", "Очистить AI-историю"],
         ["help", "Помощь"],
       ],
       uk: [
-        ["today", "План на сьогодні"],
-        ["tasks", "Завдання"],
-        ["week", "План тижня"],
-        ["goals", "Цілі"],
-        ["reminders", "Найближчі нагадування"],
-        ["settings", "Налаштування"],
-        ["timezone", "Часовий пояс"],
-        ["language", "Мова інтерфейсу"],
         ["context", "Що мені враховувати"],
         ["cancel", "Скасувати поточне введення"],
+        ["retry_ai", "Повторити обробку"],
         ["status", "Статус"],
         ["clear", "Очистити AI-історію"],
         ["help", "Допомога"],
       ],
       en: [
-        ["today", "Today’s plan"],
-        ["tasks", "Tasks"],
-        ["week", "Week plan"],
-        ["goals", "Goals"],
-        ["reminders", "Upcoming reminders"],
-        ["settings", "Settings"],
-        ["timezone", "Timezone"],
-        ["language", "Interface language"],
         ["context", "What I should know"],
         ["cancel", "Cancel current input"],
+        ["retry_ai", "Retry AI processing"],
         ["status", "Status"],
         ["clear", "Clear AI history"],
         ["help", "Help"],

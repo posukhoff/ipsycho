@@ -566,9 +566,9 @@ test("the presets are journaled, and «отложить до утра» takes th
 });
 
 test("a journaled settings change hands back the group Undo needs, and the two that are not hand back null", async (t) => {
-  // The bot has attached an Undo button to every settings command since they existed
-  // (`settings-commands.service.ts`). A screen that could not reach the group would be a feature
-  // lost in the move, and the two exceptions are exactly the two writes that skip the journal.
+  // The bot attaches an Undo button to every settings change it makes in chat. A screen that could
+  // not reach the group would be a feature lost in the move, and the two exceptions are exactly the
+  // two writes that skip the journal.
   const harness = await createApp();
   t.after(() => harness.close());
 

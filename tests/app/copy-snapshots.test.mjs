@@ -1,23 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
-import { deterministicCopy, guideText, helpText } from "../../dist/telegram/telegram-handlers.service.js";
-import {
-  goalDetailText,
-  goalsOverviewText,
-  reminderCardText,
-  remindersText,
-  settingsText,
-  taskCardText,
-  pausedSeriesText,
-  weekPlanText,
-  memoryText,
-  taskGroupText,
-  tasksOverviewText,
-  terminalTaskText,
-  todayText,
-} from "../../dist/telegram/telegram-ui.js";
-import { groupTaskRows } from "../../dist/core/task-list-view.js";
+import { deterministicCopy, helpText } from "../../dist/telegram/telegram-handlers.service.js";
+import { reminderCardText, taskCardText, terminalTaskText, todayLine } from "../../dist/telegram/telegram-ui.js";
+import { t } from "../../dist/telegram/copy/index.js";
 import { renderAppliedReport } from "../../dist/core/applied-report.js";
 
 /**
@@ -54,23 +40,6 @@ const occurrence = {
   dueLocalDate: null,
   overdue: false,
 };
-const settings = {
-  timezone: TIMEZONE,
-  morningDigestEnabled: true,
-  morningReferenceTime: "08:30",
-  eveningDigestEnabled: false,
-  eveningReferenceTime: "21:00",
-  weeklyReviewEnabled: true,
-  weeklyReviewWeekday: 7,
-  weeklyReviewTime: "18:00",
-  quietHoursEnabled: true,
-  weekdayQuietStart: "22:00",
-  weekdayQuietEnd: "08:00",
-  weekendQuietStart: "23:00",
-  weekendQuietEnd: "09:00",
-  pinnedLanguage: null,
-  notificationsSnoozedUntil: null,
-};
 const report = [
   {
     kind: "task_created",
@@ -88,69 +57,27 @@ const report = [
 ];
 
 const LOCAL_DATE = "2026-09-04";
-const listRow = { task: { ...task, id: "t1" }, occurrence };
-// One task on three dates: what the list must collapse into a single line.
-const repeatedRows = ["2026-09-06", "2026-09-09", "2026-09-11"].map((date, index) => ({
-  task: { id: `r${index}`, title: "Позвонить маме", importance: "normal", timezone: TIMEZONE },
-  occurrence: { id: `00000000-0000-0000-0000-00000000000${index}`, status: "open", timezone: TIMEZONE, plannedStartAt: new Date(`${date}T09:00:00Z`), overdue: false },
-}));
 
-const GOAL = {
-  goal: { id: "g1", title: "Запустить первую платную группу", status: "active", why: "Проверить спрос", targetLocalDate: "2026-12-01" },
-  tasks: [{ id: "t1", title: "Позвонить клиенту", nextAction: "Подготовить список", context: null, dueLocalDate: "2026-09-05" }],
-};
-// Two reminders for one task in a day collapse into one line; the next day gets its own heading.
-const REMINDERS = [
-  { delivery: { id: "d1", scheduledFor: new Date("2026-09-04T06:00:00Z") }, task: { title: "Позвонить клиенту", timezone: TIMEZONE } },
-  { delivery: { id: "d2", scheduledFor: new Date("2026-09-04T15:00:00Z") }, task: { title: "Позвонить клиенту", timezone: TIMEZONE } },
-  { delivery: { id: "d3", scheduledFor: new Date("2026-09-05T06:00:00Z") }, task: { title: "Полить цветы", timezone: TIMEZONE } },
-  { delivery: { id: "d4", scheduledFor: new Date("2026-09-09T06:00:00Z") }, task: { title: "Полить цветы", timezone: TIMEZONE } },
-];
-
-const GUIDE_SECTIONS = ["tasks", "goals", "reminders", "reports", "ai"];
-
+/**
+ * Everything the bot still writes, in one file per locale.
+ *
+ * Task 11 took the screens out of this list; what is left is the conversation's own copy, the
+ * cards, and the one sentence a command or button that moved into the app answers with. A snapshot
+ * that still pinned a deleted screen is the failure this step exists to catch.
+ */
 function render(locale) {
   const copy = deterministicCopy(locale);
   const sections = [
     ["start", copy.ready],
     ["onboarding: timezone", copy.startOnboarding],
+    ["onboarding: done", copy.onboardingDone],
     ["help", helpText(config, locale)],
-    // Every guide section, because `guideText(locale)` used to pin the literal string "undefined":
-    // the function takes the section first, so the whole in-product guide had no coverage at all.
-    ...GUIDE_SECTIONS.map((section) => [`guide: ${section}`, guideText(section, locale)]),
-    ["settings", settingsText(settings, NOW, 42, locale)],
-    ["today", todayText(groupTaskRows([listRow], LOCAL_DATE), LOCAL_DATE, { locale, completedCount: 2, staleCount: 3, now: NOW })],
-    ["tasks", tasksOverviewText(groupTaskRows([listRow, ...repeatedRows], LOCAL_DATE), { scope: "week", locale, now: NOW })],
-    [
-      "week plan",
-      weekPlanText(
-        [
-          { title: "Разобраться с налогами", importance: "required", pickedWeekStart: "2026-08-31" },
-          { title: "Привести в порядок машину", importance: "normal", pickedWeekStart: "2026-09-07" },
-          { title: "Подготовиться к собеседованию", importance: "normal", pickedWeekStart: null },
-          { title: "Позвонить в банк", importance: "normal", pickedWeekStart: null, overdue: true },
-        ],
-        { locale, todayLocalDate: "2026-09-09", total: 4, summary: { done: 4, takenNotStarted: 1 } },
-      ),
-    ],
-    [
-      "memory",
-      memoryText(
-        [
-          { type: "context", content: "Ложится в 23:30, важное лучше до 15:00", sensitive: false },
-          { type: "preference", content: "Принимает лекарство утром", sensitive: true },
-        ],
-        locale,
-      ),
-    ],
-    ["paused series", pausedSeriesText([{ title: "Полить цветы", recurrenceRule: "FREQ=WEEKLY;BYDAY=MO", recurrenceEndLocalDate: null }], { locale, total: 3, offset: 8 })],
-    ["task group", taskGroupText(groupTaskRows(repeatedRows, LOCAL_DATE)[0], locale, NOW)],
-    ["goals", goalsOverviewText([GOAL], { scope: "active", locale })],
-    ["goal", goalDetailText(GOAL, locale)],
-    ["reminders", remindersText(REMINDERS, { locale, timezone: TIMEZONE, now: NOW })],
+    ["moved to the app", t(locale, "moved_to_app")],
+    ["moved to the app: toast", t(locale, "moved_to_app_toast")],
     ["task card", taskCardText(task, occurrence, NOW, locale)],
     ["reminder card", reminderCardText({ task, occurrence, purpose: "user_reminder", now: NOW, locale })],
     ["terminal card", terminalTaskText(task, "done", NOW, locale)],
+    ["morning card line", todayLine(task, occurrence, LOCAL_DATE, locale, NOW)],
     ["applied report", renderAppliedReport(report, NOW, locale)],
   ];
   return sections.map(([name, text]) => `### ${name}\n${text}`).join("\n\n");
@@ -172,25 +99,16 @@ for (const locale of ["ru", "uk", "en"]) {
 // screen. Only the copy around it must be localized.
 const USER_CONTENT = [
   "Позвонить клиенту",
-  "Позвонить маме",
   "Запустить первую платную группу",
   "Объяснить ошибку и предложить два решения.",
   "Подготовить список вариантов",
-  "Подготовить список",
   "Собрать факты",
   "Написать письмо",
   "Полить цветы",
-  "Проверить спрос",
-  "Разобраться с налогами",
-  "Привести в порядок машину",
-  "Подготовиться к собеседованию",
-  "Позвонить в банк",
-  "Ложится в 23:30, важное лучше до 15:00",
-  "Принимает лекарство утром",
 ];
 
-test("no screen in English or Ukrainian leaks Russian copy", () => {
+test("nothing the bot writes in English or Ukrainian leaks Russian copy", () => {
   const withoutUserContent = (text) => USER_CONTENT.reduce((value, phrase) => value.split(phrase).join(""), text);
-  assert.doesNotMatch(withoutUserContent(render("en")), /[а-яё]/iu, "English screens contain Cyrillic that is not user content");
-  assert.doesNotMatch(withoutUserContent(render("uk")), /Настройки|Напоминание|Сегодня|Задачи\b|Цели\b|Готово\b/u, "Ukrainian screens contain Russian copy");
+  assert.doesNotMatch(withoutUserContent(render("en")), /[а-яё]/iu, "English copy contains Cyrillic that is not user content");
+  assert.doesNotMatch(withoutUserContent(render("uk")), /Настройки|Напоминание|Сегодня|Задачи\b|Цели\b|приложении/u, "Ukrainian copy contains Russian");
 });

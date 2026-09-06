@@ -7,37 +7,23 @@ import { DatabaseService } from "../../database/database.service.js";
 import { safeError } from "../../observability/safe-error.js";
 import { ReminderQueueService } from "../../reminders/reminder-queue.service.js";
 import { SettingsService } from "../../settings/settings.service.js";
-import { guideIndexText, guideKeyboard, guideText, helpKeyboard, helpText, type GuideDestination } from "../copy/help.js";
+import { helpText } from "../copy/help.js";
 import { t } from "../copy/index.js";
 import { deterministicCopy } from "../copy/onboarding.js";
 import { TelegramChatReplyService } from "../telegram-chat-reply.service.js";
-import type { TaskScope } from "../../core/task-list-view.js";
-import type { GoalScope } from "../telegram-ui.js";
 import { activeState, type AppContext } from "../telegram-context.js";
 import { telegramLocale } from "../telegram-locale.js";
 import { deployedBuildLine, launchOnlyKeyboard } from "../telegram-ui.js";
 import { TelegramService } from "../telegram.service.js";
 import { OnboardingService } from "./onboarding.service.js";
-import { ScreensService } from "./screens.service.js";
 import { ContextService } from "../../context/context.service.js";
 import { logger } from "../../observability/logger.js";
 
 const ACCOUNT_DELETE_CONFIRM = "account:delete_confirm";
-const GUIDE_CALLBACK = /^guide:(help|index|tasks|goals|reminders|reports|ai)$/;
-const NAV_CALLBACK = /^nav:(today|tasks|reminders|settings|goals|week)$/;
-const TASK_SCOPE_CALLBACK = /^tsk:(overdue|today|week|month|all|nodate):(\d{1,3})$/;
-const TODAY_PAGE_CALLBACK = /^tdy:(\d{1,3})$/;
-const PAUSED_SERIES_CALLBACK = /^paused:(\d{1,3})$/;
-const GROUP_CALLBACK = /^grp:(t|d):([0-9a-f-]{36})(?::(overdue|today|week|month|all|nodate))?$/;
-const GOALS_SCOPE_CALLBACK = /^gl:(active|paused|completed):(\d{1,3})$/;
-const GOAL_CALLBACK = /^goal:([0-9a-f-]{36})$/;
 const GOAL_STEP_CALLBACK = /^goal:step:([0-9a-f-]{36})$/;
-const REMINDERS_PAGE_CALLBACK = /^rem:p:(\d{1,3})$/;
-const HISTORY_CLEAR_CALLBACK = "history:clear";
-const PROFILE_OPEN_CALLBACK = "profile:open";
 const BACKUP_RETENTION = { daily: 7, weekly: 4 };
 
-/** Commands and buttons that are not about one task: screens, account, consent, help. */
+/** Commands and buttons that are not about one task: account, consent, help, onboarding. */
 @Injectable()
 export class SystemCommandsService {
   constructor(
@@ -49,25 +35,17 @@ export class SystemCommandsService {
     private readonly database: DatabaseService,
     private readonly reminderQueue: ReminderQueueService,
     private readonly chatReply: TelegramChatReplyService,
-    private readonly screens: ScreensService,
     private readonly onboarding: OnboardingService,
     private readonly context: ContextService,
   ) {}
 
   register(bot: Bot<AppContext>): void {
-    bot.command(["tasks", "task"], (ctx) => this.screens.tasks_(ctx));
-    bot.command("reminders", (ctx) => this.screens.reminders_(ctx));
-    bot.command("goals", (ctx) => this.screens.goals(ctx));
-    bot.command("today", (ctx) => this.screens.today(ctx));
-    bot.command("week", (ctx) => this.screens.weekPlan_(ctx));
-    bot.command("settings", (ctx) => this.screens.settings_(ctx));
     bot.command("status", (ctx) => this.status(ctx));
     bot.command("clear", (ctx) => this.clear(ctx));
     bot.command("start", (ctx) => this.start(ctx));
     bot.command("invite", (ctx) => this.invite(ctx));
     bot.command("help", (ctx) => this.help(ctx));
     bot.command("context", (ctx) => this.openProfile(ctx));
-    bot.command("memory", (ctx) => this.screens.memory_(ctx));
     bot.command("delete_account", (ctx) => this.deleteAccount(ctx));
     bot.command("restore", (ctx) => this.restore(ctx));
     bot.command("ai_revoke", (ctx) => this.revokeAi(ctx));
@@ -77,21 +55,7 @@ export class SystemCommandsService {
     bot.callbackQuery(ACCOUNT_DELETE_CONFIRM, (ctx) => this.confirmDeletion(ctx));
     bot.callbackQuery("ai:consent", (ctx) => this.grantConsent(ctx));
     bot.callbackQuery("ai:decline", (ctx) => this.declineConsent(ctx));
-    bot.callbackQuery(GUIDE_CALLBACK, (ctx) => this.guide(ctx));
-    bot.callbackQuery(NAV_CALLBACK, (ctx) => this.navigate(ctx));
-    bot.callbackQuery(TASK_SCOPE_CALLBACK, (ctx) => this.tasksPage(ctx));
-    bot.callbackQuery(TODAY_PAGE_CALLBACK, (ctx) => this.todayPage(ctx));
-    bot.callbackQuery(PAUSED_SERIES_CALLBACK, (ctx) => this.pausedSeriesPage(ctx));
-    bot.callbackQuery(GROUP_CALLBACK, (ctx) => this.openGroup(ctx));
-    bot.callbackQuery(GOALS_SCOPE_CALLBACK, (ctx) => this.goalsPage(ctx));
     bot.callbackQuery(GOAL_STEP_CALLBACK, (ctx) => this.goalStep(ctx));
-    bot.callbackQuery(GOAL_CALLBACK, (ctx) => this.openGoal(ctx));
-    bot.callbackQuery(REMINDERS_PAGE_CALLBACK, (ctx) => this.remindersPage(ctx));
-    bot.callbackQuery(HISTORY_CLEAR_CALLBACK, (ctx) => this.clearHistory(ctx));
-    bot.callbackQuery(PROFILE_OPEN_CALLBACK, async (ctx) => {
-      await ctx.answerCallbackQuery();
-      await this.openProfile(ctx);
-    });
   }
 
   private async status(ctx: CommandContext<AppContext>): Promise<void> {
@@ -157,17 +121,20 @@ export class SystemCommandsService {
   }
 
   private async help(ctx: CommandContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    await ctx.reply(helpText(this.config, locale), { reply_markup: helpKeyboard(locale) });
+    const { locale, webAppUrl } = activeState(ctx);
+    // The guide pages were themselves a screen tree; what is left is one text plus the way in.
+    const launch = launchOnlyKeyboard(webAppUrl, { name: "today" }, locale);
+    await ctx.reply(helpText(this.config, locale), launch ? { reply_markup: launch } : {});
   }
 
   /**
-   * `/context` is the one screen command whose answer is a conversation turn rather than a
-   * keyboard, so its launch button (task 10.4) cannot ride along on the reply the model produces.
-   * It follows as one short line with the button on it, and only while the app is on; with the
-   * flag off the command is exactly the single model turn it has always been.
+   * `/context` starts the profile interview: it asks the model and answers in chat, so it is a
+   * conversation turn and stays here with `goal:step:*` rather than moving to the app (design.md
+   * § 1). Only its screen moved — the app's profile is a read-only view of what the interview
+   * writes, so when the app is on the turn is followed by one short line carrying the way there.
+   * With the flag off the command is exactly the single model turn it has always been.
    */
-  private async openProfile(ctx: AppContext): Promise<void> {
+  private async openProfile(ctx: CommandContext<AppContext>): Promise<void> {
     const { access, settings, locale, webAppUrl } = activeState(ctx);
     const result = await this.chat.startProfile({
       workspaceId: access.workspaceId,
@@ -265,89 +232,6 @@ export class SystemCommandsService {
     await ctx.reply(t(locale, "consent_declined"));
   }
 
-  private async guide(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const section = GUIDE_CALLBACK.exec(ctx.callbackQuery.data)?.[1] as GuideDestination | undefined;
-    if (!section) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    await ctx.answerCallbackQuery();
-    if (section === "help") return this.screens.present(ctx, helpText(this.config, locale), helpKeyboard(locale), true);
-    if (section === "index") return this.screens.present(ctx, guideIndexText(locale), guideKeyboard(locale), true);
-    await this.screens.present(ctx, guideText(section, locale), guideKeyboard(locale, section), true);
-  }
-
-  private async navigate(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const target = NAV_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (!target) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    await ctx.answerCallbackQuery();
-    if (target === "today") return this.screens.today(ctx, true);
-    if (target === "tasks") return this.screens.tasks_(ctx, true);
-    if (target === "reminders") return this.screens.reminders_(ctx, true);
-    if (target === "goals") return this.screens.goals(ctx, true);
-    if (target === "week") return this.screens.weekPlan_(ctx, true);
-    return this.screens.settings_(ctx, true);
-  }
-
-  /** The task list on one date window and page; the window itself is carried by the button, not stored. */
-  private async tasksPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const match = TASK_SCOPE_CALLBACK.exec(ctx.callbackQuery.data);
-    if (!match?.[1] || match[2] === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    await ctx.answerCallbackQuery();
-    await this.screens.tasks_(ctx, true, match[1] as TaskScope, Number(match[2]));
-  }
-
-  private async pausedSeriesPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const match = PAUSED_SERIES_CALLBACK.exec(ctx.callbackQuery.data);
-    if (match?.[1] === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    await ctx.answerCallbackQuery();
-    await this.screens.pausedSeries_(ctx, true, Number(match[1]));
-  }
-
-  private async todayPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const page = TODAY_PAGE_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (page === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    await ctx.answerCallbackQuery();
-    await this.screens.today(ctx, true, Number(page));
-  }
-
-  /**
-   * A collapsed line stands for rows that may have moved or been closed since the message was
-   * drawn, so the group is looked up again; when it is gone the screen is redrawn instead.
-   */
-  private async openGroup(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const match = GROUP_CALLBACK.exec(ctx.callbackQuery.data);
-    const source = match?.[1] === "d" ? "today" : "tasks";
-    const key = match?.[2];
-    if (!key) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    const scope = match?.[3] as TaskScope | undefined;
-    const shown = await this.screens.taskGroup(ctx, source, key, scope);
-    if (shown) return void (await ctx.answerCallbackQuery());
-    await ctx.answerCallbackQuery({ text: t(locale, "list_changed_toast") });
-    await (source === "today" ? this.screens.today(ctx, true) : this.screens.tasks_(ctx, true, scope));
-  }
-
-  private async goalsPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const match = GOALS_SCOPE_CALLBACK.exec(ctx.callbackQuery.data);
-    if (!match?.[1] || match[2] === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    await ctx.answerCallbackQuery();
-    await this.screens.goals(ctx, true, match[1] as GoalScope, Number(match[2]));
-  }
-
-  private async openGoal(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const goalId = GOAL_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (!goalId) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    const shown = await this.screens.goal(ctx, goalId);
-    if (shown) return void (await ctx.answerCallbackQuery());
-    await ctx.answerCallbackQuery({ text: t(locale, "list_changed_toast") });
-    await this.screens.goals(ctx, true);
-  }
-
   /**
    * The one thing the bot proposes on its own: a goal nothing has moved for weeks. The week card
    * names it, and this button asks the model for a concrete step — the same turn the user could
@@ -372,22 +256,6 @@ export class SystemCommandsService {
       telegramMessageId: ctx.callbackQuery.message?.message_id ?? 0,
     });
     await this.chatReply.reply(ctx, access, result);
-  }
-
-  private async remindersPage(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { locale } = activeState(ctx);
-    const page = REMINDERS_PAGE_CALLBACK.exec(ctx.callbackQuery.data)?.[1];
-    if (page === undefined) return void (await ctx.answerCallbackQuery({ text: t(locale, "bad_command_toast") }));
-    await ctx.answerCallbackQuery();
-    await this.screens.reminders_(ctx, true, Number(page));
-  }
-
-  private async clearHistory(ctx: CallbackQueryContext<AppContext>): Promise<void> {
-    const { access, locale } = activeState(ctx);
-    const count = await this.chat.clearConversation(access.workspaceId, access.user.id);
-    await ctx.answerCallbackQuery({ text: t(locale, "history_cleared_toast", { count }) }).catch(() => undefined);
-    // The button lives on the settings card; refresh it in place instead of matching the card by its title.
-    await this.screens.settings_(ctx, true);
   }
 }
 

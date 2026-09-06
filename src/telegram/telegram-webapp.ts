@@ -3,7 +3,7 @@ import type { TaskScope } from "../core/task-list-view.js";
 import type { CopyKey } from "./copy/index.js";
 import { t } from "./copy/index.js";
 import type { TelegramLocale } from "./telegram-locale.js";
-import type { GoalScope } from "./telegram-keyboards.js";
+import type { GoalScope } from "../api/contracts/primitives.js";
 
 /**
  * Deep links into the Mini App, and the one button that opens them.
