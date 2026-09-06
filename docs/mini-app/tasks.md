@@ -101,7 +101,7 @@ started.
 - [x] 9.4 Add the web build stage to `Dockerfile` and serve `web/dist` under `/app` (hashed assets immutable, `index.html` `no-store`).
 - [x] 9.5 Update the GitHub Actions deploy for the larger build and add a post-deploy check that `/app` answers 200 over HTTPS.
 - [x] 9.6 `docs/DEPLOYMENT.md`: DNS, certificate issuance and renewal, BotFather Mini App registration, `setChatMenuButton`, rollback with `WEBAPP_ENABLED=false`, and a **revocation** paragraph — disabling a user with the admin CLI is immediate; rotating the bot token invalidates every outstanding `initData` at once and also restarts the bot.
-- [x] 9.7 `MANUAL_ACTIONS.md` (written; performing them is 12.3): open the app from a real client on iOS, Android, desktop **and Telegram Web in a browser** (the iframe case); check theme, back button, viewport and the fragment deep link.
+- [x] 9.7 `docs/MANUAL_ACTIONS.md` (written; performing them is 12.3): open the app from a real client on iOS, Android, desktop **and Telegram Web in a browser** (the iframe case); check theme, back button, viewport and the fragment deep link.
 
 ## 10. Launch buttons (additive, merges during rollout step 1)
 

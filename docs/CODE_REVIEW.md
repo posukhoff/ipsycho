@@ -27,7 +27,7 @@ Review for consequential defects first. Report concrete findings with file and l
 
 - Assume Telegram and provider timeouts can be ambiguous. Review idempotency, deduplication, and retry limits accordingly.
 - Preserve the single-app-process and migration-lock assumptions unless the change explicitly redesigns them.
-- Review deployment, backup, restore, or environment changes against `docs/DEPLOYMENT.md` and `MANUAL_ACTIONS.md`.
+- Review deployment, backup, restore, or environment changes against `docs/DEPLOYMENT.md` and `docs/MANUAL_ACTIONS.md`.
 
 ## Tests and evidence
 

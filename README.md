@@ -77,4 +77,4 @@ npm run test:e2e    # all migrations plus PostgreSQL action/integrity tests
 npm audit
 ```
 
-Checks that require real Telegram, provider, network or production credentials are listed in [MANUAL_ACTIONS.md](MANUAL_ACTIONS.md). Deployment and backup instructions are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Checks that require real Telegram, provider, network or production credentials are listed in [docs/MANUAL_ACTIONS.md](docs/MANUAL_ACTIONS.md). Deployment and backup instructions are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

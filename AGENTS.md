@@ -12,12 +12,13 @@
 - `src/`: NestJS services, repositories, provider adapters, Telegram handlers, and the application entry point.
 - `migrations/`: ordered PostgreSQL migrations. Add a new numbered migration; do not rewrite a migration that may already have run.
 - `tests/app/`: application contract tests. `tests/e2e/`: PostgreSQL integration coverage.
-- `docs/`, `README.md`, and `MANUAL_ACTIONS.md`: product, deployment, and manual-verification guidance.
+- `web/`: the Telegram Mini App (Vite + React), an npm workspace built from the server's own zod contracts in `src/api/contracts/`.
+- `README.md` plus `docs/`: the operational overview, then `DEPLOYMENT.md` (server and backups), `MANUAL_ACTIONS.md` (release checks needing a real Telegram account), `AGENT_FLOW.md` (agent behaviour), `CODE_REVIEW.md`, `IMPROVEMENT_PLAN.md` (what is deliberately left open), and `mini-app/` (the in-flight plan).
 
 ## Discovery and planning
 
-- Prefer the Codebase Memory graph for structural discovery: `search_graph`, `trace_path`, `get_code_snippet`, then `check_index_coverage` for every material path. Use `rg` for literals, configuration, documentation, and any reported coverage gaps.
-- For a complex or ambiguous change, inspect the affected call paths and write a short plan before editing. Reuse an existing OpenSpec change when the user is working through one.
+- Use `rg` for discovery: literals, configuration, documentation and call paths. Read a whole file before changing it; the comments carry the reasoning that the code alone does not.
+- For a complex or ambiguous change, inspect the affected call paths and write a short plan before editing. `docs/mini-app/` holds the in-flight Mini App plan — reuse it when the user is working through one of its groups.
 - Make the smallest behavior-preserving change that satisfies the request. Preserve unrelated user changes and avoid new production dependencies unless the user authorizes them.
 
 ## Safety invariants
@@ -40,7 +41,7 @@
 ## Subagents
 
 - When the user asks for parallel agents, delegate bounded, independent, read-heavy work such as code-path mapping, review, test analysis, or documentation research.
-- Prefer the project agents in `.codex/agents/`. Keep the main agent responsible for requirements and the final decision.
+- Keep the main agent responsible for requirements and the final decision.
 - Avoid parallel edits to overlapping files. Every writing agent must own explicit files and must preserve changes made by others.
 
 ## Code Review Rules

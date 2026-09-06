@@ -57,7 +57,7 @@ Non-goals:
 - New: `src/api/**` (controllers, presenters, initData auth), `web/**` (Vite + React),
   `Caddyfile`, a Caddy service in `docker-compose.yml`, a web build stage in `Dockerfile`.
 - Changed: `src/app.module.ts`, `src/main.ts`, `src/config.ts` and `.env.example`
-  (`WEBAPP_ENABLED`, `WEBAPP_URL`, `HOST`), `docs/DEPLOYMENT.md`, `MANUAL_ACTIONS.md`.
+  (`WEBAPP_ENABLED`, `WEBAPP_URL`, `HOST`), `docs/DEPLOYMENT.md`, `docs/MANUAL_ACTIONS.md`.
 - Removed, in a separate change that ships after the app is verified in production:
   `src/telegram/handlers/screens.service.ts`, `handlers/week-callbacks.service.ts`, most of
   `telegram-screens.ts` and `telegram-keyboards.ts`, the browsing halves of

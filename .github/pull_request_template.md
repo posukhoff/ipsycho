@@ -10,5 +10,5 @@
 - [ ] Logs carry identifiers and counters only, never message bodies, secrets or raw provider payloads
 - [ ] Schema changes come as a new numbered migration; applied migrations are not edited
 - [ ] User-facing copy exists in `ru`, `uk` and `en`
-- [ ] Docs (`README.md`, `docs/`, `MANUAL_ACTIONS.md`) updated where behaviour changed
+- [ ] Docs (`README.md`, `docs/`, `docs/MANUAL_ACTIONS.md`) updated where behaviour changed
 - [ ] `.env` was not read, printed or modified

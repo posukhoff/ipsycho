@@ -1,19 +1,24 @@
 node_modules/
 dist/
 .core-dist/
-.env
-.idea/
 *.log
+
+# Secrets. `.env.example` is the committed contract; `.env` never is.
+.env
+.env.*
+!.env.example
+
+# Editor and OS state. Local to one machine, never part of the project.
+.idea/
+.vscode/
 .DS_Store
+
+# Agent state: nothing here is shared, and worktrees are scratch checkouts.
+.claude/
+.worktrees/
 
 # Eval runs are local artefacts; the committed baseline lives in eval/baseline.json.
 eval/results/
 
 # Coverage output is a build artefact; CI uploads lcov.info as its own artifact.
 coverage/
-
-# Agent worktrees are local scratch checkouts.
-.claude/worktrees/
-
-# Manually cut agent worktrees for parallel groups.
-.worktrees/
