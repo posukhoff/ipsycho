@@ -35,6 +35,18 @@ wait_ready() {
 
 bring_up() {
   APP_COMMIT="$1" docker compose up -d --build --remove-orphans --wait --wait-timeout 180
+  reload_edge
+}
+
+# The Caddyfile is bind-mounted, so its content changing is invisible to `docker compose up`: the
+# container's own configuration is identical and nothing is recreated. Two deploys once landed a new
+# Caddyfile on disk while the running Caddy kept serving the old one — a silent no-op for every edge
+# rule, the security headers and the 404s included. Validate first, so a bad config fails the deploy
+# instead of taking the public edge down, and only then restart.
+reload_edge() {
+  docker compose ps --status running --services | grep -qx caddy || return 0
+  docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  docker compose restart caddy
 }
 
 # A plain local dump before migrations run; the encrypted daily backup is the real archive.
