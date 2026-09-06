@@ -16,7 +16,7 @@
  * workspace, deleted afterwards. The exit code is 2 when a check fails, 3 when a baseline regresses.
  */
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../dist/config.js";
 import { DatabaseService } from "../dist/database/database.service.js";
@@ -43,6 +43,7 @@ import { ChatService } from "../dist/chat/chat.service.js";
 import { renderChatResult } from "../dist/telegram/telegram-chat-render.js";
 import { renderAppliedReport } from "../dist/core/applied-report.js";
 import { t } from "../dist/telegram/copy/index.js";
+import { logger, runWithLogContext } from "../dist/observability/logger.js";
 import { localDateAt, localDateTimeAt } from "../dist/core/timezone.js";
 import { createPersona, DEFAULT_MAX_TURNS } from "./eval-persona.mjs";
 
@@ -80,9 +81,53 @@ if (!selected.length) throw new Error("no cases selected");
 const persona = createPersona(config, args.personaModel ? { model: args.personaModel } : {});
 if (selected.some((item) => item.persona) && !persona.isConfigured()) throw new Error("persona cases need an API key for the configured provider");
 
+/**
+ * Everything that went wrong on the agent's side, in one place. The server already logs its own
+ * trouble — a turn whose actions were rejected, structured output that survived no repair, a
+ * provider that refused — but on stderr, interleaved with six other cases and gone when the run
+ * ends. Here every line is caught, tagged with the case and turn that produced it (the log context
+ * does that for free) and written next to the results, so a red case can be read backwards from
+ * the verdict to the thing the agent actually tripped over.
+ *
+ * Production writes the same lines to PROBLEM_LOG_FILE (src/observability/problem-log.ts). The run
+ * keeps its own copy rather than borrowing that sink, because it also needs the lines in memory for
+ * the per-run rollup, and because the path has to follow --out.
+ */
+const problems = [];
+mkdirSync(args.out, { recursive: true });
+const stem = join(args.out, `${new Date().toISOString().slice(0, 10)}-${config.aiModel.replace(/[^\w.-]/gu, "_")}`);
+// One problem per line: grep and jq read it without loading the run, which is the point of it.
+// Appended as it happens rather than written at the end, so a run that dies on its third case still
+// leaves behind what the first two ran into.
+const problemsFile = `${stem}.problems.jsonl`;
+writeFileSync(problemsFile, "");
+const writeStderr = process.stderr.write.bind(process.stderr);
+process.stderr.write = (chunk, ...rest) => {
+  for (const line of String(chunk).split("\n")) {
+    if (!line.startsWith("{")) continue;
+    try {
+      const { evalSource, ...parsed } = JSON.parse(line);
+      if (parsed.level !== "warn" && parsed.level !== "error") continue;
+      const problem = { source: evalSource ?? "agent", ...parsed };
+      problems.push(problem);
+      appendFileSync(problemsFile, `${JSON.stringify(problem)}\n`);
+    } catch {
+      // Not one of ours; it still reaches stderr below.
+    }
+  }
+  return writeStderr(chunk, ...rest);
+};
+
 const runs = [];
-for (let run = 0; run < args.runs; run += 1) {
-  for (const dialog of selected) runs.push(await evaluate(dialog, run));
+try {
+  for (let run = 0; run < args.runs; run += 1) {
+    for (const dialog of selected) runs.push(await evaluate(dialog, run));
+  }
+} catch (error) {
+  // A fixture that cannot be built takes the whole run with it. Leave a row saying so, or the
+  // problems file is an empty file next to no results at all and says nothing about why.
+  note("harness", "run aborted", { error: error instanceof Error ? error.message : String(error) });
+  throw error;
 }
 
 const byCase = new Map();
@@ -111,17 +156,18 @@ const summary = {
   cases: [...byCase.values()].map((item) => ({ ...item, passRate: Number((item.passed / item.runs).toFixed(3)), failures: [...new Set(item.failures)] })),
   passRate: Number((runs.filter((item) => item.pass).length / runs.length).toFixed(3)),
   usage,
+  problems: { total: problems.length, byEvent: countBy(problems, (item) => item.event) },
   // The fake user's spend is reported apart from the product's: it is the price of the harness,
   // not of the model under test, and mixing the two makes both numbers meaningless.
   ...(persona.usage.calls ? { personaUsage: { model: persona.model, ...persona.usage } } : {}),
   details: runs,
 };
 
-mkdirSync(args.out, { recursive: true });
-const file = join(args.out, `${new Date().toISOString().slice(0, 10)}-${config.aiModel.replace(/[^\w.-]/gu, "_")}.json`);
+const file = `${stem}.json`;
 writeFileSync(file, `${JSON.stringify(summary, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify({ ...summary, details: undefined }, null, 2)}\n`);
 process.stderr.write(`eval_written ${file}\n`);
+process.stderr.write(`eval_problems ${problemsFile} (${problems.length})\n`);
 
 let exitCode = summary.cases.every((item) => item.passRate === 1) ? 0 : 2;
 if (args.baseline) {
@@ -136,7 +182,12 @@ if (args.baseline) {
 await database.onApplicationShutdown();
 process.exitCode = exitCode;
 
-async function evaluate(dialog, run) {
+/** Every log line the agent writes inside this call carries the case and run that produced it. */
+function evaluate(dialog, run) {
+  return runWithLogContext({ evalCase: dialog.id, evalRun: run }, () => evaluateCase(dialog, run));
+}
+
+async function evaluateCase(dialog, run) {
   const scope = await fixture(dialog);
   const started = Date.now();
   try {
@@ -175,7 +226,9 @@ async function evaluate(dialog, run) {
       ...(conversation.transcript ? { transcript: conversation.transcript, stopReason: conversation.stopReason, personaNotes: conversation.notes } : {}),
     };
   } catch (error) {
-    return { id: dialog.id, run, pass: false, failed: [`threw: ${error instanceof Error ? error.message : String(error)}`], calls: 0, elapsedMs: Date.now() - started };
+    const message = error instanceof Error ? error.message : String(error);
+    note("harness", "case threw", { error: message });
+    return { id: dialog.id, run, pass: false, failed: [`threw: ${message}`], calls: 0, elapsedMs: Date.now() - started };
   } finally {
     await database.pool.query("delete from users where id=$1", [scope.userId]).catch(() => undefined);
   }
@@ -231,6 +284,7 @@ async function converse(dialog, scope) {
     if (!closingLine) workTurns += 1;
     last = result;
     if (result.kind !== "ok") {
+      note("agent", "turn produced no answer", { kind: result.kind });
       transcript.push({ from: "bot", text: `(${result.kind})` });
       stopReason = result.kind;
       break;
@@ -282,6 +336,20 @@ function buttonMap(result, language) {
   return new Map((keyboard?.inline_keyboard ?? []).flat().map((button) => [normalizeLabel(button.text), button.callback_data]));
 }
 
+/**
+ * A problem the harness saw rather than the agent: it goes through the same logger so it inherits
+ * the case and turn already bound to the context, and so it is visible live as well as in the file.
+ */
+function note(source, event, fields) {
+  logger.warn(event, { evalSource: source, ...fields });
+}
+
+function countBy(items, key) {
+  const counts = {};
+  for (const item of items) counts[key(item)] = (counts[key(item)] ?? 0) + 1;
+  return counts;
+}
+
 /** Emoji, case and punctuation are not part of what the user pressed. */
 function normalizeLabel(text) {
   return text
@@ -298,7 +366,12 @@ function lastScreen(transcript) {
  * One button press, mirroring TaskCallbacksService.action: the same three calls, and the same text
  * left on screen afterwards, so the persona reads what a real user would read.
  */
-async function tap(scope, callbackData, language, previousScreen) {
+function tap(scope, callbackData, language, previousScreen) {
+  scope.turn = (scope.turn ?? 0) + 1;
+  return runWithLogContext({ evalTurn: scope.turn }, () => tapOnce(scope, callbackData, language, previousScreen));
+}
+
+async function tapOnce(scope, callbackData, language, previousScreen) {
   const [, action, groupId] = callbackData.split(":");
   const locale = language ?? "ru";
   if (action === "confirm") {
@@ -322,7 +395,12 @@ function checkExpectations(expect, ctx) {
   const { result, calls, before, after, workTurns } = ctx;
   const ok = result.kind === "ok";
   const createdTasks = after.tasks.filter((task) => !before.tasks.some((old) => old.id === task.id));
-  const fail = (name, detail) => failed.push(`${name} (${detail})`);
+  const fail = (name, detail) => {
+    failed.push(`${name} (${detail})`);
+    // The same failure in two shapes: the string the summary prints, and a row in the problems file
+    // that lands next to the agent's own log lines for the same case, under the same context.
+    note("eval", "expectation failed", { check: name, detail: String(detail) });
+  };
 
   if (expect.settles && !(ok && (result.appliedCount > 0 || result.pendingCount > 0)))
     fail("settles", `kind=${result.kind} applied=${ok ? result.appliedCount : 0} pending=${ok ? result.pendingCount : 0}`);
@@ -471,15 +549,19 @@ async function fixture(dialog) {
   return { userId, workspaceId, telegramId: Number(telegramId), messageId: 7_000_000 };
 }
 
-async function send(scope, text, language) {
-  try {
-    return await sendOnce(scope, text, language);
-  } catch (error) {
-    if (!TRANSIENT.test(String(error))) throw error;
-    process.stderr.write(`eval_retry ${String(error).slice(0, 120)}\n`);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    return sendOnce(scope, text, language);
-  }
+function send(scope, text, language) {
+  // The turn number joins a line in the problems file to a line in the transcript.
+  scope.turn = (scope.turn ?? 0) + 1;
+  return runWithLogContext({ evalTurn: scope.turn }, async () => {
+    try {
+      return await sendOnce(scope, text, language);
+    } catch (error) {
+      if (!TRANSIENT.test(String(error))) throw error;
+      note("harness", "provider call retried", { error: String(error).slice(0, 120) });
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return sendOnce(scope, text, language);
+    }
+  });
 }
 
 async function sendOnce(scope, text, language) {

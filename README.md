@@ -84,4 +84,10 @@ mind, pressing the confirmation buttons — and the same stored-state checks dec
 never grades anything. A single scenario re-runs with `--only <id>`, and the results file keeps every
 transcript, because a multi-turn failure is unreadable without the dialog that produced it.
 
+Each run also writes `<results>.problems.jsonl`: every warning and error the agent produced, tagged
+with the case and turn that produced it, appended as it happens so a run that dies still leaves what
+it had. It is the same record production keeps in `PROBLEM_LOG_FILE`
+([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), so a failure seen in a real chat and one seen in a run
+are read the same way.
+
 Checks that require real Telegram, provider, network or production credentials are listed in [docs/MANUAL_ACTIONS.md](docs/MANUAL_ACTIONS.md). Deployment and backup instructions are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
