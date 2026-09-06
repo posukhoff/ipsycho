@@ -7,92 +7,101 @@ production (design.md § 10).
 Every group ends with `npm run check`; web groups also with `npm -w web run build`.
 Items marked **[sec]** come from the security review; the reasoning is in `design.md`.
 
+**Status.** Groups 0-9 are built and on `feat/telegram-mini-app`, behind `WEBAPP_ENABLED=false`, and
+three review rounds have run over them — the public surface, write integrity, and a simplification
+pass. `npm run check` and `npm run test:e2e` are green. What is unticked below is genuinely
+outstanding: 12.3 is the manual gate on a real device, and nothing in the web workspace has
+ever executed in a browser — the theme, safe-area insets, the back button, MainButton, haptics,
+`IntersectionObserver` paging, optimistic rollback and the live 409 path are verified by the
+compiler and by static rendering only. Groups 10 and 11 are rollout steps 2 and 3 and are not
+started.
+
 ## 0. Contract and skeleton (blocking, one agent)
 
-- [ ] 0.1 Add `src/api/contracts/` with zod schemas and inferred types for **every** screen, including screens whose endpoint is still a stub: task list row and group, task detail, occurrence state change, reschedule (with the reason requirement), checklist, create/edit task covering every schedule shape, goal row and detail, week pool row, paused series row, reminder row, settings, memory row, profile, error envelope.
-- [ ] 0.2 **[sec]** Add `src/api/http/`: a zod validation pipe, an exception filter producing `{ error: { code, message, details? } }` with sanitized codes only — `details` never echoes request input — and the `/api/v1` route prefix.
-- [ ] 0.3 Add `src/api/api.module.ts` importing placeholder modules for `auth`, `tasks+goals`, `reminders+settings+memory` and `week`, each an empty Nest module owned by its group. Register it in `src/app.module.ts` behind `WEBAPP_ENABLED`; the flag must unmount the static files as well as the API.
-- [ ] 0.4 Add `WEBAPP_ENABLED` (default false) and `WEBAPP_URL` to `src/config.ts` and `.env.example`; `WEBAPP_URL` is required when `WEBAPP_ENABLED=true`. There is no `WEBAPP_ONLY`.
-- [ ] 0.5 **[sec]** In `main.ts`: `app.set("trust proxy", …)` for the compose network hop only, an explicit 64 KB JSON body limit, and no `enableCors()` — same-origin, no cookies. Group 0 owns `main.ts`.
-- [ ] 0.6 Scaffold `web/` (Vite + React + TS, npm workspace): `index.html`, `vite.config.ts` with base `/app/`, tsconfig, eslint/prettier wired into the root scripts, a typed `web/src/api/client.ts` generated from the contracts, and `web/src/mocks/**` returning realistic fixtures for every endpoint under `VITE_API_MOCK=1`.
-- [ ] 0.7 **[sec]** Keep every `web` dependency in `devDependencies` (or run the runtime install with `--workspaces=false`) so the production image and `npm audit --omit=dev` stay meaningful.
-- [ ] 0.8 Add root scripts `dev:web`, `build:web`, and include `web` in `npm run check` (typecheck, lint, build). Verify `npm -w web run dev` in mock mode renders a shell with no backend running.
+- [x] 0.1 Add `src/api/contracts/` with zod schemas and inferred types for **every** screen, including screens whose endpoint is still a stub: task list row and group, task detail, occurrence state change, reschedule (with the reason requirement), checklist, create/edit task covering every schedule shape, goal row and detail, week pool row, paused series row, reminder row, settings, memory row, profile, error envelope.
+- [x] 0.2 **[sec]** Add `src/api/http/`: a zod validation pipe, an exception filter producing `{ error: { code, message, details? } }` with sanitized codes only — `details` never echoes request input — and the `/api/v1` route prefix.
+- [x] 0.3 Add `src/api/api.module.ts` importing placeholder modules for `auth`, `tasks+goals`, `reminders+settings+memory` and `week`, each an empty Nest module owned by its group. Register it in `src/app.module.ts` behind `WEBAPP_ENABLED`; the flag must unmount the static files as well as the API.
+- [x] 0.4 Add `WEBAPP_ENABLED` (default false) and `WEBAPP_URL` to `src/config.ts` and `.env.example`; `WEBAPP_URL` is required when `WEBAPP_ENABLED=true`. There is no `WEBAPP_ONLY`.
+- [x] 0.5 **[sec]** In `main.ts`: `app.set("trust proxy", …)` for the compose network hop only, an explicit 64 KB JSON body limit, and no `enableCors()` — same-origin, no cookies. Group 0 owns `main.ts`.
+- [x] 0.6 Scaffold `web/` (Vite + React + TS, npm workspace): `index.html`, `vite.config.ts` with base `/app/`, tsconfig, eslint/prettier wired into the root scripts, a typed `web/src/api/client.ts` generated from the contracts, and `web/src/mocks/**` returning realistic fixtures for every endpoint under `VITE_API_MOCK=1`.
+- [x] 0.7 **[sec]** Keep every `web` dependency in `devDependencies` (or run the runtime install with `--workspaces=false`) so the production image and `npm audit --omit=dev` stay meaningful.
+- [x] 0.8 Add root scripts `dev:web`, `build:web`, and include `web` in `npm run check` (typecheck, lint, build). Verify `npm -w web run dev` in mock mode renders a shell with no backend running.
 
 ## 1. initData authentication
 
-- [ ] 1.1 Implement `verifyInitData(raw, botToken, now)` in `src/core/init-data.ts` as a pure function: values from `URLSearchParams` (already decoded — do not decode twice), sorted by key, joined with `\n`, key = `HMAC_SHA256("WebAppData", botToken)`, `auth_date` max age 24 h. Exclude **only** `hash` — `signature` is part of the data-check string. No Ed25519 fallback. Validate the hash is 64 lowercase hex before `timingSafeEqual`, which throws on a length mismatch.
-- [ ] 1.2 **[sec]** Unit tests: valid sample; payload containing `signature`; tampered field; reordered payload; missing `hash`; wrong-length `hash`; duplicated key; non-ASCII name; a name containing a literal `%`; stale `auth_date`; **absent `user`** (Telegram sends empty initData for keyboard-button and inline launches — a refusal, never a fallback to `initDataUnsafe`, a body field or a header).
-- [ ] 1.3 Nest guard resolving the user through `AccessService.resolveActiveUser`, attaching `{ access, settings, locale }` the way the bot middleware does. Unknown, disabled and deletion-pending users get one identical refusal with no enumeration.
-- [ ] 1.4 **[sec]** Rate limiting in this order: IP limiter (keyed on `req.ip`, correct only with 0.5) → HMAC → `resolveActiveUser` → per-user limiter. Unsigned input must never reach PostgreSQL. In memory, resets on restart — deliberate at this size, since AI spend limits are already database-backed.
-- [ ] 1.5 **[sec]** Logging: the guard throws fixed-string errors only; log context is `{ requestId, userId }` with the internal uuid, never the Telegram user object. Test by capturing stdout and stderr across a rejected and a failed authenticated request and asserting none of `hash=`, `auth_date=`, `first_name` appear. `safeError` keeps 300 characters of a message and does not know these keys, so an interpolated raw `initData` would leak in full.
-- [ ] 1.6 `GET /api/v1/me`: access state, settings, locale, AI and consent state, so the client has one bootstrap call.
+- [x] 1.1 Implement `verifyInitData(raw, botToken, now)` in `src/core/init-data.ts` as a pure function: values from `URLSearchParams` (already decoded — do not decode twice), sorted by key, joined with `\n`, key = `HMAC_SHA256("WebAppData", botToken)`, `auth_date` max age 24 h. Exclude **only** `hash` — `signature` is part of the data-check string. No Ed25519 fallback. Validate the hash is 64 lowercase hex before `timingSafeEqual`, which throws on a length mismatch.
+- [x] 1.2 **[sec]** Unit tests: valid sample; payload containing `signature`; tampered field; reordered payload; missing `hash`; wrong-length `hash`; duplicated key; non-ASCII name; a name containing a literal `%`; stale `auth_date`; **absent `user`** (Telegram sends empty initData for keyboard-button and inline launches — a refusal, never a fallback to `initDataUnsafe`, a body field or a header).
+- [x] 1.3 Nest guard resolving the user through `AccessService.resolveActiveUser`, attaching `{ access, settings, locale }` the way the bot middleware does. Unknown, disabled and deletion-pending users get one identical refusal with no enumeration.
+- [x] 1.4 **[sec]** Rate limiting in this order: IP limiter (keyed on `req.ip`, correct only with 0.5) → HMAC → `resolveActiveUser` → per-user limiter. Unsigned input must never reach PostgreSQL. In memory, resets on restart — deliberate at this size, since AI spend limits are already database-backed.
+- [x] 1.5 **[sec]** Logging: the guard throws fixed-string errors only; log context is `{ requestId, userId }` with the internal uuid, never the Telegram user object. Test by capturing stdout and stderr across a rejected and a failed authenticated request and asserting none of `hash=`, `auth_date=`, `first_name` appear. `safeError` keeps 300 characters of a message and does not know these keys, so an interpolated raw `initData` would leak in full.
+- [x] 1.6 `GET /api/v1/me`: access state, settings, locale, AI and consent state, so the client has one bootstrap call.
 
 ## 2. Tasks and goals API
 
-- [ ] 2.1 `GET /tasks` (scope, page), `GET /tasks/today`, `GET /tasks/:id` from `TasksService.listGroupedForTelegram`, `listTodayGroupedForTelegram`, `getTask`, `getTaskCardExtras`, mapped to the contracts. Rename the shared read paths off their `ForTelegram` names and update the call sites in `src/telegram/handlers/screens.service.ts` — a rename with no behaviour change is the only edit any group but 10/11 may make under `src/telegram/`.
-- [ ] 2.2 `POST /tasks/:id/state` (done, started, seen with blocker note, skipped, cancelled) through `TasksService.setOccurrenceStatus`, journaled with Undo exactly like the button.
-- [ ] 2.3 `POST /tasks/:id/reschedule` including the reason requirement from `isRescheduleReasonRequired`, the presets the card exposes, and an arbitrary date/time.
-- [ ] 2.4 `POST /tasks`, `PATCH /tasks/:id` and checklist writes through `ActionsService` with optimistic versions; a stale version returns a typed conflict the client can render.
-- [ ] 2.5 Series: `POST /tasks/:id/series/{pause,resume}` and `GET /tasks/paused`, matching what `series:*` does today.
-- [ ] 2.6 Goals: `GET /goals` (active, paused, completed), `GET /goals/:id`, link and unlink.
-- [ ] 2.7 App contract tests: workspace isolation on every read, version conflict, journal row written, Undo restores.
+- [x] 2.1 `GET /tasks` (scope, page), `GET /tasks/today`, `GET /tasks/:id` from `TasksService.listGroupedForTelegram`, `listTodayGroupedForTelegram`, `getTask`, `getTaskCardExtras`, mapped to the contracts. Rename the shared read paths off their `ForTelegram` names and update the call sites in `src/telegram/handlers/screens.service.ts` — a rename with no behaviour change is the only edit any group but 10/11 may make under `src/telegram/`.
+- [x] 2.2 `POST /tasks/:id/state` (done, started, seen with blocker note, skipped, cancelled) through `TasksService.setOccurrenceStatus`, journaled with Undo exactly like the button.
+- [x] 2.3 `POST /tasks/:id/reschedule` including the reason requirement from `isRescheduleReasonRequired`, the presets the card exposes, and an arbitrary date/time.
+- [x] 2.4 `POST /tasks`, `PATCH /tasks/:id` and checklist writes through `ActionsService` with optimistic versions; a stale version returns a typed conflict the client can render.
+- [x] 2.5 Series: `POST /tasks/:id/series/{pause,resume}` and `GET /tasks/paused`, matching what `series:*` does today.
+- [x] 2.6 Goals: `GET /goals` (active, paused, completed), `GET /goals/:id`, link and unlink.
+- [x] 2.7 App contract tests: workspace isolation on every read, version conflict, journal row written, Undo restores.
 
 ## 3. Reminders, settings and memory API
 
-- [ ] 3.1 `GET /reminders` (upcoming, paged), `POST /reminders/:deliveryId/{snooze,repeat}`, `DELETE /reminders/:deliveryId` (what `rem:cancel` does today).
-- [ ] 3.2 `GET /settings` and `PATCH /settings` for timezone, language, digests, weekly review, quiet hours, snooze and reminder defaults, validated by the same domain rules the settings commands use, including the "apply this timezone to digests / quiet hours / both / keep" decision behind `tzapply:`.
-- [ ] 3.3 `GET /memory`, `PATCH /memory/:id`, `DELETE /memory/:id` and `GET /profile` — the read side of `/memory` and `/context`. Sensitive entries keep their marking and their confirmation on write.
-- [ ] 3.4 `POST /chat/history/clear` — what `/clear` and `history:clear` do today.
-- [ ] 3.5 Consent: `POST /consent/{grant,revoke}`. This is a pre-check on top of the boundary check inside `ChatService` and `TranscriptionService`, which stays authoritative.
-- [ ] 3.6 App contract tests: timezone validation, quiet-hours edges, consent gating, sensitive-memory confirmation.
+- [x] 3.1 `GET /reminders` (upcoming, paged), `POST /reminders/:deliveryId/{snooze,repeat}`, `DELETE /reminders/:deliveryId` (what `rem:cancel` does today).
+- [x] 3.2 `GET /settings` and `PATCH /settings` for timezone, language, digests, weekly review, quiet hours, snooze and reminder defaults, validated by the same domain rules the settings commands use, including the "apply this timezone to digests / quiet hours / both / keep" decision behind `tzapply:`.
+- [x] 3.3 `GET /memory`, `PATCH /memory/:id`, `DELETE /memory/:id` and `GET /profile` — the read side of `/memory` and `/context`. Sensitive entries keep their marking and their confirmation on write.
+- [x] 3.4 `POST /chat/history/clear` — what `/clear` and `history:clear` do today.
+- [x] 3.5 Consent: `POST /consent/{grant,revoke}`. This is a pre-check on top of the boundary check inside `ChatService` and `TranscriptionService`, which stays authoritative.
+- [x] 3.6 App contract tests: timezone validation, quiet-hours edges, consent gating, sensitive-memory confirmation.
 
 ## 4. Week plan API
 
-- [ ] 4.1 `GET /week` — the pool and the current pick, with `targetWeekStart`, `isPickLive` and `isPickStale` from `src/core/week-plan.js` reused, not reimplemented.
-- [ ] 4.2 `POST /week/pick/:taskId` and `DELETE /week/pick/:taskId` — the toggle behind `wk:t`.
-- [ ] 4.3 `POST /week/take-today/:taskId` — what `wk:d` does from the morning card.
-- [ ] 4.4 App contract tests: a stale pick reads as unfinished, the Monday mark is the week start in the user's timezone, workspace isolation.
+- [x] 4.1 `GET /week` — the pool and the current pick, with `targetWeekStart`, `isPickLive` and `isPickStale` from `src/core/week-plan.js` reused, not reimplemented.
+- [x] 4.2 `POST /week/pick/:taskId` and `DELETE /week/pick/:taskId` — the toggle behind `wk:t`.
+- [x] 4.3 `POST /week/take-today/:taskId` — what `wk:d` does from the morning card.
+- [x] 4.4 App contract tests: a stale pick reads as unfinished, the Monday mark is the week start in the user's timezone, workspace isolation.
 
 ## 5. Web shell, theming, i18n, data layer
 
-- [ ] 5.1 Telegram SDK bootstrap: `ready()`, `expand()`, viewport height, theme params mapped to CSS variables (light and dark), safe-area insets.
-- [ ] 5.2 Routing on the URL fragment, BackButton and MainButton wired to it, haptics on state changes.
-- [ ] 5.3 A component set the screen groups agree on: list row, card, sheet, form field, date/time picker, empty state, error state, skeleton, toast, Undo snackbar.
-- [ ] 5.4 `web/src/i18n/{ru,uk,en}.ts` with the resolution rule (pinned → `language_code` → English) and a test asserting the three dictionaries have identical key sets.
-- [ ] 5.5 Fetch wrapper attaching `Authorization: tma <initDataRaw>`, typed errors, retry policy, and a query cache with optimistic updates for state toggles.
-- [ ] 5.6 **[sec]** Treat the fragment and `tgWebAppStartParam` as navigation hints only; server scoping turns a foreign id into a not-found. Render a not-found screen rather than an error.
+- [x] 5.1 Telegram SDK bootstrap: `ready()`, `expand()`, viewport height, theme params mapped to CSS variables (light and dark), safe-area insets.
+- [x] 5.2 Routing on the URL fragment, BackButton and MainButton wired to it, haptics on state changes.
+- [x] 5.3 A component set the screen groups agree on: list row, card, sheet, form field, date/time picker, empty state, error state, skeleton, toast, Undo snackbar.
+- [x] 5.4 `web/src/i18n/{ru,uk,en}.ts` with the resolution rule (pinned → `language_code` → English) and a test asserting the three dictionaries have identical key sets.
+- [x] 5.5 Fetch wrapper attaching `Authorization: tma <initDataRaw>`, typed errors, retry policy, and a query cache with optimistic updates for state toggles.
+- [x] 5.6 **[sec]** Treat the fragment and `tgWebAppStartParam` as navigation hints only; server scoping turns a foreign id into a not-found. Render a not-found screen rather than an error.
 
 ## 6. Web task and goal screens
 
-- [ ] 6.1 Tasks: scope tabs with counts, an infinite list instead of eight-line pages, grouped repeats expanding to their dates, paused series in their own section.
-- [ ] 6.2 Task detail: title, schedule, importance, checklist, goal, reminders, journal; inline edit with the version-conflict path.
-- [ ] 6.3 Create and edit forms covering every schedule shape — exact, window, date-only, deadline, fuzzy with a review day — plus recurrence with an end date and excluded dates.
-- [ ] 6.4 Reschedule sheet with the presets, an arbitrary date and the reason field when required. This is the screen the card's «Другая дата» launch button opens.
-- [ ] 6.5 Occurrence actions the card no longer carries: cancel, cancel one, pause and resume series, each with its confirmation.
-- [ ] 6.6 Goals list (active, paused, completed) and detail with task links.
+- [x] 6.1 Tasks: scope tabs with counts, an infinite list instead of eight-line pages, grouped repeats expanding to their dates, paused series in their own section.
+- [x] 6.2 Task detail: title, schedule, importance, checklist, goal, reminders, journal; inline edit with the version-conflict path.
+- [x] 6.3 Create and edit forms covering every schedule shape — exact, window, date-only, deadline, fuzzy with a review day — plus recurrence with an end date and excluded dates.
+- [x] 6.4 Reschedule sheet with the presets, an arbitrary date and the reason field when required. This is the screen the card's «Другая дата» launch button opens.
+- [x] 6.5 Occurrence actions the card no longer carries: cancel, cancel one, pause and resume series, each with its confirmation.
+- [x] 6.6 Goals list (active, paused, completed) and detail with task links.
 
 ## 7. Web today and week screens
 
-- [ ] 7.1 Today: grouped occurrences, inline done/start/skip with an Undo snackbar. This is where the morning card's launch button lands.
-- [ ] 7.2 Week plan: the pool with a checkbox per task, the current pick, and the stale-pick state.
-- [ ] 7.3 Take-today from the pool, replacing the morning card's eight tap rows.
+- [x] 7.1 Today: grouped occurrences, inline done/start/skip with an Undo snackbar. This is where the morning card's launch button lands.
+- [x] 7.2 Week plan: the pool with a checkbox per task, the current pick, and the stale-pick state.
+- [x] 7.3 Take-today from the pool, replacing the morning card's eight tap rows.
 
 ## 8. Web reminders, settings and memory screens
 
-- [ ] 8.1 Reminders list with snooze, repeat and cancel.
-- [ ] 8.2 Settings: timezone (search and detect) with the digests/quiet-hours question, language, digests, quiet hours, weekly review, reminder defaults, AI and consent.
-- [ ] 8.3 **[sec]** Account deletion behind its deterministic confirmation. **Restore is not in the app**: the guard refuses deletion-pending users by design, exactly as the bot's allowlist gate does, and `/restore` stays a chat command. The deletion screen must say so.
-- [ ] 8.4 Memory and profile: list, edit, delete, with sensitive entries marked and confirmed.
+- [x] 8.1 Reminders list with snooze, repeat and cancel.
+- [x] 8.2 Settings: timezone (search and detect) with the digests/quiet-hours question, language, digests, quiet hours, weekly review, reminder defaults, AI and consent.
+- [x] 8.3 **[sec]** Account deletion behind its deterministic confirmation. **Restore is not in the app**: the guard refuses deletion-pending users by design, exactly as the bot's allowlist gate does, and `/restore` stays a chat command. The deletion screen must say so.
+- [x] 8.4 Memory and profile: list, edit, delete, with sensitive entries marked and confirmed.
 
 ## 9. Infrastructure and deploy
 
-- [ ] 9.1 **[sec]** Domain and `Caddyfile`: TLS; two `handle` blocks (`/app*`, `/api/v1/*`) proxied to `app:3000`; a final `respond 404` and **no catch-all `reverse_proxy`** — Caddy answers an unmatched path with an empty 200, and `/health` and `/ready` expose the commit SHA, database state and loop names. `admin off`. Port 80 redirects only. `request_body { max_size 64KB }` on the API.
-- [ ] 9.2 **[sec]** Headers: `Content-Security-Policy: default-src 'none'; script-src 'self' https://telegram.org; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'none'; form-action 'none'`, plus HSTS, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`. **No `X-Frame-Options`** — Telegram Web opens Mini Apps in an iframe and `DENY` renders a blank page whose obvious "fix" is deleting the CSP. Keep `script-src` free of `'unsafe-inline'`: same-origin API, so an XSS here is full account control. Access logs off, or filter away `Authorization`.
-- [ ] 9.3 Add Caddy to `docker-compose.yml` with a certificate volume; open 80/443 in the VPS firewall; keep 3000 and 5432 unpublished.
-- [ ] 9.4 Add the web build stage to `Dockerfile` and serve `web/dist` under `/app` (hashed assets immutable, `index.html` `no-store`).
-- [ ] 9.5 Update the GitHub Actions deploy for the larger build and add a post-deploy check that `/app` answers 200 over HTTPS.
-- [ ] 9.6 `docs/DEPLOYMENT.md`: DNS, certificate issuance and renewal, BotFather Mini App registration, `setChatMenuButton`, rollback with `WEBAPP_ENABLED=false`, and a **revocation** paragraph — disabling a user with the admin CLI is immediate; rotating the bot token invalidates every outstanding `initData` at once and also restarts the bot.
-- [ ] 9.7 `MANUAL_ACTIONS.md`: open the app from a real client on iOS, Android, desktop **and Telegram Web in a browser** (the iframe case); check theme, back button, viewport and the fragment deep link.
+- [x] 9.1 **[sec]** Domain and `Caddyfile`: TLS; two `handle` blocks (`/app*`, `/api/v1/*`) proxied to `app:3000`; a final `respond 404` and **no catch-all `reverse_proxy`** — Caddy answers an unmatched path with an empty 200, and `/health` and `/ready` expose the commit SHA, database state and loop names. `admin off`. Port 80 redirects only. `request_body { max_size 64KB }` on the API.
+- [x] 9.2 **[sec]** Headers: `Content-Security-Policy: default-src 'none'; script-src 'self' https://telegram.org; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'none'; form-action 'none'`, plus HSTS, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`. **No `X-Frame-Options`** — Telegram Web opens Mini Apps in an iframe and `DENY` renders a blank page whose obvious "fix" is deleting the CSP. Keep `script-src` free of `'unsafe-inline'`: same-origin API, so an XSS here is full account control. Access logs off, or filter away `Authorization`.
+- [x] 9.3 Add Caddy to `docker-compose.yml` with a certificate volume; open 80/443 in the VPS firewall; keep 3000 and 5432 unpublished.
+- [x] 9.4 Add the web build stage to `Dockerfile` and serve `web/dist` under `/app` (hashed assets immutable, `index.html` `no-store`).
+- [x] 9.5 Update the GitHub Actions deploy for the larger build and add a post-deploy check that `/app` answers 200 over HTTPS.
+- [x] 9.6 `docs/DEPLOYMENT.md`: DNS, certificate issuance and renewal, BotFather Mini App registration, `setChatMenuButton`, rollback with `WEBAPP_ENABLED=false`, and a **revocation** paragraph — disabling a user with the admin CLI is immediate; rotating the bot token invalidates every outstanding `initData` at once and also restarts the bot.
+- [x] 9.7 `MANUAL_ACTIONS.md` (written; performing them is 12.3): open the app from a real client on iOS, Android, desktop **and Telegram Web in a browser** (the iframe case); check theme, back button, viewport and the fragment deep link.
 
 ## 10. Launch buttons (additive, merges during rollout step 1)
 
