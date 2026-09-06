@@ -1,0 +1,109 @@
+{
+  "comment": "Multi-turn scenarios. The opening message is fixed so every run enters the same way; after that a second model plays the user (scripts/eval-persona.mjs) with the goal and character below. The expectations still read only what the server stored — the fake user never grades anything.",
+  "cases": [
+    {
+      "id": "persona-vague-then-specific",
+      "source": "persona",
+      "language": "ru",
+      "message": "надо зубного посетить, запиши",
+      "persona": {
+        "goal": "Визит к зубному в четверг в 15:00 — ближайший четверг, который ещё не наступил. Ни дня, ни часа ты не называешь, пока бот не спросит.",
+        "traits": "коротко, строчными буквами, без точек",
+        "maxTurns": 6
+      },
+      "expect": {
+        "tasksCreated": 1,
+        "titleMatches": "зубн",
+        "weekday": "TH",
+        "startLocalTime": "15:00",
+        "maxUserTurns": 5
+      }
+    },
+    {
+      "id": "persona-changes-mind-midway",
+      "source": "persona",
+      "language": "ru",
+      "message": "поставь на завтра в 10 утра пробежку",
+      "persona": {
+        "goal": "Ты хочешь пробежку завтра, но уже после ответа бота вспоминаешь, что утром не сможешь, и просишь перенести на 19:00 того же дня. Второй задачи тебе не нужно.",
+        "traits": "обычной разговорной речью, извиняешься за то, что передумал",
+        "maxTurns": 5
+      },
+      "expect": {
+        "activeTasks": 1,
+        "startLocalTime": "19:00",
+        "startOffsetDays": 1,
+        "maxUserTurns": 4
+      }
+    },
+    {
+      "id": "persona-sloppy-typing",
+      "source": "persona",
+      "language": "ru",
+      "message": "слуш надо в пятницу забрать права в сервисном центре не помню во скольк они работают",
+      "persona": {
+        "goal": "Забрать права в пятницу. Времени ты не знаешь и не хочешь его выдумывать — если бот спросит час, скажи, что часа нет, поставь просто на пятницу.",
+        "traits": "с опечатками, без запятых, обрывками",
+        "maxTurns": 4
+      },
+      "expect": {
+        "tasksCreated": 1,
+        "titleMatches": "прав",
+        "weekday": "FR",
+        "maxUserTurns": 3
+      }
+    },
+    {
+      "id": "persona-corrects-wrong-card",
+      "source": "persona",
+      "language": "ru",
+      "seed": ["Создай задачу: в четверг в 11:00 созвон с подрядчиком.", "Создай задачу: в четверг в 16:00 созвон с бухгалтером."],
+      "message": "отмени четверговый созвон",
+      "persona": {
+        "goal": "Отменить нужно созвон с бухгалтером, а не с подрядчиком. Если бот предложит не тот, скажи, какой именно отменяем, и подтверди, когда предложение станет верным.",
+        "traits": "спокойно, поправляешь без раздражения",
+        "maxTurns": 5
+      },
+      "expect": {
+        "tasksCancelled": 1,
+        "activeTasks": 1,
+        "maxUserTurns": 4
+      }
+    },
+    {
+      "id": "persona-adds-one-more",
+      "source": "persona",
+      "language": "ru",
+      "message": "в понедельник надо в банк и ещё забрать посылку на почте",
+      "persona": {
+        "goal": "Две задачи на понедельник — банк и почта — а после ответа бота ты вспоминаешь третью: в понедельник же оплатить интернет. Больше ничего не добавляешь.",
+        "traits": "как будто вспоминаешь на ходу",
+        "maxTurns": 4
+      },
+      "expect": {
+        "tasksCreated": 3,
+        "weekday": "MO",
+        "maxUserTurns": 3
+      }
+    },
+    {
+      "id": "persona-english-recurring",
+      "source": "persona",
+      "language": "en",
+      "message": "i need a weekly reminder for our standup",
+      "persona": {
+        "goal": "The standup is every Wednesday at 9:30 and you want the reminder when it starts. You do not name the day or the time until the bot asks.",
+        "traits": "brief, lowercase, a bit impatient",
+        "maxTurns": 5
+      },
+      "expect": {
+        "tasksCreated": 1,
+        "recurrenceMatches": "WEEKLY",
+        "startLocalTime": "09:30",
+        "replyLanguage": "en",
+        "maxUserTurns": 4,
+        "reminderCount": 1
+      }
+    }
+  ]
+}

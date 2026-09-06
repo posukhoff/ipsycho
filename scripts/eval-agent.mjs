@@ -3,8 +3,14 @@
  * server actually stored: task rows, occurrences, reminder deliveries, goal links, memory and
  * settings. Not "applied > 0" — a wrong task that applies cleanly is still a failure.
  *
+ * Cases come in two shapes. A scripted case sends one written message (and optionally one written
+ * follow-up). A persona case sends a written opening and then hands the keyboard to a second model
+ * that plays the user for a few turns — vague, changing its mind, answering the card in its own
+ * words. Both are graded the same way: by what the server stored, never by what either model said.
+ *
  * Usage:
  *   node scripts/eval-agent.mjs [--runs 1] [--only id,id] [--baseline eval/baseline.json] [--out eval/results]
+ *   node scripts/eval-agent.mjs --personas [--persona-model gpt-5.4-mini]
  *
  * Needs DATABASE_URL, the AI_* variables and a built dist/. Each case gets its own throwaway
  * workspace, deleted afterwards. The exit code is 2 when a check fails, 3 when a baseline regresses.
@@ -34,7 +40,11 @@ import { ReminderSchedulingService } from "../dist/reminders/reminder-scheduling
 import { BriefingContentService } from "../dist/briefings/briefing-content.service.js";
 import { TurnContextService } from "../dist/chat/turn-context.service.js";
 import { ChatService } from "../dist/chat/chat.service.js";
+import { renderChatResult } from "../dist/telegram/telegram-chat-render.js";
+import { renderAppliedReport } from "../dist/core/applied-report.js";
+import { t } from "../dist/telegram/copy/index.js";
 import { localDateAt, localDateTimeAt } from "../dist/core/timezone.js";
+import { createPersona, DEFAULT_MAX_TURNS } from "./eval-persona.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const config = loadConfig(process.env);
@@ -61,8 +71,14 @@ const WEEKDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 const TRANSIENT = /\b(429|500|502|503|504)\b|Unable to verify model access|ECONNRESET|ETIMEDOUT/u;
 
 const dialogs = JSON.parse(readFileSync("tests/eval/dialogs.json", "utf8"));
-const selected = args.only ? dialogs.cases.filter((item) => args.only.includes(item.id)) : dialogs.cases;
+// Persona scenarios spend several provider calls each, so they stay out of the default set; --only
+// still reaches one by name, which is how a single scenario gets re-run without paying for the rest.
+const personas = JSON.parse(readFileSync("tests/eval/personas.json", "utf8"));
+const pool = args.personas || args.only ? [...dialogs.cases, ...personas.cases] : dialogs.cases;
+const selected = args.only ? pool.filter((item) => args.only.includes(item.id)) : pool;
 if (!selected.length) throw new Error("no cases selected");
+const persona = createPersona(config, args.personaModel ? { model: args.personaModel } : {});
+if (selected.some((item) => item.persona) && !persona.isConfigured()) throw new Error("persona cases need an API key for the configured provider");
 
 const runs = [];
 for (let run = 0; run < args.runs; run += 1) {
@@ -77,7 +93,16 @@ for (const result of runs) {
   else bucket.failures.push(...result.failed);
   byCase.set(result.id, bucket);
 }
-const usage = await usageTotals();
+// Summed from the runs, not from a query at the end: every case deletes its throwaway user in its
+// own `finally`, and ai_usage cascades with it, so a closing query has always found an empty table.
+const usage = runs.reduce(
+  (total, item) => ({
+    attempts: total.attempts + (item.usage?.attempts ?? 0),
+    inputTokens: total.inputTokens + (item.usage?.inputTokens ?? 0),
+    usd: Number((total.usd + (item.usage?.usd ?? 0)).toFixed(4)),
+  }),
+  { attempts: 0, inputTokens: 0, usd: 0 },
+);
 const summary = {
   startedAt: new Date().toISOString(),
   provider: config.aiProvider,
@@ -86,6 +111,9 @@ const summary = {
   cases: [...byCase.values()].map((item) => ({ ...item, passRate: Number((item.passed / item.runs).toFixed(3)), failures: [...new Set(item.failures)] })),
   passRate: Number((runs.filter((item) => item.pass).length / runs.length).toFixed(3)),
   usage,
+  // The fake user's spend is reported apart from the product's: it is the price of the harness,
+  // not of the model under test, and mixing the two makes both numbers meaningless.
+  ...(persona.usage.calls ? { personaUsage: { model: persona.model, ...persona.usage } } : {}),
   details: runs,
 };
 
@@ -119,22 +147,12 @@ async function evaluate(dialog, run) {
       }
     }
     const before = await snapshot(scope);
-    const callsBefore = await providerCalls(scope);
-    const result = await send(scope, dialog.message, dialog.language);
-    const calls = (await providerCalls(scope)) - callsBefore;
-    let after = await snapshot(scope);
-    let followUp = null;
-    if (dialog.then) {
-      // The follow-up answers a card or a question. When the turn applied straight away and asked
-      // nothing, there is nothing to answer, and sending «да» anyway makes the model invent a new
-      // task — the expectations are still checked against the state the dialog reached.
-      const awaitsUser = result.kind === "ok" && (result.pendingCount > 0 || /[?？]/u.test(result.text ?? ""));
-      if (awaitsUser) followUp = await send(scope, dialog.then.message, dialog.language);
-      after = await snapshot(scope);
-    }
+    const conversation = dialog.persona ? await converse(dialog, scope) : await scripted(dialog, scope);
+    const { result, followUp, calls, userTurns, workTurns } = conversation;
+    const after = await snapshot(scope);
     const failed = [
-      ...checkExpectations(dialog.expect, { result, calls, before, after, scope }),
-      ...(dialog.then ? checkExpectations(dialog.then.expect, { result: followUp ?? result, calls: 1, before, after, scope }).map((item) => `then:${item}`) : []),
+      ...checkExpectations(dialog.expect, { result, calls, before, after, scope, workTurns }),
+      ...(dialog.then ? checkExpectations(dialog.then.expect, { result: followUp ?? result, calls: 1, before, after, scope, workTurns }).map((item) => `then:${item}`) : []),
     ];
     return {
       id: dialog.id,
@@ -142,6 +160,8 @@ async function evaluate(dialog, run) {
       pass: failed.length === 0,
       failed,
       calls,
+      userTurns,
+      workTurns,
       elapsedMs: Date.now() - started,
       reply: result.kind === "ok" ? result.text : result.kind,
       // What the server actually stored, in its own words: a failure that says "applied 2" is
@@ -149,6 +169,10 @@ async function evaluate(dialog, run) {
       report: result.kind === "ok" ? (result.report ?? null) : null,
       applied: result.kind === "ok" ? result.appliedCount : 0,
       pending: result.kind === "ok" ? result.pendingCount : 0,
+      // A persona failure is unreadable without the dialog that produced it: the workspace is gone
+      // by the time anyone opens the results file.
+      usage: await caseUsage(scope),
+      ...(conversation.transcript ? { transcript: conversation.transcript, stopReason: conversation.stopReason, personaNotes: conversation.notes } : {}),
     };
   } catch (error) {
     return { id: dialog.id, run, pass: false, failed: [`threw: ${error instanceof Error ? error.message : String(error)}`], calls: 0, elapsedMs: Date.now() - started };
@@ -157,11 +181,145 @@ async function evaluate(dialog, run) {
   }
 }
 
+/** One written message, plus one written follow-up when the turn left something to answer. */
+async function scripted(dialog, scope) {
+  const callsBefore = await providerCalls(scope);
+  const result = await send(scope, dialog.message, dialog.language);
+  // Counted before the follow-up: `maxProviderCalls` is the budget for understanding the request.
+  const calls = (await providerCalls(scope)) - callsBefore;
+  let followUp = null;
+  if (dialog.then) {
+    // The follow-up answers a card or a question. When the turn applied straight away and asked
+    // nothing, there is nothing to answer, and sending «да» anyway makes the model invent a new
+    // task — the expectations are still checked against the state the dialog reached.
+    const awaitsUser = result.kind === "ok" && (result.pendingCount > 0 || /[?？]/u.test(result.text ?? ""));
+    if (awaitsUser) followUp = await send(scope, dialog.then.message, dialog.language);
+  }
+  return { result, followUp, calls, userTurns: followUp ? 2 : 1, workTurns: followUp ? 2 : 1 };
+}
+
+/**
+ * The written opening, then the fake user takes over. It sees each reply exactly as Telegram renders
+ * it — prose, report, card and button labels — because a user who cannot see the card cannot answer
+ * it, and half the failures worth finding live in that answer.
+ */
+async function converse(dialog, scope) {
+  const callsBefore = await providerCalls(scope);
+  const maxTurns = dialog.persona.maxTurns ?? DEFAULT_MAX_TURNS;
+  const transcript = [];
+  const notes = [];
+  let next = dialog.message;
+  let last = null;
+  let applied = 0;
+  let closing = false;
+  let stopReason = null;
+  let userTurns = 0;
+  let workTurns = 0;
+
+  let buttons = new Map();
+
+  while (next && userTurns < maxTurns) {
+    // A farewell sent after the persona is already satisfied is not work the bot made the user do,
+    // so it is counted in the transcript but kept out of the turn budget.
+    const closingLine = closing;
+    // A message that is exactly a button's label is a tap, not a message: the confirmation card is
+    // answered with a thumb in production, and routing it through the model tests the wrong path.
+    const tapped = buttons.get(normalizeLabel(next));
+    const result = tapped ? await tap(scope, tapped, dialog.language, lastScreen(transcript)) : await send(scope, next, dialog.language);
+    transcript.push({ from: "user", text: tapped ? `[${next}]` : next });
+    userTurns += 1;
+    if (!closingLine) workTurns += 1;
+    last = result;
+    if (result.kind !== "ok") {
+      transcript.push({ from: "bot", text: `(${result.kind})` });
+      stopReason = result.kind;
+      break;
+    }
+    applied += result.appliedCount;
+    const screen = screenText(result, dialog.language);
+    buttons = buttonMap(result, dialog.language);
+    transcript.push({ from: "bot", text: screen });
+    if (closing) {
+      stopReason = "persona done";
+      break;
+    }
+    const step = await persona.next({ persona: dialog.persona, language: dialog.language, transcript });
+    notes.push(step.why);
+    next = step.message || null;
+    closing = step.done;
+    if (!next) {
+      stopReason = step.done ? "persona done" : "persona silent";
+      break;
+    }
+  }
+  stopReason ??= "maxTurns";
+
+  // The expectations read the end state, so the aggregate carries what "the dialog" applied in
+  // total, what it still leaves pending after the last reply, and every word the bot said.
+  const result =
+    last?.kind === "ok"
+      ? {
+          ...last,
+          appliedCount: applied,
+          mentionsText: transcript
+            .filter((line) => line.from === "bot")
+            .map((line) => line.text)
+            .join("\n"),
+        }
+      : (last ?? { kind: "no_reply" });
+  return { result, followUp: null, calls: (await providerCalls(scope)) - callsBefore, userTurns, workTurns, transcript, notes, stopReason };
+}
+
+/** What the user has on screen after this turn: the same rendering Telegram delivers, buttons included. */
+function screenText(result, language) {
+  const { persistedText, keyboard } = renderChatResult(result, language ?? "ru");
+  const labels = (keyboard?.inline_keyboard ?? []).flat().map((button) => button.text);
+  return labels.length ? `${persistedText}\n[${labels.join(" | ")}]` : persistedText;
+}
+
+function buttonMap(result, language) {
+  const { keyboard } = renderChatResult(result, language ?? "ru");
+  return new Map((keyboard?.inline_keyboard ?? []).flat().map((button) => [normalizeLabel(button.text), button.callback_data]));
+}
+
+/** Emoji, case and punctuation are not part of what the user pressed. */
+function normalizeLabel(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function lastScreen(transcript) {
+  return [...transcript].reverse().find((line) => line.from === "bot")?.text ?? "";
+}
+
+/**
+ * One button press, mirroring TaskCallbacksService.action: the same three calls, and the same text
+ * left on screen afterwards, so the persona reads what a real user would read.
+ */
+async function tap(scope, callbackData, language, previousScreen) {
+  const [, action, groupId] = callbackData.split(":");
+  const locale = language ?? "ru";
+  if (action === "confirm") {
+    const result = await actions.confirm(scope.workspaceId, scope.userId, scope.userId, groupId);
+    const report = result.items?.length ? renderAppliedReport(result.items, new Date(), locale) : "";
+    const text = `${t(locale, "confirmed_text")}${report ? `\n\n${report}` : ""}\n\n${t(locale, "action_done_undo_hint")}`;
+    return { kind: "ok", text, appliedGroupId: groupId, appliedCount: result.count, pendingCount: 0, warnings: [] };
+  }
+  if (action === "cancel") {
+    const cancelled = await actions.cancel(scope.workspaceId, scope.userId, groupId);
+    return { kind: "ok", text: t(locale, cancelled ? "declined_toast" : "already_handled_toast"), appliedCount: 0, pendingCount: 0, warnings: [] };
+  }
+  await actions.undo(scope.workspaceId, scope.userId, groupId);
+  return { kind: "ok", text: `${t(locale, "undo_text")}\n\n${previousScreen}`, appliedCount: 0, pendingCount: 0, warnings: [] };
+}
+
 /** Every check names the stored fact it read, so a failure says what the server has, not what the model said. */
 function checkExpectations(expect, ctx) {
   if (!expect) return [];
   const failed = [];
-  const { result, calls, before, after } = ctx;
+  const { result, calls, before, after, workTurns } = ctx;
   const ok = result.kind === "ok";
   const createdTasks = after.tasks.filter((task) => !before.tasks.some((old) => old.id === task.id));
   const fail = (name, detail) => failed.push(`${name} (${detail})`);
@@ -169,6 +327,9 @@ function checkExpectations(expect, ctx) {
   if (expect.settles && !(ok && (result.appliedCount > 0 || result.pendingCount > 0)))
     fail("settles", `kind=${result.kind} applied=${ok ? result.appliedCount : 0} pending=${ok ? result.pendingCount : 0}`);
   if (expect.maxProviderCalls !== undefined && calls > expect.maxProviderCalls) fail("maxProviderCalls", `${calls} > ${expect.maxProviderCalls}`);
+  // How many messages the user had to send to get there. Counted, not judged: a bot that reaches
+  // the right end state only after four rounds of questions has still made the user work for it.
+  if (expect.maxUserTurns !== undefined && workTurns > expect.maxUserTurns) fail("maxUserTurns", `${workTurns} > ${expect.maxUserTurns}`);
   if (expect.applied !== undefined && (ok ? result.appliedCount : 0) !== expect.applied) fail("applied", `${ok ? result.appliedCount : 0} ≠ ${expect.applied}`);
   if (expect.pending !== undefined && (ok ? result.pendingCount : 0) !== expect.pending) fail("pending", `${ok ? result.pendingCount : 0} ≠ ${expect.pending}`);
   if (expect.tasksCreated !== undefined && createdTasks.length !== expect.tasksCreated) fail("tasksCreated", `${createdTasks.length} ≠ ${expect.tasksCreated}`);
@@ -223,7 +384,10 @@ function checkExpectations(expect, ctx) {
   }
   if (expect.settingsChanged && after.settings.version === before.settings.version) fail("settingsChanged", `version unchanged (${expect.settingsChanged})`);
   if (expect.timezone && after.settings.timezone !== expect.timezone) fail("timezone", `${after.settings.timezone} ≠ ${expect.timezone}`);
-  if (expect.replyMentions && !(ok && (result.text ?? "").toLowerCase().includes(expect.replyMentions.toLowerCase()))) fail("replyMentions", expect.replyMentions);
+  // Across the whole conversation for a persona case, where the bot may have said it two turns ago;
+  // scripted cases carry no `mentionsText` and keep looking at the one reply they produced.
+  const spoken = ok ? (result.mentionsText ?? result.text ?? "") : "";
+  if (expect.replyMentions && !spoken.toLowerCase().includes(expect.replyMentions.toLowerCase())) fail("replyMentions", expect.replyMentions);
   if (expect.replyLanguage && ok) {
     const text = result.text ?? "";
     const looksCyrillic = /[а-яіїєґ]/iu.test(text);
@@ -233,6 +397,9 @@ function checkExpectations(expect, ctx) {
 
   const occurrences = after.occurrences.filter((row) => createdTasks.some((task) => task.id === row.task_id));
   const starts = occurrences.map((row) => row.planned_start_at).filter(Boolean);
+  // pg hands a `date` column back as a Date at local midnight, not as "YYYY-MM-DD": slicing its
+  // string form yields "Thu Sep 1", so every day-only comparison below used to find nothing.
+  const localDates = [...occurrences.map((row) => row.planned_local_date), ...createdTasks.map((task) => task.planned_local_date)].filter(Boolean).map(localDateString);
   if (expect.startLocalTime) {
     const times = starts.map((value) => wallTime(value));
     if (!times.includes(expect.startLocalTime)) fail("startLocalTime", times.join(" | ") || "no planned start");
@@ -245,8 +412,7 @@ function checkExpectations(expect, ctx) {
   if (expect.startOffsetDays !== undefined) {
     const today = localDateAt(new Date(), TIMEZONE);
     const days = starts.map((value) => Math.round((Date.parse(localDateAt(new Date(value), TIMEZONE)) - Date.parse(today)) / 86_400_000));
-    const dates = occurrences.map((row) => row.planned_local_date).filter(Boolean);
-    const localDays = dates.map((value) => Math.round((Date.parse(String(value).slice(0, 10)) - Date.parse(today)) / 86_400_000));
+    const localDays = localDates.map((value) => Math.round((Date.parse(value) - Date.parse(today)) / 86_400_000));
     if (![...days, ...localDays].includes(expect.startOffsetDays)) fail("startOffsetDays", [...days, ...localDays].join(" | ") || "none");
   }
   if (expect.startWithinHours) {
@@ -261,16 +427,15 @@ function checkExpectations(expect, ctx) {
     if (!durations.includes(expect.durationMinutes)) fail("durationMinutes", durations.join(" | ") || "no window");
   }
   if (expect.weekday) {
-    const days = occurrences.map((row) =>
-      row.planned_start_at
-        ? WEEKDAYS[new Date(row.planned_start_at).getUTCDay()]
-        : row.planned_local_date
-          ? WEEKDAYS[new Date(`${String(row.planned_local_date).slice(0, 10)}T12:00:00Z`).getUTCDay()]
-          : null,
-    );
+    const days = [...starts.map((value) => WEEKDAYS[new Date(value).getUTCDay()]), ...localDates.map((value) => WEEKDAYS[new Date(`${value}T12:00:00Z`).getUTCDay()])];
     if (!days.includes(expect.weekday)) fail("weekday", days.join(" | ") || "none");
   }
   return failed;
+}
+
+function localDateString(value) {
+  if (!(value instanceof Date)) return String(value).slice(0, 10);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 function wallTime(value) {
@@ -386,22 +551,29 @@ async function providerCalls(scope) {
   return rows[0].calls;
 }
 
-async function usageTotals() {
+/** What this one case cost, read while its workspace still exists. */
+async function caseUsage(scope) {
   const { rows } = await database.pool.query(
-    "select count(*)::int as rows, coalesce(sum(attempts),0)::int as attempts, round(avg(input_tokens))::int as mean_input_tokens, round(sum(estimated_cost_usd), 4)::text as usd from ai_usage where created_at > now() - interval '2 hours'",
+    "select coalesce(sum(attempts),0)::int as attempts, coalesce(sum(input_tokens),0)::int as input_tokens, coalesce(sum(estimated_cost_usd),0)::float8 as usd from ai_usage where user_id=$1",
+    [scope.userId],
   );
-  return rows[0];
+  return { attempts: rows[0].attempts, inputTokens: rows[0].input_tokens, usd: rows[0].usd };
 }
 
 function parseArgs(argv) {
-  const parsed = { runs: 1, out: "eval/results", baseline: null, only: null };
+  const parsed = { runs: 1, out: "eval/results", baseline: null, only: null, personas: false, personaModel: null };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
+    if (flag === "--personas") {
+      parsed.personas = true;
+      continue;
+    }
     if (flag === "--runs") parsed.runs = Number(value);
     else if (flag === "--out") parsed.out = value;
     else if (flag === "--baseline") parsed.baseline = value;
     else if (flag === "--only") parsed.only = value.split(",");
+    else if (flag === "--persona-model") parsed.personaModel = value;
     else continue;
     index += 1;
   }

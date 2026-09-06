@@ -77,4 +77,11 @@ npm run test:e2e    # all migrations plus PostgreSQL action/integrity tests
 npm audit
 ```
 
+Two suites spend real provider calls and stay outside `check`. `npm run eval:agent` replays the written
+dialogs in `tests/eval/dialogs.json` and grades each one by what the server stored. `npm run eval:personas`
+adds `tests/eval/personas.json`, where a second model plays the user for a few turns — vague, changing its
+mind, pressing the confirmation buttons — and the same stored-state checks decide the verdict; the fake user
+never grades anything. A single scenario re-runs with `--only <id>`, and the results file keeps every
+transcript, because a multi-turn failure is unreadable without the dialog that produced it.
+
 Checks that require real Telegram, provider, network or production credentials are listed in [docs/MANUAL_ACTIONS.md](docs/MANUAL_ACTIONS.md). Deployment and backup instructions are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

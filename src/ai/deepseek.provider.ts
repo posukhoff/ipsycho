@@ -5,7 +5,7 @@ import { createOpenAiCompatibleClient } from "./ai-client.js";
 import { AiTurnWireSchema } from "./ai-contracts.js";
 import { structuredTurn, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
-const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
+export const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 /**
  * DeepSeek has no schema-enforced output: the contract travels as a JSON Schema generated from
  * the Zod contract itself, so it can never drift from what the server validates. It is sent as

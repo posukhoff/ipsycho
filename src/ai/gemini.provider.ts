@@ -5,7 +5,7 @@ import { createOpenAiCompatibleClient } from "./ai-client.js";
 import { AiTurnWireSchema } from "./ai-contracts.js";
 import { structuredTurn, type AiProvider, type AiProviderResult, type AiRequest } from "./ai-provider.js";
 
-const GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
+export const GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
 
 export class GeminiProvider implements AiProvider {
   readonly name = "gemini";

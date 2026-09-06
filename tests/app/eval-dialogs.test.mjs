@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const dialogs = JSON.parse(readFileSync("tests/eval/dialogs.json", "utf8"));
+const personas = JSON.parse(readFileSync("tests/eval/personas.json", "utf8"));
 // Every key the runner knows how to check. A typo in a new case would otherwise pass silently.
 const EXPECT_KEYS = new Set([
   "settles",
@@ -35,11 +36,13 @@ const EXPECT_KEYS = new Set([
   "weekday",
   "nextActionSet",
   "checklistItems",
+  "maxUserTurns",
 ]);
 
 test("every eval case has a unique id, a message and only known expectation keys", () => {
   const ids = new Set();
-  for (const item of dialogs.cases) {
+  // One namespace across both files: --only takes a bare id and must never be ambiguous.
+  for (const item of [...dialogs.cases, ...personas.cases]) {
     assert.ok(item.id && !ids.has(item.id), `duplicate or missing id: ${item.id}`);
     ids.add(item.id);
     assert.equal(typeof item.message, "string");
@@ -49,6 +52,20 @@ test("every eval case has a unique id, a message and only known expectation keys
       assert.ok(Object.keys(expect).length, `${item.id}: empty expectations`);
       for (const key of Object.keys(expect)) assert.ok(EXPECT_KEYS.has(key), `${item.id}: unknown expectation ${key}`);
     }
+  }
+});
+
+test("every persona scenario states a goal and a turn budget, and grades only stored state", () => {
+  for (const item of personas.cases) {
+    assert.ok(item.persona, `${item.id}: not a persona case`);
+    assert.equal(typeof item.persona.goal, "string");
+    assert.ok(item.persona.goal.length > 20, `${item.id}: goal too thin to steer a conversation`);
+    assert.equal(typeof item.persona.traits, "string");
+    // A scenario without a cap can run until the model gets bored, at a provider call per turn.
+    assert.ok(Number.isInteger(item.persona.maxTurns) && item.persona.maxTurns >= 2 && item.persona.maxTurns <= 8, `${item.id}: maxTurns out of range`);
+    // The fake user drives the dialog; it must never be the one answering the follow-up too.
+    assert.ok(!item.then, `${item.id}: a persona case cannot also carry a scripted follow-up`);
+    assert.ok(item.expect.maxUserTurns <= item.persona.maxTurns, `${item.id}: maxUserTurns exceeds the scenario's own budget`);
   }
 });
 
