@@ -70,7 +70,7 @@
 	# through to the block below and are merely uncached, never stale.
 	@app_assets path /app/assets/*
 	handle @app_assets {
-		header Cache-Control "public, max-age=31536000, immutable"
+		header >Cache-Control "public, max-age=31536000, immutable"
 		import to_app
 	}
 
@@ -79,8 +79,10 @@
 	# unmatched path must be refused at the edge, by the `handle` at the bottom of this block.
 	@app path /app /app/*
 	handle @app {
-		# `index.html` names the current asset hashes, so it must never be cached.
-		header Cache-Control "no-store"
+		# `index.html` names the current asset hashes, so it must never be cached. `>` replaces the
+		# header rather than adding to it: Nest sets the same value on what it serves, and two
+		# identical `Cache-Control` lines are one header a proxy or a browser may read either way.
+		header >Cache-Control "no-store"
 		# `default-src 'none'` means every fetch kind the bundle uses has to be listed here. If it
 		# starts loading self-hosted fonts or a web manifest, add `font-src 'self'` or
 		# `manifest-src 'self'`. Do not widen `script-src`, and do not delete the policy.
@@ -94,7 +96,7 @@
 		request_body {
 			max_size 64KB
 		}
-		header Cache-Control "no-store"
+		header >Cache-Control "no-store"
 		import to_app
 	}
 
