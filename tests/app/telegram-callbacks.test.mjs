@@ -349,6 +349,32 @@ test("/context starts the profile interview in chat, whether or not the app is o
   assert.equal(off.replies.length, 0, "with no screen to open there is no second message and no dead button");
 });
 
+test("/start for a returning user only names the app when there is one", async () => {
+  // The greeting used to point at `/today`, `/tasks` and `/goals`. It now points at the app — which
+  // is only true when the app is on. With the flag off the same sentence would send a returning
+  // user looking for a menu button Telegram was never given.
+  const commands = new Map();
+  const bot = { command: (name, handler) => commands.set(name, handler), callbackQuery: () => undefined };
+  new SystemCommandsService({}, {}, {}, {}, {}, {}, {}, {}, {}, {}).register(bot);
+  const start = commands.get("start");
+
+  const onboarded = { onboardingCompletedAt: new Date("2026-01-01T00:00:00Z"), timezone: "Europe/Kyiv" };
+
+  const on = callbackContext("unused", { webAppUrl: APP, settings: onboarded });
+  await start(on);
+  assert.equal(on.replies.length, 1);
+  assert.match(on.replies[0].text, /приложении/u, "the app sentence is there when the app is");
+  assert.deepEqual(webAppUrls(on.replies[0].markup), [`${APP}/#/today`]);
+
+  const off = callbackContext("unused", { settings: onboarded });
+  await start(off);
+  assert.equal(off.replies.length, 1);
+  assert.doesNotMatch(off.replies[0].text, /приложении/u, "with no app the sentence would be a dead end");
+  assert.equal(off.replies[0].markup, null, "and no keyboard at all, not an empty one");
+  // What is left is still a complete answer, not a truncated one.
+  assert.match(off.replies[0].text, /\/help/u);
+});
+
 test("a typed yes answers an onboarding step instead of going to the model", async () => {
   // Every step after the timezone was a bare button: a typed «да» reached the model, and the
   // question the user had just answered was asked again.

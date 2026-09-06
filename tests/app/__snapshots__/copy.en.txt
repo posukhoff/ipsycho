@@ -3,8 +3,10 @@ Hi — I help you remember, plan, and follow through on what matters.
 
 Write naturally or send a voice message. For example: “Remind me to call the doctor tomorrow at 16:00” or “I want to prepare for a half marathon by October”.
 
-Your plan, tasks and goals are in the app — the menu button next to the message field opens it.
 How it all works: /help.
+
+### start: the app sentence
+Your plan, tasks and goals are in the app — the menu button next to the message field opens it.
 
 ### onboarding: timezone
 Hi, I’m IPsycho — a personal assistant for tasks and plans. Write naturally: I can save a task, remind you, or break a goal into steps.

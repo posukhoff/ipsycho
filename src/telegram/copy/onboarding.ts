@@ -7,7 +7,8 @@ export function deterministicCopy(locale: TelegramLocale) {
         "Hi, I’m IPsycho — a personal assistant for tasks and plans. Write naturally: I can save a task, remind you, or break a goal into steps.\n\nA few quick questions first; everything can be changed later — just say what you want.",
       digestsPrompt: "Would you like a morning card with the day's plan? The default time is 09:00.",
       ready:
-        "Hi — I help you remember, plan, and follow through on what matters.\n\nWrite naturally or send a voice message. For example: “Remind me to call the doctor tomorrow at 16:00” or “I want to prepare for a half marathon by October”.\n\nYour plan, tasks and goals are in the app — the menu button next to the message field opens it.\nHow it all works: /help.",
+        "Hi — I help you remember, plan, and follow through on what matters.\n\nWrite naturally or send a voice message. For example: “Remind me to call the doctor tomorrow at 16:00” or “I want to prepare for a half marathon by October”.\n\nHow it all works: /help.",
+      readyApp: "Your plan, tasks and goals are in the app — the menu button next to the message field opens it.",
       yes: "Yes",
       no: "No",
       ping: "Check connection",
@@ -25,7 +26,8 @@ export function deterministicCopy(locale: TelegramLocale) {
           "Привіт, я IPsycho — особистий помічник для справ і планів. Пиши звичайними словами: я допоможу зберегти задачу, нагадати або розкласти мету на кроки.\n\nСпочатку кілька коротких питань; усе можна змінити пізніше — просто скажи словами.",
         digestsPrompt: "Потрібна ранкова картка з планом дня? Типовий час — 09:00.",
         ready:
-          "Привіт — я допомагаю пам'ятати, планувати й доводити важливе до результату.\n\nПиши як людині або надсилай голосове повідомлення. Наприклад: «нагадай завтра о 16:00 зателефонувати лікарю» або «хочу підготуватися до напівмарафону до жовтня».\n\nПлан, завдання й цілі — у застосунку: його відкриває кнопка меню біля поля введення.\nЯк усе влаштовано: /help.",
+          "Привіт — я допомагаю пам'ятати, планувати й доводити важливе до результату.\n\nПиши як людині або надсилай голосове повідомлення. Наприклад: «нагадай завтра о 16:00 зателефонувати лікарю» або «хочу підготуватися до напівмарафону до жовтня».\n\nЯк усе влаштовано: /help.",
+        readyApp: "План, завдання й цілі — у застосунку: його відкриває кнопка меню біля поля введення.",
         yes: "Так",
         no: "Ні",
         ping: "Перевірити зв’язок",
@@ -42,7 +44,8 @@ export function deterministicCopy(locale: TelegramLocale) {
           "Привет, я IPsycho — личный помощник для дел и планов. Пиши обычными словами: я помогу сохранить задачу, напомнить или разложить цель на шаги.\n\nСначала пара коротких вопросов; всё можно изменить позже — просто скажи словами.",
         digestsPrompt: "Нужна утренняя карточка с планом дня? Обычное время — 09:00.",
         ready:
-          "Привет — я помогаю помнить, планировать и доводить важное до результата.\n\nПиши как человеку или отправляй голосовое сообщение. Например: «напомни завтра в 16:00 позвонить врачу» или «хочу подготовиться к полумарафону к октябрю».\n\nПлан, задачи и цели — в приложении: его открывает кнопка меню рядом с полем ввода.\nКак всё устроено: /help.",
+          "Привет — я помогаю помнить, планировать и доводить важное до результата.\n\nПиши как человеку или отправляй голосовое сообщение. Например: «напомни завтра в 16:00 позвонить врачу» или «хочу подготовиться к полумарафону к октябрю».\n\nКак всё устроено: /help.",
+        readyApp: "План, задачи и цели — в приложении: его открывает кнопка меню рядом с полем ввода.",
         yes: "Да",
         no: "Нет",
         ping: "Проверить связь",

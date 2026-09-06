@@ -69,6 +69,9 @@ function render(locale) {
   const copy = deterministicCopy(locale);
   const sections = [
     ["start", copy.ready],
+    // Sent only when the app is on, so it is a separate section for the same reason it is a
+    // separate string: with the flag off it would point at a menu button Telegram never got.
+    ["start: the app sentence", copy.readyApp],
     ["onboarding: timezone", copy.startOnboarding],
     ["onboarding: done", copy.onboardingDone],
     ["help", helpText(config, locale)],

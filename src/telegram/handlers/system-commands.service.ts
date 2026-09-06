@@ -102,9 +102,14 @@ export class SystemCommandsService {
       if (!access || !settings) throw new Error("invited user registration did not create active access");
       ctx.state = { ...ctx.state, access, settings, locale: telegramLocale(settings.pinnedLanguage, ctx.from?.language_code) };
     }
-    const { settings, locale } = activeState(ctx);
+    const { settings, locale, webAppUrl } = activeState(ctx);
     if (!settings.onboardingCompletedAt) return this.onboarding.begin(ctx);
-    await ctx.reply(deterministicCopy(locale).ready);
+    const copy = deterministicCopy(locale);
+    // The app sentence is a separate string because it is only true when there is an app: with the
+    // flag off `/start` would otherwise point a returning user at a menu button Telegram never got.
+    const launch = launchOnlyKeyboard(webAppUrl, { name: "today" }, locale);
+    const text = launch ? `${copy.ready}\n\n${copy.readyApp}` : copy.ready;
+    await ctx.reply(text, launch ? { reply_markup: launch } : {});
   }
 
   private async invite(ctx: CommandContext<AppContext>): Promise<void> {
