@@ -13,12 +13,12 @@
 - `migrations/`: ordered PostgreSQL migrations. Add a new numbered migration; do not rewrite a migration that may already have run.
 - `tests/app/`: application contract tests. `tests/e2e/`: PostgreSQL integration coverage.
 - `web/`: the Telegram Mini App (Vite + React), an npm workspace built from the server's own zod contracts in `src/api/contracts/`.
-- `README.md` plus `docs/`: the operational overview, then `DEPLOYMENT.md` (server and backups), `MANUAL_ACTIONS.md` (release checks needing a real Telegram account), `AGENT_FLOW.md` (agent behaviour), `CODE_REVIEW.md`, `IMPROVEMENT_PLAN.md` (what is deliberately left open), and `mini-app/` (the in-flight plan).
+- `README.md` plus `docs/`: the operational overview, then `DEPLOYMENT.md` (server and backups), `MANUAL_ACTIONS.md` (release checks needing a real Telegram account), `AGENT_FLOW.md` (agent behaviour), `CODE_REVIEW.md`, and `IMPROVEMENT_PLAN.md` (what is deliberately left open).
 
 ## Discovery and planning
 
 - Use `rg` for discovery: literals, configuration, documentation and call paths. Read a whole file before changing it; the comments carry the reasoning that the code alone does not.
-- For a complex or ambiguous change, inspect the affected call paths and write a short plan before editing. `docs/mini-app/` holds the in-flight Mini App plan — reuse it when the user is working through one of its groups.
+- For a complex or ambiguous change, inspect the affected call paths and write a short plan before editing.
 - Make the smallest behavior-preserving change that satisfies the request. Preserve unrelated user changes and avoid new production dependencies unless the user authorizes them.
 
 ## Safety invariants
@@ -53,5 +53,19 @@ Use [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) for the full checklist. Prioritiz
 - **Consent and privacy:** flag provider calls without a boundary consent check or logs containing user/provider content. Safe path: recheck consent immediately before the call and log sanitized metadata only.
 - **Mutation integrity:** flag state changes separated from their action journal or Undo claims that cannot restore the prior state. Safe path: use one transaction and expose only truthful rollback.
 - **External retries:** flag retry logic that assumes a Telegram/network timeout means nothing happened. Safe path: make operations idempotent or represent the outcome as ambiguous.
+
+## Two surfaces
+
+The chat and the Mini App are one product with one journal. Which surface a thing belongs to is decided by a single rule, and the rest of this section is the small number of decisions that look like bugs and get "fixed" wrongly.
+
+- **Reaction and conversation stay in the chat; browsing moves to the app.** A button belongs in a Telegram message only if it answers that message, in the moment it arrives, in about six buttons: the confirmation card, Undo, the reminder card and its snooze/preset/reason. Anything that means reading a list, choosing among many, or entering a value is browsing, and the bot deliberately no longer has it. Adding a screen back to `src/telegram/` is how the two competing control models return.
+- **A write from the app must journal exactly like the same change from a button, or Undo lies.** Every `src/api/**` write goes through `ActionsService`/`TasksService`/`SettingsService`; a response carrying `undoGroupId: null` is claiming the change is not reversible, and it has to be true.
+- **`src/api/**` is a presentation layer.** It may not import `drizzle-orm` or touch a repository — `tests/app/webapp-flag.test.mjs` enforces this, including dynamic imports.
+- **`initData`: `signature` is part of the data-check string; only `hash` is excluded.** The third-party-validator recipe excludes both, which makes every real client fail, and the plausible fix is loosening the check. Absent `user` is a refusal with no fallback.
+- **The Caddyfile has no catch-all `reverse_proxy`.** Caddy answers an unmatched path with an empty 200, so a catch-all publishes `/health` and `/ready` — the commit SHA, the database state and the loop names. Match `/app` and `/app/*` explicitly, never `/app*`, which also matches `/apple`.
+- **No `X-Frame-Options`.** Telegram Web opens Mini Apps in an iframe and `DENY` renders a blank page, whose obvious fix under pressure is deleting the CSP with it. Framing is restricted by `frame-ancestors`; `script-src` stays free of `'unsafe-inline'`, because the API is same-origin with no cookie and an XSS there is account control.
+- **The router ignores Telegram's launch parameters.** A Mini App is opened with `tgWebAppData` and its siblings appended to the URL fragment — the same fragment the router reads as its address. Nothing in a browser reproduces that, so this is not something tests will catch for you.
+- **The Caddyfile is bind-mounted, so a change to it is invisible to `docker compose up`.** `scripts/deploy-remote.sh` validates and restarts the edge for that reason; without it every edge rule deploys as a silent no-op.
+- **Rollback for the reduced bot is a revert, not `WEBAPP_ENABLED=false`.** With the flag off the bot still has the conversation, the cards and the account gates, but nothing to browse with.
 
 - `src/database/schema.ts` must match the applied migrations: `tests/e2e/schema-drift.test.mjs` compares tables, index and constraint names, and foreign keys with their `ON DELETE` behaviour against the live database. Add the SQL migration and the schema declaration in the same change.
