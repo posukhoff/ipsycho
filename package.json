@@ -34,30 +34,30 @@
   "dependencies": {
     "@grammyjs/auto-retry": "2.0.2",
     "@grammyjs/runner": "2.0.3",
-    "@nestjs/common": "^12.0.1",
-    "@nestjs/core": "^12.0.1",
-    "@nestjs/platform-express": "^12.0.1",
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-express": "^12.1.2",
     "dotenv": "^17.4.2",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.3",
     "grammy": "1.46.0",
-    "openai": "7.10.0",
-    "pg": "8.23.0",
-    "pg-boss": "12.30.0",
+    "openai": "7.30.0",
+    "pg": "8.23.1",
+    "pg-boss": "12.37.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "4.5.4"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@nestjs/testing": "^12.0.1",
-    "@types/node": "^26.4.1",
+    "@nestjs/testing": "^12.1.2",
+    "@types/node": "^26.6.4",
     "@types/pg": "8.23.1",
     "c8": "^12.0.0",
-    "eslint": "^10.10.0",
-    "fast-check": "^4.9.0",
-    "prettier": "^3.9.6",
-    "tsx": "4.23.13",
+    "eslint": "^10.12.0",
+    "fast-check": "^4.10.2",
+    "prettier": "^3.9.9",
+    "tsx": "4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.69.0"
+    "typescript-eslint": "^8.71.1"
   }
 }
